@@ -8,5 +8,5 @@ RiESCUE provides a suite of python scripts and libraries for generating self-che
 # Open Source Roadmap
 This repository is in the process of open sourcing. There's a bit of housekeeping and restructuring that's needed before Riescue is ready for users. The work can be sumarized below:
 
-![Riescue Open Source Roadmap](docs/svg/Roadmap.svg "Roadmap")
+![Riescue Open Source Roadmap](docs/images/Roadmap.png "Roadmap"){width=200 height=200}
 
