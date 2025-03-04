@@ -1,7 +1,7 @@
 # RiESCUE
 RISC-V Directed Test Framework and Compliance Suite, RiESCUE
 
-RiESCUE provides a suite of python scripts and libraries for generating self-checking RISC-V tests:
+RiESCUE provides a suite of python scripts and libraries for generating RISC-V tests:
 * `RiescueD` - RiESCUE Directed Tests Framework
 * `RiescueC` - RiESCUE Compliance Suite `RiescueC`
 
@@ -10,3 +10,27 @@ This repository is in the process of open sourcing. There's a bit of housekeepin
 
 ![Riescue Open Source Roadmap](docs/images/Roadmap.png "Roadmap"){width=200 height=200}
 
+## Purpose
+This repo aims to provide tools for generating RISC-V test cases.
+
+## RiescueD
+`RiescueD` is a python library that creates test cases. The Directed Test Framework offers a range of tools for randomizing data, reserving memory, generating page tables, and randomizing the test environment. It provides a psuedo OS to wrap test scheduling, exception handeling, and pass / fail conditions in the code.
+
+The main test generation flow compiles an ELF binary test using a user-written directed assembly test scenarios as `.s` file. These files contian Riescue Directives to select different memory and environment randomization tools. After generating the completed `.S` assembly file, include files, and linker script the test is compiled and the ELF is generated.
+
+### Features
+- OS Code
+- Page Tables
+- Randomized Privilege Mode
+- Randomized Paging Mode
+
+## Future work
+There's still a good amount of work to do before the tool is completely open sourced, but the main milestones are to
+- Provide API Documentation for RiescueD
+- Open Source the Compliance Suite tools - RiescueC
+- Open source the Compliance Test Generation tools - CTK
+- Installable python library
+
+
+# Getting Started
+TODO
