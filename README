@@ -8,23 +8,50 @@ RiESCUE provides a suite of python scripts and libraries for generating RISC-V t
 # Open Source Roadmap
 This repository is in the process of open sourcing. There's a bit of housekeeping and restructuring that's needed before Riescue is ready for users. The work can be sumarized below:
 
-![Riescue Open Source Roadmap](docs/images/Roadmap.png "Roadmap"){width=200 height=200}
-
-## Purpose
-This repo aims to provide tools for generating RISC-V test cases.
+![Riescue Open Source Roadmap](docs/images/Roadmap.png "Roadmap" =500x400)
 
 ## RiescueD
-`RiescueD` is a python library that creates test cases. The Directed Test Framework offers a range of tools for randomizing data, reserving memory, generating page tables, and randomizing the test environment. It provides a psuedo OS to wrap test scheduling, exception handeling, and pass / fail conditions in the code.
+`RiescueD` is a python library serving as a Directed Test Framework, offering a comprehensive set of tools for test generation.
+
+### Features
+At its core, `RiescueD` provides the following key features:
+
+1. **OS Code**: Includes a pseudo operating system that facilitates test scheduling, exception handling, and pass/fail conditions within the test code.
+2. **Page Tables**: Generates page tables for comprehensive testing of memory management systems.
+3. **Randomized Privilege Mode**: Enables thorough testing of different privilege levels.
+4. **Randomized Paging Mode**: Allows for extensive testing of virtual memory systems.
+
+
+### Workflow
 
 The main test generation flow compiles an ELF binary test using a user-written directed assembly test scenarios as `.s` file. These files contian Riescue Directives to select different memory and environment randomization tools. After generating the completed `.S` assembly file, include files, and linker script the test is compiled and the ELF is generated.
 
-### Features
-- OS Code
-- Page Tables
-- Randomized Privilege Mode
-- Randomized Paging Mode
+1. Write `.s` file using assembly with Riescue Directives
+2. Run RiescueD to produce `.S`, `.ld` Linker Script, and ELF.
 
-## Future work
+### Use Cases
+#### Quicker Assembnly Test Cases
+`RiescueD` provides a framework to start writing tests faster. It allows users to focus on writing test cases in assembly without having to worry about structural code. This can allow users to quickly come up with scenarios for test cases for instruction extensions and privileges. Randomized data, addresses, and paging allow for a quick bring up for different instructions and extensions while constraining different test environments.
+
+#### Targeting Microarchtecture Features
+The Directed Test Framework allows for test cases to target microarchitecture-specific sequences. `RiescueD` provides tools to constrain privilege, paging, and hypervisor modes to stress test microarchitectural test cases.
+
+
+
+### Example `test.s`
+Below is the minimum code needed to generate a `RiescueD` test case.
+```s
+.section .code, "ax"
+test_setup:
+    csrr t0, mstatus
+;#discrete_test(test=test01)
+test01:
+    nop
+    beq x0, t0, failed
+    j passed
+```
+
+# Future work
 There's still a good amount of work to do before the tool is completely open sourced, but the main milestones are to
 - Provide API Documentation for RiescueD
 - Open Source the Compliance Suite tools - RiescueC
