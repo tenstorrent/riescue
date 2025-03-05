@@ -1,3 +1,18 @@
+- [RiESCUE](#riescue)
+  * [RiescueD](#riescued)
+    + [Features](#features)
+    + [Workflow](#workflow)
+    + [Use Cases](#use-cases)
+      - [Quicker Assembly Test Cases](#quicker-assembly-test-cases)
+      - [Targeting Microarchitecture Features](#targeting-microarchitecture-features)
+    + [Example `test.s`](#example--test-s)
+- [Open Source Roadmap](#open-source-roadmap)
+- [Installation and Usage](#installation-and-usage)
+- [Contributing](#contributing)
+
+<small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
+
+
 # RiESCUE
 RISC-V Directed Test Framework and Compliance Suite, RiESCUE
 
@@ -5,35 +20,30 @@ RiESCUE provides a suite of python scripts and libraries for generating RISC-V t
 * `RiescueD` - RiESCUE Directed Tests Framework
 * `RiescueC` - RiESCUE Compliance Suite `RiescueC`
 
-# Open Source Roadmap
-This repository is in the process of open sourcing. There's a bit of housekeeping and restructuring that's needed before Riescue is ready for users. The work can be sumarized below:
-
-![Riescue Open Source Roadmap](docs/images/Roadmap.png "Roadmap" =500x400)
 
 ## RiescueD
-`RiescueD` is a python library serving as a Directed Test Framework, offering a comprehensive set of tools for test generation.
+`RiescueD` is a Python library serving as a Directed Test Framework, offering a comprehensive set of tools for test generation including OS code simulation, memory management page table generation, and randomized modes for privilege and paging.
 
 ### Features
 At its core, `RiescueD` provides the following key features:
 
-1. **OS Code**: Includes a pseudo operating system that facilitates test scheduling, exception handling, and pass/fail conditions within the test code.
-2. **Page Tables**: Generates page tables for comprehensive testing of memory management systems.
-3. **Randomized Privilege Mode**: Enables thorough testing of different privilege levels.
-4. **Randomized Paging Mode**: Allows for extensive testing of virtual memory systems.
+1. **OS Code**: Pseudo OS for scheduling, exception handling, and pass/fail conditions.
+2. **Page Tables**: Generates page tables for memory management testing.
+3. **Randomized Privilege Mode**: Tests varying privilege levels.
+4. **Randomized Paging Mode**: Evaluates virtual memory systems.
 
 
 ### Workflow
-
-The main test generation flow compiles an ELF binary test using a user-written directed assembly test scenarios as `.s` file. These files contian Riescue Directives to select different memory and environment randomization tools. After generating the completed `.S` assembly file, include files, and linker script the test is compiled and the ELF is generated.
+The test generation flow compiles an ELF binary from a user-written assembly .s file that uses Riescue Directives for memory and environment randomization. The workflow for testing writing is:
 
 1. Write `.s` file using assembly with Riescue Directives
-2. Run RiescueD to produce `.S`, `.ld` Linker Script, and ELF.
+2. Run RiescueD to produce `.S`, `.ld` Linker Script, and ELF binary.
 
 ### Use Cases
-#### Quicker Assembnly Test Cases
+#### Quicker Assembly Test Cases
 `RiescueD` provides a framework to start writing tests faster. It allows users to focus on writing test cases in assembly without having to worry about structural code. This can allow users to quickly come up with scenarios for test cases for instruction extensions and privileges. Randomized data, addresses, and paging allow for a quick bring up for different instructions and extensions while constraining different test environments.
 
-#### Targeting Microarchtecture Features
+#### Targeting Microarchitecture Features
 The Directed Test Framework allows for test cases to target microarchitecture-specific sequences. `RiescueD` provides tools to constrain privilege, paging, and hypervisor modes to stress test microarchitectural test cases.
 
 
@@ -51,7 +61,12 @@ test01:
     j passed
 ```
 
-# Future work
+
+# Open Source Roadmap
+This repository is in the process of open sourcing. There's a bit of housekeeping and restructuring that's needed before Riescue is ready for users. The work can be summarized below:
+
+![Riescue Open Source Roadmap](docs/images/Roadmap.png "Roadmap")
+
 There's still a good amount of work to do before the tool is completely open sourced, but the main milestones are to
 - Provide API Documentation for RiescueD
 - Open Source the Compliance Suite tools - RiescueC
@@ -59,10 +74,9 @@ There's still a good amount of work to do before the tool is completely open sou
 - Installable python library
 
 
-# Getting Started
-TODO
+# Installation and Usage
+Coming Soon
 
 
 # Contributing
-
 Please see the [Contributing](.github/CONTRIBUTING.md) guide for more info on contributing to this repository.

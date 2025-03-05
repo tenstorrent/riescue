@@ -14,5 +14,19 @@ Feature Requests can be made on the issue board.
 ## Support and Discussion
 If you need support in using Riescue, please look in the Discussions for any previous topics. If there aren't any, please create a new Support topic to get some help in creating and debugging the issue.
 
+
 # Contribution Standards
+Coming soon!
+
 Contributions must pass a CI flow of lint and unit tests to be merged. More information on lint and unit testing will be provided here.
+
+Please be sure to follow the [Code Of Conduct](./CODE_OF_CONDUCT.md).
+
+## Format and Coding Style
+Coming soon!
+
+## Running Tests Locally
+Coming soon!
+
+## Pull Request Standards
+Coming soon!
