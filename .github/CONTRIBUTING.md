@@ -1,17 +1,18 @@
 
 
 # Riescue Contributing Guide
-We aren't ready for contributions just yet, please check back later `:)`
+Thanks for your interest in Riescue. Here you can find some information on how to contribute to the project
+Contirbutions require an issue to be filed. Please select the appropriate fields when [opening an
+issue](https://github.com/tenstorrent/riescue/issues/new/choose).
 
-This is a guide for how to contribute to Riescue by either filing an issue or adding a feature.
+## Bug Reports
+Bug reports can be file using an issue on the issue board.
 
-## Contributing Roadmap
-There's a bit of work to do before this is ready for folks to help, but in general
-- Issue Form
-- Minimum Bug Reproduction Guide (Verilator requires users to generate a unit test to avoid backslide, something to consider here)
-- Feature Requests
-- PR Guide
+## Feature Requests
+Feature Requests can be made on the issue board.
 
-- Getting Started Developing Guide
-- Debug Guide
-- Contribution Standards (CI, Unit Tests, Lint, etc)
+## Support and Discussion
+If you need support in using Riescue, please look in the Discussions for any previous topics. If there aren't any, please create a new Support topic to get some help in creating and debugging the issue.
+
+# Contribution Standards
+Contributions must pass a CI flow of lint and unit tests to be merged. More information on lint and unit testing will be provided here.

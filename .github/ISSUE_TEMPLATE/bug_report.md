@@ -7,25 +7,19 @@ assignees: ''
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
-
-**Minimum Reproduction Steps**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
-
-**Expected behavior**
-A clear and concise description of what you expected to happen.
-
-****
-If applicable, add screenshots to help explain your problem.
+**Can you attach an example test case and command that shows the issue?**
 
 **Please complete the following environment information:**
 - OS: [e.g. Ubuntu 20.04]
 - Version of software (eg. commit)
+- Container: [Yes / No]
 
-**Additional context**
+**Minimum Reproduction Steps**
+command line to reproduce:
+```
+./riescued.py --foo
+```
+
+**Expected behavior**
 Add any other context about the problem here.
+
