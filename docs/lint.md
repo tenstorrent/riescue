@@ -70,11 +70,16 @@ Will run `pre-commit` before each commit. Failures will stop the commit from fin
 
 # lists staged .py files that are Added, Copied, or Modified.
 py_files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
+black_config="$(git rev-parse --show-toplevel)/.black"
+container_run="$(git rev-parse --show-toplevel)/infra/container-run"
+set -e
 if [ -n "$py_files" ]; then
-    # run black on staged .py files
-    black $py_files
-    # re-add modified files to the staging area
-    git add $py_files
+    if [ -f "$black_config" ]; then
+    # run Black on staged .py files
+        $container_run black $py_files --config $black_config
+        echo "Great success!"
+        git add $py_files
+    fi
 fi
 ```
 
