@@ -53,38 +53,7 @@ Git hooks are scripts that are automatically triggered by a commit. The [git hoo
 
 They can be used to save some time by run `black` before committing changes. Some recommended setups are included below:
 
-## Local git hooks
-Users can create a directory `~/.git-hook` and create a `pre-commit` executable script to be ran before commits.
-
-Using:
-```
-git config --global core.hooksPath ~/.git-hook
-touch ~/.git-hook/pre-commit
-chmod +x ~/.git-hook/pre-commit
-```
-
-Will run `pre-commit` before each commit. Failures will stop the commit from finishing. This is useful for adding `black` or some custom logic before committing. The following will run black. See the [Installing Black Locally](#installing-black-locally) section to install black outside the container.
-
-```sh
-#!/bin/bash
-
-# lists staged .py files that are Added, Copied, or Modified.
-py_files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
-black_config="$(git rev-parse --show-toplevel)/.black"
-container_run="$(git rev-parse --show-toplevel)/infra/container-run"
-set -e
-if [ -n "$py_files" ]; then
-    if [ -f "$black_config" ]; then
-    # run Black on staged .py files
-        $container_run black $py_files --config $black_config
-        echo "Great success!"
-        git add $py_files
-    fi
-fi
-```
-
 ## Pre-commit
-
 Pre-commit is a framework for managing pre-commit git hooks.
 
 By default, pre-commit pulls Black from its GitHub repository to ensure a reproducible environment. However, if you prefer to use the version of Black installed via pip on your system, you can set up a local hook. Note that this approach relies on your local environment, so it won't offer the same isolation or reproducibility as the default configuration.
@@ -99,3 +68,29 @@ pre-commit install
 ```
 
 This uses the checked in `.pre-commit-config.yaml` to use a pre-commit hook to automatically `black` python files.
+## Local git hooks
+Users can create a directory `~/.git-hook` and create a `pre-commit` executable script to be ran before commits.
+
+Using:
+```
+git config --global core.hooksPath ~/.git-hook
+touch ~/.git-hook/pre-commit
+chmod +x ~/.git-hook/pre-commit
+```
+
+Will run `pre-commit` before each commit. Failures will stop the commit from finishing. This is useful for adding `black` or some custom logic before committing. The following will run black. See the [Installing Black Locally](#installing-black-locally) section to install black outside the container.
+
+```sh
+#!/bin/bash
+py_files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
+black_config="$(git rev-parse --show-toplevel)/.black"
+container_run="$(git rev-parse --show-toplevel)/infra/container-run"
+set -e
+if [ -n "$py_files" ]; then
+    if [ -f "$black_config" ]; then
+        $container_run black $py_files --config $black_config
+        git add $py_files
+    fi
+fi
+```
+
