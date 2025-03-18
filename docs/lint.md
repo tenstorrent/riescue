@@ -23,7 +23,7 @@ python3 -m pip install black --user
 
 You can run lint locally and apply changes using:
 ```
-./infra/container-run black --config .black
+./infra/container-run black --config .black .
 ```
 - Adding the `--diff` switch shows what changes need to be made.
 
