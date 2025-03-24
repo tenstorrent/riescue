@@ -199,7 +199,7 @@ class Container:
         self.singularity(["remote", "login", "-u", getpass.getuser(), "-p", token, self.aus_registry_uri], check=True)
 
     def parse_container_args(self, args):
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(add_help=False)
         parser.add_argument("--singularity-sif", type=Path, default=None, help="Path to existing sif. Skips remote login and pulling")
 
         cli_args = [a for a in args if "--singularity" not in a]
