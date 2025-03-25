@@ -23,14 +23,14 @@ python3 -m pip install black --user
 
 You can run lint locally and apply changes using:
 ```
-./infra/container-run black --config .black .
+./infra/container-run black .
 ```
 - Adding the `--diff` switch shows what changes need to be made.
 
 #### CI flow
 The CI flow can be replicated by running:
 ```
-./infra/container-run black --config .black  --check
+./infra/container-run black   --check
 ```
 This fails if there are changes that are needed and exits 0 if no changes are needed.
 
