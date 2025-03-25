@@ -1,8 +1,8 @@
 
-[tools.black]
+[tool.black]
 line-length = 200
 workers = 8
-exclude = "/(.git|riscv-dv|riscv-isa-sim|whisper|fpgen|riescue_config|.*_clone|opensrc.*)/"
+exclude = "/(.git|riscv-dv|riscv-isa-sim|whisper|fpgen|riescue_config|.*_clone|opensrc.*|.*-scripts)/"
 
 
 [build-system]
