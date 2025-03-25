@@ -6,7 +6,7 @@ exclude = "/(.git|riscv-dv|riscv-isa-sim|whisper|fpgen|riescue_config|.*_clone|o
 
 
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools >= 61.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
