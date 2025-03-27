@@ -11,11 +11,34 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.9
+    VERSION 1.11
+
 %setup
     set -eux
 
 %post
+    # Helper functions
+
+    build_spike() {
+        local repo_url="$1"
+        local sha="$2"
+        local build_dir="$3"
+        shift 3
+
+        mkdir $build_dir
+        pushd $build_dir
+        git init &&
+        git remote add origin "$repo_url" &&
+        git fetch --depth 1 origin "$sha" &&
+        git checkout FETCH_HEAD
+        ./configure $@
+        make -j 12
+        make install
+        popd
+    }
+
+
+    # packaged dependencies
     yum --enablerepo=crb -y install \
     bc                              \
     perl                            \
@@ -49,7 +72,29 @@ Stage: devel
     zstd                          \
     git
 
+    # non-packaged dependencies
+    local=/usr/local/
+    spike_remote="https://github.com/riscv-software-src/riscv-isa-sim.git"
+    spike_sha="4703ad98bf4c247a0841a6d7254357b14a97ff29"
+    spike_dir="spike"
 
+    tt_spike_remote="git@github.com:tenstorrent/spike.git"
+    tt_spike_remote="https://aus-gitlab.local.tenstorrent.com/riscv/forks/spike.git" #TODO: Get permissions to push to tenstorrent/spike
+    tt_spike_sha="62cb5ccb66ad434fd63cd531e26bc43094a16e2e"
+    tt_spike_dir="tt_spike"
+
+    set -o pipefail
+    echo "Building spike"
+    # Install spike as spike
+    build_spike "$spike_remote" "$spike_sha" "$spike_dir" --enable-dual-endian --with-isa=RV64IMAFDCV_ZBA_ZBB_ZBC_ZBS --with-priv=MSU
+
+    # Install spike as tt_spike
+    echo "Building tt_spike"
+    install_dir=/usr/local/tt_spike
+    build_spike "$tt_spike_remote" "$tt_spike_sha" "$tt_spike_dir" --enable-tt-stop-if-tohost-nonzero --enable-tt-table-walk-debug --enable-tt-expanded-dram-address-range --enable-dual-endian --with-isa=RV64IMAFDCV_ZBA_ZBB_ZBC_ZBS --with-priv=MSU --prefix=$install_dir
+    cp $install_dir/bin/spike /usr/local/bin/tt_spike
+
+    # Python dependencies
     python3 -m pip install wheel
 
     # Banyan is an old library without much support and requires some hacking to get working. It provides some powerful search trees that are used for address generation.
