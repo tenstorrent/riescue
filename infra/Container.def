@@ -11,7 +11,7 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.11
+    VERSION 1.13
 
 %setup
     set -eux
@@ -87,12 +87,15 @@ Stage: devel
     echo "Building spike"
     # Install spike as spike
     build_spike "$spike_remote" "$spike_sha" "$spike_dir" --enable-dual-endian --with-isa=RV64IMAFDCV_ZBA_ZBB_ZBC_ZBS --with-priv=MSU
+    rm -rf $spike_dir
 
     # Install spike as tt_spike
     echo "Building tt_spike"
     install_dir=/usr/local/tt_spike
     build_spike "$tt_spike_remote" "$tt_spike_sha" "$tt_spike_dir" --enable-tt-stop-if-tohost-nonzero --enable-tt-table-walk-debug --enable-tt-expanded-dram-address-range --enable-dual-endian --with-isa=RV64IMAFDCV_ZBA_ZBB_ZBC_ZBS --with-priv=MSU --prefix=$install_dir
     cp $install_dir/bin/spike /usr/local/bin/tt_spike
+    rm -rf $install_dir
+    rm -rf $tt_spike_dir
 
     # Python dependencies
     python3 -m pip install wheel
