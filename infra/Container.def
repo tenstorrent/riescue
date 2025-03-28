@@ -11,7 +11,7 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.13
+    VERSION 1.14
 
 %setup
     set -eux
@@ -80,7 +80,7 @@ Stage: devel
 
     tt_spike_remote="git@github.com:tenstorrent/spike.git"
     tt_spike_remote="https://aus-gitlab.local.tenstorrent.com/riscv/forks/spike.git" #TODO: Get permissions to push to tenstorrent/spike
-    tt_spike_sha="62cb5ccb66ad434fd63cd531e26bc43094a16e2e"
+    tt_spike_sha="344b9ef3951fc9318caae4ce41da8ede5d6085fc"
     tt_spike_dir="tt_spike"
 
     set -o pipefail
