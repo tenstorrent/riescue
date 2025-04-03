@@ -227,7 +227,7 @@ class Container:
         print(f"Couldn't find the registry URI in {self.registry_remote} remotes list, adding")
         remote_login_cmd = ["remote", "login", "-u", getpass.getuser()]
         if self.token:
-            remote_login_cmd += ["--token", self.token]
+            remote_login_cmd += ["-p", self.token]
         remote_login_cmd.append(self.registry_remote)
         self.singularity(remote_login_cmd, check=True)
 
