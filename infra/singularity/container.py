@@ -1,5 +1,5 @@
 import os
-import sys
+import json
 import subprocess
 import shlex
 import getpass
@@ -16,14 +16,33 @@ Use infra/container-run to run container
 
 
 class Container:
-    registry_uri = "oras://aus-gitlab.local.tenstorrent.com:5005/riscv/riescue"  # No idea what oras is but it works here
-    aus_registry_uri = "docker://aus-gitlab.local.tenstorrent.com:5005"
-    binds = "/weka_scratch/fpgen,/weka_scratch/rv_bazel_cache,/proj_risc,/proj_risc_regr,/tools_risc,/tools_vendor,/usr/lib64:/shared"
+    binds = "/usr/lib64:/shared"
 
     def __init__(self, repo_path=None):
         # Path args
         self.repo_path = repo_path or Path(__file__).parents[2]
         self.infra = self.repo_path / "infra"
+        self.container_config = self.infra / ".container_config"
+        self.registry_uri = None
+        self.registry_remote = None
+
+        if self.container_config.exists():
+            with open(self.container_config, "r") as f:
+                config = json.load(f)
+            self.registry_uri = config.get("registry_uri")
+            self.registry_remote = config.get("registry_remote")
+            binds = config.get("binds")
+            if binds:
+                self.binds = self.binds + "," + binds
+            if config.get("remote_token_path"):
+                token_path = config.get("remote_token_path")
+                if "~" in token_path:
+                    token_path = Path.home() / token_path.replace("~/", "")
+                else:
+                    token_path = Path(token_path)
+                with open(token_path, "r") as f:
+                    self.token = f.read()
+
         self.sif = self.infra / "riescue.sif"
         self.container_def = self.infra / "Container.def"
         self.container_id_file = self.infra / "container/singularity-id"
@@ -38,12 +57,15 @@ class Container:
         if not self.container_def.exists():
             raise FileNotFoundError(f"Couldn't find Container.def at {self.container_def.resolve()}")
         def_version = self.def_version
-        if def_version == self.remote_version:
+        if def_version == self.container_version:
             self.def_version = def_version + 1
         self.singularity(["build", "--fakeroot", "--force", str(self.sif), str(self.container_def)], check=True)
         version_string = f"{self.def_version}-{self.sha_payload()}"
         with open(self.container_id_file, "w") as f:
             f.write(version_string)
+
+        if not self.registry_uri or not self.registry_remote:
+            dont_push = True
         if not dont_push:
             push = None
             while True:
@@ -58,7 +80,10 @@ class Container:
     def run(self, args=[]):
         """
         Launch container - if --singularity-sif passed, uses that, otherwise uses local sif
-        If no local sif file found, pulls latest
+        If no local sif file found, checks for a .container_remote JSON file.
+        If no file found, exits and tells users to run build command.
+
+        pulls latest
         If no args, launches bash
 
         Users need to manually pull or remove sif to update container. This is to avoid doing sha_payload on every launch.
@@ -68,14 +93,22 @@ class Container:
         if singularity_args.singularity_sif is not None:
             self.sif = singularity_args.singularity_sif
         else:
-            if self.sif.exists() and self.sif_version == self.remote_version:
+            if self.sif.exists() and self.sif_version == self.container_version:
                 pass
             elif not self.sif.exists():
+                if not self.registry_uri or not self.registry_remote:
+                    print("No registry URI or remote found, unable to pull container from remote. Please build the container with ./infra/container-build")
+                    raise RuntimeError("No registry URI or remote, please build the container before running with ./infra/container-build")
                 print("No SIF found, pulling latest SIF")
                 self.pull()
             else:
-                print("Local def version doesn't match remote version, pulling latest")
-                self.pull()
+                if not self.registry_uri or not self.registry_remote:
+                    print("Local def version doesn't match remote version, rebuilding container")
+                    self.build(dont_push=True)
+                else:
+                    print("Local def version doesn't match remote version, pulling latest")
+                    self.pull()
+
         # Resolve disk binds if they exist on this server
         binds = []
         for b in self.binds.split(","):
@@ -108,11 +141,13 @@ class Container:
 
     def pull(self):
         "Pulls latest singularity container and places in self.sif"
+        if not self.registry_uri or not self.registry_remote:
+            print("No registry URI or remote found, unable to pull container from remote. Please build the container")
         if self.sif.exists():
             print(f"Removing local riescue.sif file")
             self.sif.unlink()
         self._check_singularity_remotes()
-        singularity_build = ["pull", str(self.sif), f"{self.registry_uri}:{self.remote_string}"]
+        singularity_build = ["pull", str(self.sif), f"{self.registry_uri}:{self.container_string}"]
         self.singularity(singularity_build, check=True, debug=True)
 
     def sha_payload(self):
@@ -144,11 +179,12 @@ class Container:
 
     # Remote version is from singularity-id
     @property
-    def remote_version(self):
+    def container_version(self):
+        "Retrieves the checked in container version from the singularity-id file."
         return int(self._read_id().split("-")[0])
 
     @property
-    def remote_string(self):
+    def container_string(self):
         return self._read_id()
 
     def _version_num_from_str(self, version_str: str) -> int:
@@ -184,19 +220,16 @@ class Container:
             return f.read().strip()
 
     def _check_singularity_remotes(self):
-        "Checks that remote for gitlab is added, tries to add it otherwise"
+        "Checks that remote is added, tries to add it otherwise. Assumes if token is needed, remote_token_path is set in .container_remote"
         remote_list = self.singularity(["remote", "list"], stdout=subprocess.PIPE).stdout.decode("utf-8")
-        if self.aus_registry_uri in remote_list:
+        if self.registry_remote in remote_list:
             return
-        print(f"Couldn't find the registry URI in {self.aus_registry_uri} remotes list, adding")
-        gitlab_key = Path.home() / ".gitlab_key"
-        if not gitlab_key.exists():
-            raise ValueError(
-                f"Unable to pull singularity container, please follow the steps at https://aus-gitlab.local.tenstorrent.com/groups/riscv/-/wikis/Onboarding#set-up-ssh-keys-on-your-login-server to set up the ~/..gitlab_key to access singularity containers"
-            )
-        with open(gitlab_key, "r") as f:
-            token = f.read()
-        self.singularity(["remote", "login", "-u", getpass.getuser(), "-p", token, self.aus_registry_uri], check=True)
+        print(f"Couldn't find the registry URI in {self.registry_remote} remotes list, adding")
+        remote_login_cmd = ["remote", "login", "-u", getpass.getuser()]
+        if self.token:
+            remote_login_cmd += ["--token", self.token]
+        remote_login_cmd.append(self.registry_remote)
+        self.singularity(remote_login_cmd, check=True)
 
     def parse_container_args(self, args):
         parser = argparse.ArgumentParser(add_help=False)
