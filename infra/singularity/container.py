@@ -22,6 +22,7 @@ class Container:
         # Path args
         self.repo_path = repo_path or Path(__file__).parents[2]
         self.infra = self.repo_path / "infra"
+        self.env = self.repo_path / ".env"
         self.container_config = self.infra / ".container_config"
         self.registry_uri = None
         self.registry_remote = None
@@ -46,6 +47,8 @@ class Container:
         self.sif = self.infra / "riescue.sif"
         self.container_def = self.infra / "Container.def"
         self.container_id_file = self.infra / "container/singularity-id"
+
+        self._load_dotenv(self.env)
 
     # main methods
     def build(self, dont_push=False):
@@ -230,6 +233,20 @@ class Container:
             remote_login_cmd += ["-p", self.token]
         remote_login_cmd.append(self.registry_remote)
         self.singularity(remote_login_cmd, check=True)
+
+    def _load_dotenv(self, env_file):
+        "Loads environment variables from .env file"
+        if not env_file.exists():
+            return
+        try:
+            with open(env_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        key, value = line.split("=", 1)
+                        os.environ[key] = value
+        except ValueError as e:
+            print(f"Error loading .env file: {e}")
 
     def parse_container_args(self, args):
         parser = argparse.ArgumentParser(add_help=False)
