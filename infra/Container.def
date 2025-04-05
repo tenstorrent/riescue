@@ -1,0 +1,71 @@
+bootstrap: docker
+From: rockylinux:9.1
+Stage: devel
+
+%environment
+    export PATH=/usr/local/bin:/tools_risc/opensrc/riscv-toolchain-12-18-23/newlib/bin:/tools_risc/common/bin:${PATH}
+    export LD_LIBRARY_PATH=/usr/lib64:${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/shared
+
+%runscript
+    ulimit -s unlimited
+
+%labels
+    DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
+    VERSION 1.9
+%setup
+    set -eux
+
+%post
+    yum --enablerepo=crb -y install \
+    bc                              \
+    perl                            \
+    libnsl                          \
+    dtc                             \
+    make                            \
+    which                           \
+    openssl-devel                   \
+    bzip2-devel                     \
+    sqlite-devel                    \
+    libffi-devel                    \
+    gcc-toolset-12                  \
+    zlib-devel                      \
+    boost-regex                     \
+    numactl-libs                    \
+    dtc                             \
+    boost                           \
+    boost-static                    \
+    boost-devel                     \
+    boost-program-options           \
+    libstdc++-static                \
+    wget                            \
+    gdbm-devel                      \
+    readline-devel                  \
+    uuid-devel                      \
+    xz-devel                        \
+    sudo                            \
+    python3-pip                     \
+    python3-devel                   \
+    python-sphinx                   \
+    zstd                          \
+    git
+
+
+    python3 -m pip install wheel
+
+    # Banyan is an old library without much support and requires some hacking to get working. It provides some powerful search trees that are used for address generation.
+    # This can probably be replaced later with like intervaltree or something but a github repo that's not maintained is not a portable solution long-term
+    python3 -m pip install https://github.com/darshakk/banyan/archive/refs/heads/main.zip
+    python3 -m pip install pandas \
+        dataclasses      \
+        sortedcontainers \
+        pyyaml           \
+        numpy            \
+        pybind11         \
+        pyvsc            \
+        csrbox           \
+        sphinx           \
+        flake8           \
+        black            \
+        tabulate
+
+
