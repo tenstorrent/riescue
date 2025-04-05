@@ -94,8 +94,27 @@ The main milestones for completely open sourcing this repository are to:
 - Installable python library
 
 
-# Installation and Usage
-Coming Soon
+# Installation
+## Installing from `PyPi`
+Coming Soon!
+
+## Installing Riescue as a python package
+To install directly
+```
+pip install git+git@github.com:tenstorrent/riescue.git#egg=riescue
+```
+
+This will install the command line scripts `riescued`, along with making the `riescue` python package available for importing.
+
+# Usage
+## Running from container
+Running interactively in the container ensures dependencies are sourced correctly.
+
+## Running outside the container
+ISS and python dependencies can be found in the [container file](infra/Container.def). Ensure all Python dependencies have been installed.
+
+Non-Python dependencies can be passed through using the command line or by making the executables available in the PATH.
+More details coming soon.
 
 
 # Contributing
