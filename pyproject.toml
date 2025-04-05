@@ -1,0 +1,23 @@
+
+[tool.black]
+line-length = 200
+workers = 8
+exclude = "/(.git|riscv-dv|riscv-isa-sim|whisper|fpgen|riescue_config|.*_clone|opensrc.*|.*-scripts)/"
+
+
+[build-system]
+requires = ["setuptools >= 61.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "riescue"
+version = "0.1.2"
+description = "RISC-V Directed Test Framework and Compliance Suite"
+readme = "README.md"
+requires-python = ">= 3.9"
+
+[tool.setuptools.package-dir]
+riescue = "riescue/"
+
+[project.scripts]
+riescued = "riescue.dtest_framework.runner:main"

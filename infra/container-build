@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+
+import argparse
+
+from singularity.container import Container
+
+"""
+Wrapper for Container.build() call
+"""
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no_push", action="store_true", help="Don't push to container")
+    args = parser.parse_args()
+    container = Container()
+    container.build(args.no_push)
+
+if __name__ == "__main__":
+    main()
