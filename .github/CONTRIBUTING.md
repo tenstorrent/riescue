@@ -1,12 +1,12 @@
-
-
 # Riescue Contributing Guide
 Thanks for your interest in Riescue. Here you can find some information on how to contribute to the project.
 
-Contirbutions require an issue to be filed. Please select the appropriate fields when [opening an issue](https://github.com/tenstorrent/riescue/issues/new/choose).
+Contributions require an issue to be filed. Please select the appropriate fields when [opening an issue](https://github.com/tenstorrent/riescue/issues/new/choose).
+
+Please be sure to follow the [Code Of Conduct](./CODE_OF_CONDUCT.md).
 
 ## Bug Reports
-Bug reports can be file using an issue on the issue board.
+Bug reports can be filed using an issue on the issue board.
 
 ## Feature Requests
 Feature Requests can be made on the issue board.
@@ -30,21 +30,21 @@ to make Riescue available.
 
 
 ## Command line scripts
-After entering the container, the command line scripts can be ran inside the repo.
+After entering the container, the command line scripts can be run inside the repo.
 
-If Riescue has been installed using `pip`, the command line utility `riescued` can also be ran outside the `riescue/` directory.
+If Riescue has been installed using `pip`, the command line utility `riescued` can also be run outside the `riescue/` directory.
 
 
 
 # Contribution Standards
 Coming soon!
 
-Contributions must pass a CI flow of lint and unit tests to be merged. More information on lint and unit testing will be provided here.
+## Lint, Format, and Coding Style
+This repo uses `flake8` and `black` to enforce a uniform code style. This makes the code easier to read and makes pull requests easier to manage.
 
-Please be sure to follow the [Code Of Conduct](./CODE_OF_CONDUCT.md).
+Contributions must pass a CI flow of lint and unit tests to be merged. Information about installing/running lint locally and the automated lint flow can be found in the [Lint Docs](../docs/lint.md).
 
-## Format and Coding Style
-Coming soon!
+
 
 ## Running Tests Locally
 Coming soon!
