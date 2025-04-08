@@ -27,7 +27,7 @@ RiESCUE provides a suite of python scripts and libraries for generating RISC-V t
 1. A framework for writing directed tests in assembly
 2. A comprehensive set of APIs for test generation
 
-The main features of RiescueD are OS code simulation, random address generation, memory management and page table generation and provide randomized environment for privilege modes, paging modes, virtualization modes (bare metal and virualized)
+The main features of RiescueD are OS code simulation, random address generation, memory management, and page table generation, providing a randomized environment for privilege modes, paging modes, and virtualization modes (bare metal and virtualized).
 
 ### Features
 At its core, `RiescueD` provides the following key features:
@@ -50,18 +50,18 @@ The test generation flow compiles an ELF binary from a user-written assembly .s 
 
 #### How to Write a RiescueD Test
 Coming Soon!
-This needds to include a `test.s`, `config.json`, and a command line example.
+This needs to include a `test.s`, `config.json`, and a command-line example.
 
 ### Use Cases
 #### Quicker and Comprehensive Assembly Test Case Writing
-`RiescueD`  provides a framework to start writing tests faster and cover the scenario in different environment automatically. It allow users to quickly come up with scenarios for test cases where RiescueD can provide:
+`RiescueD` provides a framework to start writing tests faster and cover the scenario in different environments automatically. It allows users to quickly come up with scenarios for test cases where RiescueD can provide:
 
 1. Random addresses (for load, store etc instructions)
 2. Random data (with `RiescueD Directives`)
 3. Random addresses (with `RiescueD Directives`), and
 4. Page table generation
 
-This allow for a quick bring up for different instructions and features while constraining different test environments.
+This allows for a quick bring-up for different instructions and features while constraining different test environments.
 
 #### Enable Faster Random Test Generator Development
 The library part of the RiescueD provides functionality of random address generation, pagetable generation, exception handling, environment constraints which handles a lot of heavy lifting of random test generation. RiescueC is a test generator that makes use RiescueD library for its test generation. Similarly, other test generators could be written using RiescueD APIs to speed up the development of a new test generator.
@@ -93,12 +93,8 @@ The main milestones for completely open sourcing this repository are to:
 - Open source the Compliance Test Generation tools - CTK
 - Installable python library
 
-
 # Installation
-## Installing from `PyPi`
-Coming Soon!
-
-## Installing Riescue as a python package
+## From git
 To install directly
 ```
 pip install git+git@github.com:tenstorrent/riescue.git#egg=riescue
@@ -106,16 +102,34 @@ pip install git+git@github.com:tenstorrent/riescue.git#egg=riescue
 
 This will install the command line scripts `riescued`, along with making the `riescue` python package available for importing.
 
-# Usage
-## Running from container
-Running interactively in the container ensures dependencies are sourced correctly.
+## From `PyPi`
+Coming Soon!
 
-## Running outside the container
-ISS and python dependencies can be found in the [container file](infra/Container.def). Ensure all Python dependencies have been installed.
+## Requirements
+### Singularity / Apptainer
+This repo currently uses a `singularity` container flow to manage the environment. All dependencies can be found listed in the [Container.def](infra/Container.def) file.
 
-Non-Python dependencies can be passed through using the command line or by making the executables available in the PATH.
-More details coming soon.
+This will be changed in the future to use the python `setuptools` to source python dependencies.
+
+### Toolchains
+RiescueD uses the riscv-gnu-toolchain to assemble, compile, and disassemble ELF tests. Toolchain paths can be passed as a command line flag, set as an environment variable, or added to the `PATH`.
+- `riscv64-unknown-elf-gcc` is the default executable used for assembling and compiling
+  - Searches for a `--compiler_path`, followed by the environment variable `RV_GCC`, then `riscv64-unknown-elf-gcc` in the `PATH`
+- `riscv64-unknown-elf-objdump` is the default executable used for disassembling
+  - Searches for a `--disassembler_path`, followed by the environment variable `RV_OBJDUMP`, then `riscv64-unknown-elf-objdump` in the `PATH`
 
 
-# Contributing
-Please see the [Contributing](.github/CONTRIBUTING.md) guide for more info on contributing to this repository.
+
+### Simulators
+Riescue invokes the following Instruction Set Simulators:
+- `whisper` [whisper GitHub](https://github.com/tenstorrent/whisper)
+  - `whisper` is a git submodule and can be built in the container using `./infra/build_whisper.sh`
+  - External whisper binaries can be passed in using the environment variable `WHISPER_PATH` or the command line switch `--whisper_path`
+- `spike` [riscv-isa-sim GitHub](https://github.com/riscv-software-src/riscv-isa-sim)
+  - `spike` is installed normally in the container flow.
+  - External spike binaries can be passed in using the environment variable `SPIKE_PATH` or the command line switch `--spike_path`
+Like toolchains, simulators can be set with a command line switch, environment variable, or added to the `PATH`.
+
+
+# Developing and Contributing
+The main dependency needed for developing is singularity or apptainer. See the [Contributing page](.github/CONTRIBUTING.md) for information on setting up a developer environment.
