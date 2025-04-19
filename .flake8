@@ -19,7 +19,6 @@ exclude =
 
 extend-ignore =
     E203
-    W291
     F401
     E402
     F841
