@@ -32,13 +32,16 @@ The main features of RiescueD are OS code simulation, random address generation,
 ### Features
 At its core, `RiescueD` provides the following key features:
 
-1. **OS Code**: Pseudo OS for scheduling, exception handling, and pass/fail conditions.
-2. **Page Tables**: Generates page tables for memory management testing.
-3. **Randomized Privilege Mode**: Randomized Privilege Mode: Tests varying privilege levels (supports running tests in machine|supervisor|user modes)
-4. **Randomized Paging Mode**: Supports running tests in sv39/sv48/sv57/bare.
-5. **Randomized Virtualized Mode**: Run tests on bare metal or virtualized guest
-6. **RISC-V Feature management**: RVA23 extension and feature management
-7. **RISC-V CSR Manager**: Provides definition of CSRs through APIs
+1. **Random Data Generation
+2. **Random Address Generation
+3. **Random Pagetable Generation
+4. **OS Code**: Pseudo OS for scheduling, exception handling, and pass/fail conditions.
+5. **Page Tables**: Generates page tables for memory management testing.
+6. **Randomized Privilege Mode**: Randomized Privilege Mode: Tests varying privilege levels (supports running tests in machine|supervisor|user modes)
+7. **Randomized Paging Mode**: Supports running tests in sv39/sv48/sv57/bare.
+8. **Randomized Virtualized Mode**: Run tests on bare metal or virtualized guest
+9. **RISC-V Feature management**: RVA23 extension and feature management
+10. **RISC-V CSR Manager**: Provides definition of CSRs through APIs
 
 
 ### Workflow
@@ -71,15 +74,238 @@ The library part of the RiescueD provides functionality of random address genera
 ### Example `test.s`
 Below is the minimum code needed to generate a RiescueD test case. A full sample RiescueD test could found here which showcases various features of RiescueD.
 ```s
+;#test.name       sample_test
+;#test.author     name@email.com
+;#test.arch       rv64
+;#test.priv       machine super user any
+;#test.env        virtualized bare_metal
+;#test.cpus       1
+;#test.paging     sv39 sv48 sv57 disable any
+;#test.category   arch
+;#test.class      vector
+;#test.features   ext_v.enable ext_fp.disable
+;#test.tags       vectors vector_ld_st
+;#test.summary
+;#test.summary    This section is used for documenting of description of
+;#test.summary    overall intention of the test and what each individual
+;#test.summary    discrete_test(s) are supposed to verify
+;#test.summary
+;#test.summary    test01: sample test 1
+;#test.summary
+;#test.summary    test02: sample test 2
+;#test.summary
+;#test.summary
+
+
 .section .code, "ax"
 test_setup:
-    csrr t0, mstatus
+#####################
+# test_setup: RiESCUE defined label
+#             Add code below which is needed as common initialization sequence
+#             for entire testcase (simulation)
+#             This label is executed exactly once _before_ running any of the
+#             discrete_test(s)
+#####################
+
+j passed
+
+
+#####################
+# test01: sample test 1
+#####################
 ;#discrete_test(test=test01)
 test01:
     nop
     beq x0, t0, failed
+
     j passed
 ```
+
+### Usage
+
+#### Basic Command Line Interface
+```bash
+riescue_d.py [options] <test_file.s>
+```
+
+#### Required Arguments
+- `<test_file.s>`: The assembly test file containing RiescueD directives
+
+#### Common Options
+1. **Test Environment Configuration**
+   ```bash
+   --paging_mode <mode>      # Set paging mode (sv39/sv48/sv57/disable/any)
+   --privilege_mode <mode>   # Set privilege mode (machine/supervisor/user/any)
+   --test_env <env>         # Set test environment (bare_metal/virtualized)
+   --cpuconfig <file>       # Path to CPU feature configuration file
+   ```
+
+2. **Output Control**
+   ```bash
+   --output_file <name>     # Specify output filename
+   --output_format <fmt>    # Set output format (all/s/ld/dis/log)
+   --run_dir <dir>         # Set run directory (default: ./)
+   ```
+
+3. **Test Generation Options**
+   ```bash
+   --seed <value>          # Set random seed for reproducibility
+   --repeat_runtime <n>    # Run each discrete test n times
+   --single_assembly_file  # Write all assembly to a single file
+   --force_alignment      # Force byte alignment for data and code
+   ```
+
+#### Example Usage
+
+1. **Basic Test Generation**
+   ```bash
+   riescue_d.py test.s --cpuconfig cpu_config.json
+   ```
+
+2. **Test with Specific Environment**
+   ```bash
+   riescue_d.py test.s \
+     --paging_mode sv39 \
+     --privilege_mode machine \
+     --test_env bare_metal \
+     --cpuconfig cpu_config.json
+   ```
+
+3. **Reproducible Test Generation**
+   ```bash
+   riescue_d.py test.s \
+     --seed 12345 \
+     --repeat_runtime 3 \
+     --cpuconfig cpu_config.json
+   ```
+
+4. **Advanced Configuration**
+   ```bash
+   riescue_d.py test.s \
+     --output_file custom_test \
+     --output_format all \
+     --run_dir ./test_output \
+     --single_assembly_file \
+     --force_alignment \
+     --cpuconfig cpu_config.json
+   ```
+
+#### CPU Configuration File
+The CPU configuration file (`cpu_config.json`) specifies the system's memory map and feature support. Example structure:
+```json
+{
+    "memory_map": {
+        "ram": {
+            "start": "0x80000000",
+            "size": "0x10000000"
+        }
+    },
+    "features": {
+        "ext_v": true,
+        "ext_fp": false
+    }
+}
+```
+
+#### Output Files
+RiescueD generates several output files:
+- `.s`: Final assembly file
+- `.ld`: Linker script
+- `.dis`: Disassembly file
+- `.log`: Execution log
+- ELF binary
+
+#### Best Practices
+1. Always provide a CPU configuration file for proper memory mapping
+2. Use `--seed` for reproducible test generation
+3. Use `--single_assembly_file` for simpler test management
+4. Enable appropriate feature flags for your target architecture
+5. Use `--repeat_runtime` for stress testing
+
+## RiescueC
+COMING SOON!
+
+`RiescueC` is a test generator specifically designed to generate test suitable for RISC-V compliance. These tests are not sufficient for verification, but could provide basic tests that can be used for proving the RISC-V specification compliance. We currently support these extensions: rv64imafcdhv_zfh_zvfh_zba_zbb_zbs_zfbfmin_zvbb_zbc_zvfbfmin
+
+### Key Features
+
+1. **Extension Support**
+   - Comprehensive support for RISC-V base extensions (I, M, A, F, C, D)
+   - Advanced support for vector extensions (V, Zv*)
+   - Bit manipulation extensions (Zba, Zbb, Zbs)
+   - Floating-point extensions (Zfh, Zvfh, Zfbfmin)
+   - Customizable extension configuration through JSON files
+
+2. **Test Generation Capabilities**
+   - Self-checking test generation
+   - Instruction-level test customization
+   - Group-based test organization
+   - Support for different privilege modes
+   - Configurable test constraints
+
+3. **Configuration System**
+   - JSON-based configuration for extension support
+   - Fine-grained control over included/excluded instructions
+   - Group-based instruction organization
+   - Architecture-specific settings (rv32/rv64)
+
+### Usage
+
+1. **Basic Configuration**
+   ```json
+   {
+       "arch": "rv64",
+       "include_extensions": ["i_ext"],
+       "include_groups": [],
+       "include_instrs": [],
+       "exclude_groups": [],
+       "exclude_instrs": ["wfi", "ebreak", "mret", "sret", "ecall", "fence", "fence.i", "c.ebreak"]
+   }
+   ```
+
+2. **Running Tests**
+   ```bash
+   ./infra/container-run "./riescue_c.py --json <config_file>"
+   ```
+
+### Extension System
+
+RiescueC organizes instructions into a hierarchical structure:
+- **Extensions**: Correspond to RISC-V extensions (e.g., V, M)
+- **Groups**: Logical groupings of related instructions within an extension
+- **Instructions**: Individual RISC-V instructions
+
+### Customization
+
+1. **Instruction Selection**
+   - Include/exclude specific instructions
+   - Group-based filtering
+   - Extension-level control
+
+2. **Test Constraints**
+   - Per-instruction constraints
+   - Group-level constraints
+   - Extension-specific settings
+
+### Extensibility
+
+RiescueC is designed to be easily extended:
+1. **New Extensions**
+   - Add new extension definitions
+   - Define instruction groups
+   - Specify instruction constraints
+
+2. **Custom Instructions**
+   - Support for custom instruction sets
+   - Integration with existing extensions
+   - Custom test generation rules
+
+### Integration
+
+The tool can be integrated into existing verification environments:
+- Command-line interface for automation
+- JSON-based configuration for CI/CD integration
+- Containerized execution for consistent environments
 
 
 # Open Source Roadmap
