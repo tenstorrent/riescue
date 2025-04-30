@@ -1,0 +1,16 @@
+name: smoke
+run-name: ${{ github.actor }} is testing out GitHub Actions
+on: [push]
+jobs:
+  Explore-GitHub-Actions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - uses: eWaterCycle/setup-singularity@v7
+        with:
+          singularity-version: 3.8.3
+      - name: run unit tests in container
+        run : |
+          ./infra/container-build
+          ./infra/container-run python3 -m unittest discover -s tests/ -p "*_test.py"
