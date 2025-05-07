@@ -11,7 +11,7 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.14
+    VERSION 1.15
 
 %setup
     set -eux
@@ -114,6 +114,7 @@ Stage: devel
         sphinx           \
         flake8           \
         black            \
+        intervaltree     \
         tabulate
 
 
