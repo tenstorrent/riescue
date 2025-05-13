@@ -14,19 +14,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-import sphinx
-
 
 class DocBuilder:
     docs_dir = Path(__file__).parent
     repo_dir = docs_dir.parent
 
-    def __init__(self, clean, source_dir, build_dir, check, theme):
+    def __init__(self, clean, source_dir, build_dir, check):
         self.clean = clean
         self.source_dir = source_dir
         self.build_dir = build_dir
         self.check = check
-        self.theme = theme
 
     @classmethod
     def add_args(cls, parser: argparse.ArgumentParser):
@@ -35,7 +32,6 @@ class DocBuilder:
         parser.add_argument("--source_dir", type=Path, default=cls.docs_dir / "source", help="Source directory")
         parser.add_argument("--build_dir", type=Path, default=cls.docs_dir / "_build", help="Build directory")
         parser.add_argument("--check", action="store_true", help="Check for sphinx warnings as errors")
-        parser.add_argument("--theme", default=None, help="HTML theme to use")
 
     @classmethod
     def run_cli(cls):
@@ -70,8 +66,6 @@ class DocBuilder:
         if self.check:
             sphinx_cmd.extend(["-W", "-E"])
         sphinx_cmd.append(self.source_dir)
-        if self.theme:
-            sphinx_cmd.append(f"-Dhtml_theme={self.theme}")
         sphinx_cmd.append(self.build_dir)
         print(f"Running: {' '.join(str(s) for s in sphinx_cmd)}")
         result = subprocess.run(sphinx_cmd, check=True)
