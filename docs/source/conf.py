@@ -21,12 +21,12 @@ release = "0.3.0"
 
 extensions = [
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
 ]
 
-# templates_path = ['_templates']
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["public", "_build", "**/_templates"]
+templates_path = ["_templates", "../common/_templates"]
 autodoc_member_order = "bysource"
-
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
