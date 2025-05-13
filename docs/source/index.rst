@@ -14,5 +14,15 @@ This pages contains the public documentation for RiESCUE. APIs here are stable a
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+   :hidden:
 
-   internal/index
+   internal/internal_api
+   api/RiescueD
+
+
+.. list-table::
+   :header-rows: 0
+   :widths: 30 70
+
+   * - :doc:`RiescueD <api/RiescueD>`
+     - The RiescueD directed test generator framework

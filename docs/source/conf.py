@@ -11,6 +11,20 @@
 from pathlib import Path
 import sys
 
+# This removes Bases: object from output, not sure how else to do this
+from sphinx.ext import autodoc
+
+
+class MockedClassDocumenter(autodoc.ClassDocumenter):
+    def add_line(self, line: str, source: str, *lineno: int) -> None:
+        if line == "   Bases: :py:class:`object`":
+            return
+        super().add_line(line, source, *lineno)
+
+
+autodoc.ClassDocumenter = MockedClassDocumenter
+
+
 project = "Riescue"
 copyright = "© 2025 Tenstorrent AI ULC"
 author = "Tenstorrent AI ULC"
@@ -24,7 +38,10 @@ extensions = [
     "sphinx.ext.autosummary",
 ]
 
-exclude_patterns = ["public", "_build", "**/_templates"]
+# Control autodoc behavior
+autodoc_default_options = {"show-inheritance": False}
+
+exclude_patterns = ["public", "_build", "**/_build_api/**", "**/_templates"]
 templates_path = ["_templates", "../common/_templates"]
 autodoc_member_order = "bysource"
 
@@ -32,7 +49,22 @@ autodoc_member_order = "bysource"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "sphinx_rtd_theme"
+html_logo = "common/images/tt_logo.svg"
+html_favicon = "common/images/favicon.png"
+html_context = {"logo_link_url": "https://docs.tenstorrent.com/"}
+
 html_static_path = ["_static"]
+# Configure the theme to keep global TOC
+html_theme_options = {
+    "prev_next_buttons_location": "bottom",
+    # "style_nav_header_background": "#2980B9",
+    # TOC options
+    "collapse_navigation": False,
+    "sticky_navigation": True,
+    "navigation_depth": 4,
+    "includehidden": True,
+    "titles_only": False,
+}
 
 repo_path = Path(__file__).parents[2]
 if not (repo_path / ".git").exists():
