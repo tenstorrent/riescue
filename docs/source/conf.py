@@ -31,8 +31,8 @@ autodoc_member_order = "bysource"
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "classic"
-
+html_theme = "sphinx_rtd_theme"
+html_static_path = ["_static"]
 
 repo_path = Path(__file__).parents[2]
 if not (repo_path / ".git").exists():

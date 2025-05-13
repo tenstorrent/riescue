@@ -14,4 +14,15 @@ These may change over time without warning. It's recommended that users are maki
 To stay consistent with other TT docuemnation, we are reusing the `tt_theme.css`.
 
 ### Build flow
-The build flow can be ran using `./docs/build.py`
+The build flow can be ran using `./docs/build.py`. It'll default to placing the html in `docs/_build`. To dump in the top-level directory like for a CI, you can run something like
+
+```
+./docs/build.py --build_dir public
+```
+
+Currently testing this before Pages / docs are ready by `cd`-ing into the built directory and running
+```
+python3 -m http.server 19999  --bind 0.0.0.0
+```
+
+then opening `http://localhost:19999` to view the generated code.
