@@ -11,7 +11,7 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.16
+    VERSION 1.17
 
 %setup
     set -eux
@@ -78,8 +78,7 @@ Stage: devel
     spike_sha="4703ad98bf4c247a0841a6d7254357b14a97ff29"
     spike_dir="spike"
 
-    tt_spike_remote="git@github.com:tenstorrent/spike.git"
-    tt_spike_remote="https://aus-gitlab.local.tenstorrent.com/riscv/forks/spike.git" #TODO: Get permissions to push to tenstorrent/spike
+    tt_spike_remote="https://github.com/tenstorrent/spike.git"
     tt_spike_sha="344b9ef3951fc9318caae4ce41da8ede5d6085fc"
     tt_spike_dir="tt_spike"
 
@@ -100,9 +99,6 @@ Stage: devel
     # Python dependencies
     python3 -m pip install wheel
 
-    # Banyan is an old library without much support and requires some hacking to get working. It provides some powerful search trees that are used for address generation.
-    # This can probably be replaced later with like intervaltree or something but a github repo that's not maintained is not a portable solution long-term
-    python3 -m pip install https://github.com/darshakk/banyan/archive/refs/heads/main.zip
     python3 -m pip install pandas \
         dataclasses      \
         sortedcontainers \
@@ -116,6 +112,7 @@ Stage: devel
         flake8           \
         black            \
         intervaltree     \
+        coverage         \
         tabulate
 
 
