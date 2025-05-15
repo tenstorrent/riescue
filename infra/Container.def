@@ -11,7 +11,7 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.17
+    VERSION 1.19
 
 %setup
     set -eux
@@ -34,6 +34,24 @@ Stage: devel
         ./configure $@
         make -j 12
         make install
+        popd
+    }
+
+    build_whisper() {
+        local repo_url="$1"
+        local sha="$2"
+        local build_dir="$3"
+        shift 3
+
+        mkdir $build_dir
+        pushd $build_dir
+        git init &&
+        git remote add origin "$repo_url" &&
+        git fetch --depth 1 origin "$sha" &&
+        git checkout FETCH_HEAD
+        make -j 20 BOOST_LIB_DIR=/usr/lib64/ BOOST_INC=/usr/include/boost/ STATIC_LINK=0 SOFT_FLOAT=1
+        mv build-Linux/whisper whisper
+        cp whisper /usr/bin/whisper
         popd
     }
 
@@ -74,6 +92,11 @@ Stage: devel
 
     # non-packaged dependencies
     local=/usr/local/
+
+    whisper_remote="https://github.com/tenstorrent/whisper.git"
+    whisper_sha="b24e30f238d462d3930744cb084d74129d0873a8"
+    whisper_dir="/usr/local/whisper"
+
     spike_remote="https://github.com/riscv-software-src/riscv-isa-sim.git"
     spike_sha="4703ad98bf4c247a0841a6d7254357b14a97ff29"
     spike_dir="spike"
@@ -83,6 +106,11 @@ Stage: devel
     tt_spike_dir="tt_spike"
 
     set -o pipefail
+
+    echo "Building Whisper"
+    build_whisper "$whisper_remote" "$whisper_sha" "$whisper_dir"
+
+
     echo "Building spike"
     # Install spike as spike
     build_spike "$spike_remote" "$spike_sha" "$spike_dir" --enable-dual-endian --with-isa=RV64IMAFDCV_ZBA_ZBB_ZBC_ZBS --with-priv=MSU
