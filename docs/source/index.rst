@@ -1,14 +1,9 @@
 .. Public documentation main file
 
-Welcome to the Riescue docs!
+Riescue documentation
 ===================================================
 
-RiESCUE provides a suite of python scripts and libraries for generating RISC-V tests:
-
-- `RiescueD` - RiESCUE Directed Test Framework
-- `RiescueC` - RiESCUE Compliance Test Generator
-
-This pages contains the public documentation for RiESCUE. APIs here are stable and will have a deprecation period before anything's removed.
+.. include:: overview.rst
 
 
 .. toctree::
@@ -16,8 +11,11 @@ This pages contains the public documentation for RiESCUE. APIs here are stable a
    :caption: Contents:
    :hidden:
 
-   internal/internal_api
-   api/RiescueD
+   /api/RiescueD
+   /user_guides/overview
+   /dev_guides/overview
+   /internal/internal_api
+
 
 
 .. list-table::
