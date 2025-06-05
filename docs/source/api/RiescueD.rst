@@ -35,7 +35,7 @@ API
 ^^^
 The `RiescueD` python library can also be used to generate directed tests.
 
-*NOTE: This will likely change before the v.1.0.0 release, it's recommneded to start with the command-line unitl there's a stable python library*
+*NOTE: This will likely change before the v.1.0.0 release, it's recommneded to start with the command-line until there's a stable python library*
 
 .. autoclass:: riescue.RiescueD
    :members:
