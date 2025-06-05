@@ -13,14 +13,18 @@ Riescue documentation
 
    /api/RiescueD
    /user_guides/overview
-   /dev_guides/overview
    /internal/internal_api
 
 
 
-.. list-table::
-   :header-rows: 0
-   :widths: 30 70
+.. rubric:: Getting Started, Guides, and Tutorials
 
-   * - :doc:`RiescueD <api/RiescueD>`
-     - The RiescueD directed test generator framework
+Starting for the first time? Checkout :doc:`/user_guides/getting_started`
+
+More user guides and tutorials are available in :doc:`/user_guides/overview`
+
+
+
+
+
+
