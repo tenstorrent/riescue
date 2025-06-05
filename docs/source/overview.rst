@@ -1,4 +1,4 @@
-**RiESCUE** (pronounced *"risk-you"*) is a python library for generating RISC-V tests. It consists of a couple tools:
+**RiESCUE** (pronounced *"rescue"*) is a python library for generating RISC-V tests. It consists of a couple tools:
 
 - :doc:`RiescueD <api/RiescueD>` - RiESCUE Directed Test Framework
 - `RiescueC` - RiESCUE Compliance Test Generator
