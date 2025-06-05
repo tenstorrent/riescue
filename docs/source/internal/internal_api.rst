@@ -7,10 +7,6 @@ These are the internal docs for RiESCUE. They are not intended to be depended on
 
 Please don't depend on the code here, as it may change at any time without warning. Code and standards in the Public docs are stable and will have a deprecation period before anythings removed.
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
-   :hidden:
 
 API Reference
 -------------
