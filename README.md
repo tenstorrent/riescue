@@ -52,9 +52,6 @@ pip install git+git@github.com:tenstorrent/riescue.git#egg=riescue
 
 This will install the command line scripts `riescued`, along with making the `riescue` python package available for importing.
 
-## From `PyPi`
-Coming Soon!
-
 ## Requirements
 ### Singularity / Apptainer
 This repo currently uses a `singularity` container flow to manage the environment. All dependencies can be found listed in the [Container.def](infra/Container.def) file.
