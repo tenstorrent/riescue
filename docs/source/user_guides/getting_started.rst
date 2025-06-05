@@ -1,5 +1,3 @@
-
-
 Getting Started
 ===================================================
 
@@ -45,9 +43,9 @@ Users can enter the container by running:
 
 .. code-block:: bash
 
-    ./infra/conatiner-run
+    ./infra/container-run
 
-The container installs ``python3.9``, default python dependcies, and the default simulators (``whisper`` and ``spike``).
+The container installs ``python3.9``, default python dependencies, and the default simulators (``whisper`` and ``spike``).
 It doesn't currently include ``riscv-gnu-toolchain``.
 
 
@@ -55,7 +53,7 @@ It doesn't currently include ``riscv-gnu-toolchain``.
 Simulators and Toolchains
 -------------------------------------
 
-.. rubric:: Installing and Configurting Simulators
+.. rubric:: Installing and Configuring Simulators
 
 Riescue invokes the following Instruction Set Simulators.
 Like simulators can be set with a command line switch, environment variable, or added to the ``PATH``.
@@ -72,7 +70,7 @@ Like simulators can be set with a command line switch, environment variable, or 
 
   - External spike binaries can be passed in using the environment variable ``SPIKE_PATH`` or the command line switch ``--spike_path``
 
-  - Please see the ``infra/Container.def`` container defintion file for more info on building Spike from the TT-source
+  - Please see the ``infra/Container.def`` container definition file for more info on building Spike from the TT-source
 
 
 After installing the dependencies, users can configure riescue to point to the correct toolchains and simulators.
@@ -94,7 +92,7 @@ Like simulators, toolchains can be set with a command line switch, environment v
 
 
 
-With all dependencies source, users should be able to run the ``./riescued.py`` script to run the RiescueD tests.
+With all dependencies sourced, users should be able to run the ``./riescued.py`` script to run the RiescueD tests.
 
 
 **What next?** See the :doc:`/user_guides/riescued_tutorial` page for information on getting started with RiESCUE.
