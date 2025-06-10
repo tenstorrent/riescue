@@ -93,7 +93,13 @@ class DocBuilder:
         sphinx_cmd.append(str(self.source_dir))
         sphinx_cmd.append(str(self.build_dir))
         print(f"Running: {' '.join(str(s) for s in sphinx_cmd)}")
-        subprocess.run(sphinx_cmd, check=True)
+
+        # Set safe locale environment variables to avoid locale errors in containers
+        env = os.environ.copy()
+        env['LC_ALL'] = 'C'
+        env['LANG'] = 'C'
+
+        subprocess.run(sphinx_cmd, check=True, env=env)
 
     def start_local_host(self):
         """Start the local host server."""
