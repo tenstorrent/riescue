@@ -18,6 +18,7 @@ requires-python = ">= 3.9"
 
 [tool.setuptools.package-dir]
 riescue = "riescue/"
+coretp = "rv_core_test_plan/coretp"
 
 [project.scripts]
 riescued = "riescue.dtest_framework.runner:main"
