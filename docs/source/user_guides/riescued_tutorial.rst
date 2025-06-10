@@ -292,7 +292,7 @@ RiescueD provides powerful exception testing capabilities through the ``OS_SETUP
 
 **Macro Syntax:**
 
-.. code-block:: asm
+.. code-block:: text
 
    OS_SETUP_CHECK_EXCP expected_cause, expected_pc, return_pc, expected_tval=0
 
