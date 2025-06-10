@@ -1,5 +1,5 @@
 RiescueD User Guide
-==================
+===================
 
 Welcome to RiescueD, the **RiESCUE Directed Test Framework** - a powerful Python library for generating RISC-V directed tests with randomization capabilities, memory management, and comprehensive environment simulation.
 
