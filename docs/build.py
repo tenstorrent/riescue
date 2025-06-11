@@ -96,8 +96,8 @@ class DocBuilder:
 
         # Set safe locale environment variables to avoid locale errors in containers
         env = os.environ.copy()
-        env['LC_ALL'] = 'C'
-        env['LANG'] = 'C'
+        env["LC_ALL"] = "C"
+        env["LANG"] = "C"
 
         subprocess.run(sphinx_cmd, check=True, env=env)
 
