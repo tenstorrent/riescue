@@ -11,10 +11,17 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.19
+    VERSION 1.20
 
 %setup
     set -eux
+
+%files
+    pyproject.toml /app/
+    README.md /app/
+    riescue /app/riescue
+    *.py /app/
+    rv_core_test_plan/coretp /app/rv_core_test_plan/coretp
 
 %post
     # Helper functions
@@ -90,6 +97,15 @@ Stage: devel
     zstd                          \
     git
 
+
+    # Python dependencies - install riescue
+    python3 -m pip install wheel
+    cd /app
+    pip install -e .
+    pip uninstall riescue -y
+    pip uninstall coretp -y
+    cd -
+
     # non-packaged dependencies
     local=/usr/local/
 
@@ -123,24 +139,5 @@ Stage: devel
     cp $install_dir/bin/spike /usr/local/bin/tt_spike
     rm -rf $install_dir
     rm -rf $tt_spike_dir
-
-    # Python dependencies
-    python3 -m pip install wheel
-
-    python3 -m pip install pandas \
-        dataclasses      \
-        sortedcontainers \
-        pyyaml           \
-        numpy            \
-        pybind11         \
-        pyvsc            \
-        csrbox           \
-        sphinx           \
-        sphinx-rtd-theme \
-        flake8           \
-        black            \
-        intervaltree     \
-        coverage         \
-        tabulate
 
 
