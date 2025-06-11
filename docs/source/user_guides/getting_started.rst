@@ -114,6 +114,9 @@ Users can install the package in editable mode to make changes to the codebase w
     cd riescue
     pip install -e .
 
+Note that python dependencies are found in the `pyproject.toml` file. The container manually installs python dependencies when running `./infra/container-build`.
+
+Users can add dependencies to pyproject.toml and test locally with pip install -e .. Rebuild the container to include new dependencies in the container image.
 
 See the `Contributing page <https://github.com/tenstorrent/riescue/blob/main/.github/CONTRIBUTING.md>`_ for additional information.
 
