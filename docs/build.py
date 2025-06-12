@@ -18,6 +18,10 @@ from pathlib import Path
 
 class DocBuilder:
     docs_dir = Path(__file__).parent
+    if os.getenv("BUILD_TT_DOCS"):
+        defualt_src = docs_dir / "tt_source"
+    else:
+        defualt_src = docs_dir / "source"
     repo_dir = docs_dir.parent
 
     def __init__(self, clean: bool, source_dir: Path, build_dir: Path, check: bool, local_host: bool, port: int, host: str):
@@ -41,7 +45,7 @@ class DocBuilder:
         parser.add_argument("--clean", action="store_true", help="Clean build directory before building")
         parser.add_argument("--check", action="store_true", help="Check for sphinx warnings as errors")
         build_opts = parser.add_argument_group("Build Path options", description="Path options for building the documentation")
-        build_opts.add_argument("--source_dir", type=Path, default=cls.docs_dir / "source", help="Source directory")
+        build_opts.add_argument("--source_dir", type=Path, default=cls.defualt_src, help="Source directory")
         build_opts.add_argument("--build_dir", type=Path, default=cls.docs_dir / "_build", help="Build directory")
 
         local_host_opts = parser.add_argument_group(
