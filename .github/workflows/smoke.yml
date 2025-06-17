@@ -21,10 +21,11 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      - run: pip install -e .
+      - run: python3 -m pip install wheel
+      - run: python3 -m pip install -e .
       - run: flake8 . --config=.flake8
       - run: black --check .
-      - run: ./docs/build.py --build_dir=public --check
+      - run: ./docs/build.py --build_dir=public --source_dir=docs/public_source --check
 
   test:
     runs-on: ubuntu-latest
@@ -34,8 +35,10 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      - run: docker build -f infra/Containerfile -t riescue-test .
-      - run: docker run riescue-test python3 -m unittest discover -s tests/ -p "*_test.py"
+      - run: python3 -m unittest discover -s tests/ -p "*_test.py"
+      # TODO: Uncomment this when Containerfile is included
+      # - run: docker build -f infra/Containerfile -t riescue-test .
+      # - run: docker run riescue-test python3 -m unittest discover -s tests/ -p "*_test.py"
 
   deploy-docs:
     runs-on: ubuntu-latest
@@ -49,7 +52,7 @@ jobs:
       - name: Build docs
         run: |
           pip install -e .
-          ./docs/build.py --build_dir=public
+          ./docs/build.py --build_dir=public --source_dir=docs/public_source
 
       - name: Deploy to GitHub Pages
         uses: actions/upload-pages-artifact@v3
