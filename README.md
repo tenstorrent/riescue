@@ -119,7 +119,7 @@ Like toolchains, simulators can be set with a command line switch, environment v
 
 
 ## Getting Started
-Check out the [RiescueD Tutorial](docs/source/user_guides/riescued_tutorial.rst) for more info on getting started.
+Check out the [RiescueD Tutorial](https://solid-eureka-nro2r55.pages.github.io/user_guides/riescued_tutorial.html) for more info on getting started.
 
 # Developing and Contributing
 The main dependency needed for developing is singularity or apptainer. See the [Contributing page](.github/CONTRIBUTING.md) for information on setting up a developer environment.
