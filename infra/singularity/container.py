@@ -53,6 +53,15 @@ class Container:
 
         self._load_dotenv(self.env)
 
+        # Exporting RV_TOOLCHAIN to PATH if defined
+        rv_toolchain = os.getenv("RV_TOOLCHAIN")
+        path = os.getenv("PATH")
+        if rv_toolchain:
+            if path:
+                os.environ["PATH"] = path + ":" + rv_toolchain
+            else:
+                os.environ["PATH"] = rv_toolchain
+
     # main methods
     def build(self, dont_push=False):
         """

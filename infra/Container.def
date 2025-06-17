@@ -3,7 +3,7 @@ From: rockylinux:9.1
 Stage: devel
 
 %environment
-    export PATH=/usr/local/bin:/tools_risc/opensrc/riscv-toolchain-12-18-23/newlib/bin:/tools_risc/common/bin:${PATH}
+    export PATH=/usr/local/bin:${PATH}
     export LD_LIBRARY_PATH=/usr/lib64:${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/shared
 
 %runscript
@@ -11,7 +11,7 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.20
+    VERSION 1.23
 
 %setup
     set -eux
@@ -21,90 +21,21 @@ Stage: devel
     README.md /app/
     riescue /app/riescue
     *.py /app/
-    rv_core_test_plan/coretp /app/rv_core_test_plan/coretp
+    infra/build_spike.sh /build_spike.sh
+    infra/build_base_deps.sh /build_base_deps.sh
 
 %post
-    # Helper functions
-
-    build_spike() {
-        local repo_url="$1"
-        local sha="$2"
-        local build_dir="$3"
-        shift 3
-
-        mkdir $build_dir
-        pushd $build_dir
-        git init &&
-        git remote add origin "$repo_url" &&
-        git fetch --depth 1 origin "$sha" &&
-        git checkout FETCH_HEAD
-        ./configure $@
-        make -j 12
-        make install
-        popd
-    }
-
-    build_whisper() {
-        local repo_url="$1"
-        local sha="$2"
-        local build_dir="$3"
-        shift 3
-
-        mkdir $build_dir
-        pushd $build_dir
-        git init &&
-        git remote add origin "$repo_url" &&
-        git fetch --depth 1 origin "$sha" &&
-        git checkout FETCH_HEAD
-        make -j 20 BOOST_LIB_DIR=/usr/lib64/ BOOST_INC=/usr/include/boost/ STATIC_LINK=0 SOFT_FLOAT=1
-        mv build-Linux/whisper whisper
-        cp whisper /usr/bin/whisper
-        popd
-    }
+    # Base deps
+    ./build_base_deps.sh
 
 
-    # packaged dependencies
-    yum --enablerepo=crb -y install \
-    bc                              \
-    perl                            \
-    libnsl                          \
-    dtc                             \
-    make                            \
-    which                           \
-    openssl-devel                   \
-    bzip2-devel                     \
-    sqlite-devel                    \
-    libffi-devel                    \
-    gcc-toolset-12                  \
-    zlib-devel                      \
-    boost-regex                     \
-    numactl-libs                    \
-    dtc                             \
-    boost                           \
-    boost-static                    \
-    boost-devel                     \
-    boost-program-options           \
-    libstdc++-static                \
-    wget                            \
-    gdbm-devel                      \
-    readline-devel                  \
-    uuid-devel                      \
-    xz-devel                        \
-    sudo                            \
-    python3-pip                     \
-    python3-devel                   \
-    python-sphinx                   \
-    zstd                          \
-    git
-
-
-    # Python dependencies - install riescue
+    # Python dependencies - install and uninstall riescue to add all dependencies
     python3 -m pip install wheel
     cd /app
     pip install -e .
     pip uninstall riescue -y
-    pip uninstall coretp -y
     cd -
+
 
     # non-packaged dependencies
     local=/usr/local/
@@ -113,31 +44,22 @@ Stage: devel
     whisper_sha="b24e30f238d462d3930744cb084d74129d0873a8"
     whisper_dir="/usr/local/whisper"
 
-    spike_remote="https://github.com/riscv-software-src/riscv-isa-sim.git"
-    spike_sha="4703ad98bf4c247a0841a6d7254357b14a97ff29"
-    spike_dir="spike"
-
-    tt_spike_remote="https://github.com/tenstorrent/spike.git"
-    tt_spike_sha="344b9ef3951fc9318caae4ce41da8ede5d6085fc"
-    tt_spike_dir="tt_spike"
 
     set -o pipefail
 
+    export NO_SINGULARITY=1
     echo "Building Whisper"
-    build_whisper "$whisper_remote" "$whisper_sha" "$whisper_dir"
+    mkdir $whisper_dir
+    pushd $whisper_dir
+    git init &&
+    git remote add origin "$whisper_remote" &&
+    git fetch --depth 1 origin "$whisper_sha" &&
+    git checkout FETCH_HEAD
+    make -j 20 BOOST_LIB_DIR=/usr/lib64/ BOOST_INC=/usr/include/boost/ STATIC_LINK=0 SOFT_FLOAT=1
+    mv build-Linux/whisper whisper
+    cp whisper /usr/bin/whisper
+    popd
 
 
     echo "Building spike"
-    # Install spike as spike
-    build_spike "$spike_remote" "$spike_sha" "$spike_dir" --enable-dual-endian --with-isa=RV64IMAFDCV_ZBA_ZBB_ZBC_ZBS --with-priv=MSU
-    rm -rf $spike_dir
-
-    # Install spike as tt_spike
-    echo "Building tt_spike"
-    install_dir=/usr/local/tt_spike
-    build_spike "$tt_spike_remote" "$tt_spike_sha" "$tt_spike_dir" --enable-tt-stop-if-tohost-nonzero --enable-tt-table-walk-debug --enable-tt-expanded-dram-address-range --enable-dual-endian --with-isa=RV64IMAFDCV_ZBA_ZBB_ZBC_ZBS --with-priv=MSU --prefix=$install_dir
-    cp $install_dir/bin/spike /usr/local/bin/tt_spike
-    rm -rf $install_dir
-    rm -rf $tt_spike_dir
-
-
+    ./build_spike.sh
