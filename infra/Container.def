@@ -3,7 +3,7 @@ From: rockylinux:9.1
 Stage: devel
 
 %environment
-    export PATH=/usr/local/bin:/tools_risc/opensrc/riscv-toolchain-12-18-23/newlib/bin:/tools_risc/common/bin:${PATH}
+    export PATH=/usr/local/bin:/tools_risc/common/bin:${PATH}
     export LD_LIBRARY_PATH=/usr/lib64:${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/shared
 
 %runscript
@@ -11,7 +11,7 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.20
+    VERSION 1.21
 
 %setup
     set -eux
@@ -21,7 +21,6 @@ Stage: devel
     README.md /app/
     riescue /app/riescue
     *.py /app/
-    rv_core_test_plan/coretp /app/rv_core_test_plan/coretp
 
 %post
     # Helper functions
@@ -98,9 +97,10 @@ Stage: devel
     git
 
 
-    # Python dependencies - install riescue
+    # Python dependencies - install and uninstall riescue to add all dependencies
     python3 -m pip install wheel
     cd /app
+    ls /app
     pip install -e .
     pip uninstall riescue -y
     pip uninstall coretp -y
