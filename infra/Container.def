@@ -3,7 +3,7 @@ From: rockylinux:9.1
 Stage: devel
 
 %environment
-    export PATH=/usr/local/bin:/tools_risc/common/bin:${PATH}
+    export PATH=/usr/local/bin:${PATH}
     export LD_LIBRARY_PATH=/usr/lib64:${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/shared
 
 %runscript
