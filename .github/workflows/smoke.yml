@@ -1,16 +1,60 @@
 name: smoke
-run-name: ${{ github.actor }} is testing out GitHub Actions
+run-name: running lint and smoke tests
 on: [push]
+
+
 jobs:
-  Explore-GitHub-Actions:
+  check-spdx-headers:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository code
-        uses: actions/checkout@v4
-      - uses: eWaterCycle/setup-singularity@v7
+    - name: checkout
+      uses: actions/checkout@v4
+    - uses: enarx/spdx@master
+      with:
+        licenses: Apache-2.0
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: check-spdx-headers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
         with:
-          singularity-version: 3.8.3
-      - name: run unit tests in container
-        run : |
-          ./infra/container-build
-          ./infra/container-run python3 -m unittest discover -s tests/ -p "*_test.py"
+          python-version: '3.9'
+      - run: pip install -e .
+      - run: flake8 . --config=.flake8
+      - run: black --check .
+      - run: ./docs/build.py --build_dir=public --check
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: docker build -f infra/Containerfile -t riescue-test .
+      - run: docker run riescue-test python3 -m unittest discover -s tests/ -p "*_test.py"
+
+  deploy-docs:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'  # Only deploy from main branch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Build docs
+        run: |
+          pip install -e .
+          ./docs/build.py --build_dir=public
+
+      - name: Deploy to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public
+
+      - name: Deploy
+        uses: actions/deploy-pages@v4
