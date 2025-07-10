@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+
 class Intervals:
     def __init__(self, arg):
         self.link = list()
@@ -9,9 +13,6 @@ class Intervals:
             self.add(arg)
         else:
             assert False, "Error"
-
-    # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-    # SPDX-License-Identifier: Apache-2.0
 
     def add(self, arg):
         self.link.append([arg[0], arg[1]])

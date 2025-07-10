@@ -1,4 +1,6 @@
 #! /usr/bin/env bash
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
 # Assumes spike isn't cloned and built. Using hardcoded SHAs for both public riscv-isa-sim and TT-fork.
 
 script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
