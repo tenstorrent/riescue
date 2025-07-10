@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riescue"
-version = "0.3.0"
+version = "0.3.1"
 description = "RISC-V Directed Test Framework and Compliance Suite"
 readme = "README.md"
 requires-python = ">= 3.9"
@@ -35,4 +35,4 @@ dependencies = [
 riescue = "riescue/"
 
 [project.scripts]
-riescued = "riescue.dtest_framework.runner:main"
+riescued = "riescue.riescued:main"

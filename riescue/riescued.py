@@ -236,3 +236,11 @@ class RiescueD(CliBase):
                     raise RunnerError(f"WYSIWYG mode failed to find the correct exit value - last line {line}")
 
             print("\nTest \x1b[0;30;42m PASSED \x1b[0m successfully on ISS\n")
+
+
+def main():
+    RiescueD.run_cli()
+
+
+if __name__ == "__main__":
+    main()
