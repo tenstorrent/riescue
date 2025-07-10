@@ -1,0 +1,3199 @@
+vlseg8e16_v:
+  encoding: '---000-00000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg8e16ff_v:
+  encoding: '---000-10000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg8e32_v:
+  encoding: '---000-00000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg8e32ff_v:
+  encoding: '---000-10000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg8e64_v:
+  encoding: '---000-00000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg8e64ff_v:
+  encoding: '---000-10000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg8e8_v:
+  encoding: '---000-00000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg8e8ff_v:
+  encoding: '---000-10000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg7e16_v:
+  encoding: '---000-00000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg7e16ff_v:
+  encoding: '---000-10000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg7e32_v:
+  encoding: '---000-00000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg7e32ff_v:
+  encoding: '---000-10000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg7e64_v:
+  encoding: '---000-00000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg7e64ff_v:
+  encoding: '---000-10000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg7e8_v:
+  encoding: '---000-00000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg7e8ff_v:
+  encoding: '---000-10000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg6e16_v:
+  encoding: '---000-00000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg6e16ff_v:
+  encoding: '---000-10000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg6e32_v:
+  encoding: '---000-00000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg6e32ff_v:
+  encoding: '---000-10000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg6e64_v:
+  encoding: '---000-00000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg6e64ff_v:
+  encoding: '---000-10000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg6e8_v:
+  encoding: '---000-00000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg6e8ff_v:
+  encoding: '---000-10000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg5e16_v:
+  encoding: '---000-00000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg5e16ff_v:
+  encoding: '---000-10000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg5e32_v:
+  encoding: '---000-00000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg5e32ff_v:
+  encoding: '---000-10000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg5e64_v:
+  encoding: '---000-00000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg5e64ff_v:
+  encoding: '---000-10000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg5e8_v:
+  encoding: '---000-00000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg5e8ff_v:
+  encoding: '---000-10000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg4e16_v:
+  encoding: '---000-00000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg4e16ff_v:
+  encoding: '---000-10000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg4e32_v:
+  encoding: '---000-00000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg4e32ff_v:
+  encoding: '---000-10000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg4e64_v:
+  encoding: '---000-00000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg4e64ff_v:
+  encoding: '---000-10000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg4e8_v:
+  encoding: '---000-00000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg4e8ff_v:
+  encoding: '---000-10000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg3e16_v:
+  encoding: '---000-00000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg3e16ff_v:
+  encoding: '---000-10000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg3e32_v:
+  encoding: '---000-00000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg3e32ff_v:
+  encoding: '---000-10000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg3e64_v:
+  encoding: '---000-00000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg3e64ff_v:
+  encoding: '---000-10000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg3e8_v:
+  encoding: '---000-00000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg3e8ff_v:
+  encoding: '---000-10000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg2e16_v:
+  encoding: '---000-00000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg2e16ff_v:
+  encoding: '---000-10000-----101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg2e32_v:
+  encoding: '---000-00000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg2e32ff_v:
+  encoding: '---000-10000-----110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg2e64_v:
+  encoding: '---000-00000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg2e64ff_v:
+  encoding: '---000-10000-----111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg2e8_v:
+  encoding: '---000-00000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+vlseg2e8ff_v:
+  encoding: '---000-10000-----000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x1000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vd
+
+
+vsseg2e16_v:
+  encoding: '---000-00000-----101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg2e32_v:
+  encoding: '---000-00000-----110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg2e64_v:
+  encoding: '---000-00000-----111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg2e8_v:
+  encoding: '---000-00000-----000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x27'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+
+vsseg3e16_v:
+  encoding: '---000-00000-----101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg3e32_v:
+  encoding: '---000-00000-----110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg3e64_v:
+  encoding: '---000-00000-----111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg3e8_v:
+  encoding: '---000-00000-----000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x27'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+
+vsseg4e16_v:
+  encoding: '---000-00000-----101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg4e32_v:
+  encoding: '---000-00000-----110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg4e64_v:
+  encoding: '---000-00000-----111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg4e8_v:
+  encoding: '---000-00000-----000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x27'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+
+vsseg5e16_v:
+  encoding: '---000-00000-----101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg5e32_v:
+  encoding: '---000-00000-----110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg5e64_v:
+  encoding: '---000-00000-----111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg5e8_v:
+  encoding: '---000-00000-----000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x27'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+
+vsseg6e16_v:
+  encoding: '---000-00000-----101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg6e32_v:
+  encoding: '---000-00000-----110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg6e64_v:
+  encoding: '---000-00000-----111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg6e8_v:
+  encoding: '---000-00000-----000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x27'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+
+vsseg7e16_v:
+  encoding: '---000-00000-----101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg7e32_v:
+  encoding: '---000-00000-----110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg7e64_v:
+  encoding: '---000-00000-----111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg7e8_v:
+  encoding: '---000-00000-----000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x27'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+
+
+vsseg8e16_v:
+  encoding: '---000-00000-----101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x5027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg8e32_v:
+  encoding: '---000-00000-----110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x6027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg8e64_v:
+  encoding: '---000-00000-----111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x7027'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+vsseg8e8_v:
+  encoding: '---000-00000-----000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1df0707f'
+  match: '0x27'
+  variable_fields:
+  - nf
+  - vm
+  - rs1
+  - vs3
+
+
+
+vssseg2e16_v:
+  encoding: '---010-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg2e32_v:
+  encoding: '---010-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg2e64_v:
+  encoding: '---010-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg2e8_v:
+  encoding: '---010-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vlsseg2e16_v:
+  encoding: '---010-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg2e32_v:
+  encoding: '---010-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg2e64_v:
+  encoding: '---010-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg2e8_v:
+  encoding: '---010-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+
+
+vssseg3e16_v:
+  encoding: '---010-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg3e32_v:
+  encoding: '---010-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg3e64_v:
+  encoding: '---010-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg3e8_v:
+  encoding: '---010-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vlsseg3e16_v:
+  encoding: '---010-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg3e32_v:
+  encoding: '---010-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg3e64_v:
+  encoding: '---010-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg3e8_v:
+  encoding: '---010-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+
+vssseg4e16_v:
+  encoding: '---010-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg4e32_v:
+  encoding: '---010-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg4e64_v:
+  encoding: '---010-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg4e8_v:
+  encoding: '---010-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vlsseg4e16_v:
+  encoding: '---010-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg4e32_v:
+  encoding: '---010-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg4e64_v:
+  encoding: '---010-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg4e8_v:
+  encoding: '---010-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+
+vssseg5e16_v:
+  encoding: '---010-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg5e32_v:
+  encoding: '---010-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg5e64_v:
+  encoding: '---010-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg5e8_v:
+  encoding: '---010-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vlsseg5e16_v:
+  encoding: '---010-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg5e32_v:
+  encoding: '---010-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg5e64_v:
+  encoding: '---010-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg5e8_v:
+  encoding: '---010-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+
+
+vssseg6e16_v:
+  encoding: '---010-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg6e32_v:
+  encoding: '---010-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg6e64_v:
+  encoding: '---010-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg6e8_v:
+  encoding: '---010-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vlsseg6e16_v:
+  encoding: '---010-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg6e32_v:
+  encoding: '---010-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg6e64_v:
+  encoding: '---010-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg6e8_v:
+  encoding: '---010-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+
+
+vssseg7e16_v:
+  encoding: '---010-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg7e32_v:
+  encoding: '---010-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg7e64_v:
+  encoding: '---010-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg7e8_v:
+  encoding: '---010-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vlsseg7e16_v:
+  encoding: '---010-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg7e32_v:
+  encoding: '---010-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg7e64_v:
+  encoding: '---010-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg7e8_v:
+  encoding: '---010-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+
+vssseg8e16_v:
+  encoding: '---010-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg8e32_v:
+  encoding: '---010-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg8e64_v:
+  encoding: '---010-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vssseg8e8_v:
+  encoding: '---010-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000027'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vs3
+vlsseg8e16_v:
+  encoding: '---010-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8005007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg8e32_v:
+  encoding: '---010-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8006007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg8e64_v:
+  encoding: '---010-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8007007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+vlsseg8e8_v:
+  encoding: '---010-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x8000007'
+  variable_fields:
+  - nf
+  - vm
+  - rs2
+  - rs1
+  - vd
+
+
+
+vsuxseg2ei64_v:
+  encoding: '---001-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsuxseg2ei8_v:
+  encoding: '---001-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsuxseg2ei16_v:
+  encoding: '---001-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsuxseg2ei32_v:
+  encoding: '---001-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsoxseg2ei16_v:
+  encoding: '---011-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg2ei32_v:
+  encoding: '---011-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg2ei64_v:
+  encoding: '---011-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsoxseg2ei8_v:
+  encoding: '---011-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vluxseg2ei16_v:
+  encoding: '---001-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg2ei32_v:
+  encoding: '---001-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg2ei64_v:
+  encoding: '---001-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vluxseg2ei8_v:
+  encoding: '---001-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+vloxseg2ei16_v:
+  encoding: '---011-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg2ei32_v:
+  encoding: '---011-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg2ei64_v:
+  encoding: '---011-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vloxseg2ei8_v:
+  encoding: '---011-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+  
+
+
+
+
+
+vsuxseg3ei64_v:
+  encoding: '---001-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsuxseg3ei8_v:
+  encoding: '---001-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsuxseg3ei16_v:
+  encoding: '---001-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsuxseg3ei32_v:
+  encoding: '---001-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsoxseg3ei16_v:
+  encoding: '---011-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg3ei32_v:
+  encoding: '---011-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg3ei64_v:
+  encoding: '---011-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsoxseg3ei8_v:
+  encoding: '---011-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vluxseg3ei16_v:
+  encoding: '---001-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg3ei32_v:
+  encoding: '---001-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg3ei64_v:
+  encoding: '---001-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vluxseg3ei8_v:
+  encoding: '---001-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+vloxseg3ei16_v:
+  encoding: '---011-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg3ei32_v:
+  encoding: '---011-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg3ei64_v:
+  encoding: '---011-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vloxseg3ei8_v:
+  encoding: '---011-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+
+
+
+
+
+
+
+
+vsuxseg4ei64_v:
+  encoding: '---001-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsuxseg4ei8_v:
+  encoding: '---001-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsuxseg4ei16_v:
+  encoding: '---001-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsuxseg4ei32_v:
+  encoding: '---001-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsoxseg4ei16_v:
+  encoding: '---011-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg4ei32_v:
+  encoding: '---011-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg4ei64_v:
+  encoding: '---011-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsoxseg4ei8_v:
+  encoding: '---011-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vluxseg4ei16_v:
+  encoding: '---001-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg4ei32_v:
+  encoding: '---001-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg4ei64_v:
+  encoding: '---001-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vluxseg4ei8_v:
+  encoding: '---001-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+vloxseg4ei16_v:
+  encoding: '---011-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg4ei32_v:
+  encoding: '---011-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg4ei64_v:
+  encoding: '---011-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vloxseg4ei8_v:
+  encoding: '---011-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+
+
+
+
+
+
+
+
+vsuxseg5ei64_v:
+  encoding: '---001-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsuxseg5ei8_v:
+  encoding: '---001-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsuxseg5ei16_v:
+  encoding: '---001-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsuxseg5ei32_v:
+  encoding: '---001-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsoxseg5ei16_v:
+  encoding: '---011-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg5ei32_v:
+  encoding: '---011-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg5ei64_v:
+  encoding: '---011-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsoxseg5ei8_v:
+  encoding: '---011-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vluxseg5ei16_v:
+  encoding: '---001-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg5ei32_v:
+  encoding: '---001-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg5ei64_v:
+  encoding: '---001-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vluxseg5ei8_v:
+  encoding: '---001-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+vloxseg5ei16_v:
+  encoding: '---011-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg5ei32_v:
+  encoding: '---011-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg5ei64_v:
+  encoding: '---011-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vloxseg5ei8_v:
+  encoding: '---011-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+
+
+
+
+
+
+
+
+vsuxseg6ei64_v:
+  encoding: '---001-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsuxseg6ei8_v:
+  encoding: '---001-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsuxseg6ei16_v:
+  encoding: '---001-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsuxseg6ei32_v:
+  encoding: '---001-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsoxseg6ei16_v:
+  encoding: '---011-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg6ei32_v:
+  encoding: '---011-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg6ei64_v:
+  encoding: '---011-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsoxseg6ei8_v:
+  encoding: '---011-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vluxseg6ei16_v:
+  encoding: '---001-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg6ei32_v:
+  encoding: '---001-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg6ei64_v:
+  encoding: '---001-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vluxseg6ei8_v:
+  encoding: '---001-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+vloxseg6ei16_v:
+  encoding: '---011-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg6ei32_v:
+  encoding: '---011-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg6ei64_v:
+  encoding: '---011-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vloxseg6ei8_v:
+  encoding: '---011-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+
+
+
+
+
+
+
+vsuxseg7ei64_v:
+  encoding: '---001-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsuxseg7ei8_v:
+  encoding: '---001-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsuxseg7ei16_v:
+  encoding: '---001-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsuxseg7ei32_v:
+  encoding: '---001-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsoxseg7ei16_v:
+  encoding: '---011-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg7ei32_v:
+  encoding: '---011-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg7ei64_v:
+  encoding: '---011-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsoxseg7ei8_v:
+  encoding: '---011-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vluxseg7ei16_v:
+  encoding: '---001-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg7ei32_v:
+  encoding: '---001-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg7ei64_v:
+  encoding: '---001-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vluxseg7ei8_v:
+  encoding: '---001-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+vloxseg7ei16_v:
+  encoding: '---011-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg7ei32_v:
+  encoding: '---011-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg7ei64_v:
+  encoding: '---011-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vloxseg7ei8_v:
+  encoding: '---011-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+
+
+
+
+
+vsuxseg8ei64_v:
+  encoding: '---001-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsuxseg8ei8_v:
+  encoding: '---001-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsuxseg8ei16_v:
+  encoding: '---001-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsuxseg8ei32_v:
+  encoding: '---001-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vsoxseg8ei16_v:
+  encoding: '---011-----------101-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg8ei32_v:
+  encoding: '---011-----------110-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+vsoxseg8ei64_v:
+  encoding: '---011-----------111-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+vsoxseg8ei8_v:
+  encoding: '---011-----------000-----0100111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000027'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vs3
+
+
+vluxseg8ei16_v:
+  encoding: '---001-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg8ei32_v:
+  encoding: '---001-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vluxseg8ei64_v:
+  encoding: '---001-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vluxseg8ei8_v:
+  encoding: '---001-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0x4000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+
+vloxseg8ei16_v:
+  encoding: '---011-----------101-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc005007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg8ei32_v:
+  encoding: '---011-----------110-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc006007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+
+vloxseg8ei64_v:
+  encoding: '---011-----------111-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc007007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vloxseg8ei8_v:
+  encoding: '---011-----------000-----0000111'
+  extension:
+  - rv_v
+  mask: '0x1c00707f'
+  match: '0xc000007'
+  variable_fields:
+  - nf
+  - vm
+  - vs2
+  - rs1
+  - vd
+vqdot_vv:
+  encoding: '101100-----------010-----1011011'
+  extension:
+  - Xsfvqdotq
+  mask: 'missing'
+  match: 'missing'
+  variable_fields:
+  - vm
+  - vs2
+  - vs1
+  - vd
+vqdot_vx:
+  encoding: '101100-----------110-----1011011'
+  extension:
+  - Xsfvqdotq
+  mask: 'missing'
+  match: 'missing'
+  variable_fields:
+  - vm
+  - vs2
+  - rs1
+  - vd
+vqdotu_vv:
+  encoding: '101000-----------010-----1011011'
+  extension:
+  - Xsfvqdotq
+  mask: 'missing'
+  match: 'missing'
+  variable_fields:
+  - vm
+  - vs2
+  - vs1
+  - vd
+vqdotu_vx:
+  encoding: '101000-----------110-----1011011'
+  extension:
+  - Xsfvqdotq
+  mask: 'missing'
+  match: 'missing'
+  variable_fields:
+  - vm
+  - vs2
+  - rs1
+  - vd
+vqdotsu_vv:
+  encoding: '101010-----------010-----1011011'
+  extension:
+  - Xsfvqdotq
+  mask: 'missing'
+  match: 'missing'
+  variable_fields:
+  - vm
+  - vs2
+  - vs1
+  - vd
+vqdotsu_vx:
+  encoding: '101010-----------110-----1011011'
+  extension:
+  - Xsfvqdotq
+  mask: 'missing'
+  match: 'missing'
+  variable_fields:
+  - vm
+  - vs2
+  - rs1
+  - vd
+vqdotus_vx:
+  encoding: '101110-----------110-----1011011'
+  extension:
+  - Xsfvqdotq
+  mask: 'missing'
+  match: 'missing'
+  variable_fields:
+  - vm
+  - vs2
+  - rs1
+  - vd

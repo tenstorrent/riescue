@@ -143,3 +143,5 @@ Example `cpu_config.json`:
 - Python 3.6+
 
 For detailed installation instructions, see the [main README](../../README.md).
+
+[Detailed RiescueD User Guide](https://github.com/tenstorrent/riescue/blob/main/docs/public_source/user_guides/riescued_tutorial.rst)

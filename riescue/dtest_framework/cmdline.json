@@ -1,0 +1,287 @@
+{
+    "prog": "RiescueD",
+    "description": "Riescue Direct Test Framework",
+    "args": {
+        "testname": {"name": ["--testname", "-t"], "required": "True", "type": "Path", "help": "Testname with path to be compiled with RiESCUE-D"},
+        "run_dir": {"name": ["--run_dir", "-rd"], "type": "Path", "default": "./", "help": "Run directory where the test will be run"},
+        "seed": {"name": ["--seed"], "default": null, "type": "int", "help": "Seed for the test"},
+        "cpuconfig": {"name": ["--cpuconfig"], "default": "", "type": "str", "help": "Path to cpu feature configuration"},
+        "fe_tb": {
+            "name": ["--fe_tb", "-fe_tb"],
+            "action": "store_true",
+            "default": false,
+            "help": "Special considerations for FE testbench. They really can't know taken vs not-taken branches. So, jump to passed|failed is same for them. So, making passed=failed label"
+        },
+        "tohost_nonzero_terminate": {
+            "name": ["--tohost_nonzero_terminate", "-tnt"],
+            "action": "store_true",
+            "help": "Spike option to be forwarded. Ends simulation immediately when tohost becomes nonzero."
+        },
+        "_groups": {
+            "Run Control": {
+                "description": "Arguments that modify the run flow - runnning simulators, compilers, excluding OS code",
+                "elaborate_only": {"name": ["--elaborate_only"], "action": "store_true", "help": "Only elaborate the test but dont attempt to call external compiler or simulator"},
+                "run_iss": {"name": ["--run_iss"], "action": "store_true", "help": "Run ISS with the test. Default ISS is Whisper, but can be run with any other ISS using --iss <iss>"},
+                "iss": {"name": ["--iss"], "default": "whisper", "type": "str", "choices": ["whisper", "spike"], "help": "Specify which ISS to use."},
+                "iss_timeout": {"name": ["--iss_timeout"], "type": "int", "default": 900, "help": "Timeout value for ISS runs"},
+                "sim_max_instr": {
+                    "name": ["--sim_max_instr", "-smi"],
+                    "type": "int",
+                    "default": 50000,
+                    "help": "Overrides max number of instructions to simulate, useful when wanting to see a trace but not gigabytes worth. Legal values are positive integers"
+                },
+                "wysiwyg": {
+                    "name": ["--wysiwyg"],
+                    "action": "store_true",
+                    "help": "'What You See Is What You Get mode; no OS code is added, only the test code is executed as it is. Intended for environments not monitoring tohost writes"
+                },
+                "bringup_pagetables": {
+                    "name": ["--bringup_pagetables"],
+                    "action": "store_true",
+                    "help": "Implies --wysiwyg and --addrgen_limit_indices, but enables switch to super and paging in the loader code"
+                },
+                "run_intent_checker": {"name": ["--run_intent_checker", "-ric"], "action": "store_true", "help": "Run the intent checker on the test if Spike is used as the ISS"},
+                "interrupts_enabled": {"name": ["--interrupts_enabled", "-ie"], "action": "store_true", "help": "Enable interrupts"},
+                "skip_instruction_for_unexpected": {
+                    "name": ["--skip_instruction_for_unexpected"],
+                    "action": "store_true",
+                    "help": "Ambigious name - this should be something like 'ignore unexpected exceptions'."
+                },
+                "overrun": {"name": ["--overrun", "-overrun"], "action": "store_true", "default": false, "help": "Indicates we expect to exceed the instruction count limit for simulation"}
+            },
+            "Logger": {"description": "Arguments to pass to logger", "max_logger_file_gb": {"name": ["--max_logger_file_gb"], "type": "float", "help": "Max size of testlog file in GB", "default": 1}
+            },
+            "Test Structure": {
+                "description": "Arguments that modify the generated test's structure. E.g. alignment, page size, etc",
+                "addrgen_limit_indices": {"name": ["--addrgen_limit_indices"], "action": "store_true", "help": "Limit addrgen to not generate more than 4 addresses with the same index"},
+                "more_os_pages": {"name": ["--more_os_pages"], "action": "store_true", "help": "Ask riescued to generate more code and os_stack pages for long tests"},
+                "linux_mode": {"name": ["--linux_mode"], "action": "store_true", "help": "Generate riescued OS code and prepare test to run it in the Linux environment"},
+                "reserve_partial_phys_memory": {
+                    "name": ["--reserve_partial_phys_memory"],
+                    "action": "store_true",
+                    "help": "By default, Riescue-D will only reserve full physical address size specified by ;page_mapping(pagesize) or ;random_addr(size). If you want Riescued to only reserve 4kb size for all the addresses, use this option"
+                },
+                "all_4kb_pages": {"name": ["--all_4kb_pages"], "action": "store_true", "help": "Ask riescued to generate all 4KB pages"},
+                "single_assembly_file": {
+                    "name": ["--single_assembly_file", "-saf"],
+                    "action": "store_true",
+                    "help": "Indicates that all assembly is written to a single file. Ignoring this option means writing to a handful of .inc files"
+                },
+                "disallow_mmio": {"name": ["--disallow_mmio"], "action": "store_true", "help": "Disallow MMIO in the test"},
+                "force_alignment": {"name": ["--force_alignment"], "action": "store_true", "help": "Forces all data and code to be byte-aligned; Removes --misaligned from spike run_iss's args"},
+                "c_used": {"name": ["--c_used"], "action": "store_true", "help": "Use C sections when generating code"},
+                "big_bss": {"name": ["--big_bss"], "action": "store_true", "help": "Sets bss section to 3080 4kb pages instead of default"},
+                "small_bss": {"name": ["--small_bss"], "action": "store_true", "help": "Sets bss section to 1200 4kb page instead of default"},
+                "eot_pass_value": {"name": ["--eot_pass_value"], "default": 1, "type": "hex", "help": "Sets the end of test pass value; defaults to 1"},
+                "eot_fail_value": {"name": ["--eot_fail_value"], "default": 3, "type": "hex", "help": "Sets the end of test fail value; defaults to 1"},
+                "tohost": {
+                    "name": ["--tohost"],
+                    "type": "str",
+                    "help": "Hardcoded address for tohost and HTIF IO section; Leaving blank uses value in memap, if none in memmap puts as variables at end of os_code"
+                },
+                "addrgen_limit_way_predictor_multihit": {
+                    "name": ["--addrgen_limit_way_predictor_multihit", "-ag_limit_wp_multihit"],
+                    "action": "store_true",
+                    "help": "Limit addrgen to not generate address with multi-hit in the way predictor"
+                },
+                "code_offset": {"name": ["--code_offset"], "default": null, "type": "int", "help": "Specify code offset where the test code should start. Default: Randomized 0-140h"},
+                "randomize_code_location": {"name": ["--randomize_code_location"], "action": "store_true", "help": "Randomize the code location in the test. Default: follows .text section"},
+                "add_gcc_cstdlib_sections": {
+                    "name": ["--add_gcc_cstdlib_sections"],
+                    "action": "store_true",
+                    "default": false,
+                    "help": "Add a gcc cstdlib section to the test for each library function as GCC likes to do."
+                }
+            },
+            "Test Environment": {
+                "description": "Arguments that control test environment. Will override Riescue Directives in test file \ne.g.\t--test_priv_mode user \nwill take precedence over \n\t;#test.priv any",
+                "test_priv_mode": {
+                    "name": ["--test_priv_mode"],
+                    "type": "str",
+                    "choices": ["user", "super", "machine", "any"],
+                    "help": "Specify privilege mode for the test to be forced. e.g. \n\t--test_priv_mode user. Legal values are: user, super, machine"
+                },
+                "test_paging_mode": {
+                    "name": ["--test_paging_mode"],
+                    "default": "",
+                    "type": "str",
+                    "choices": ["sv32", "sv39", "sv48", "sv57", "any", "disable"],
+                    "help": "Specify paging mode for the test to be forced. e.g. \n\t--test_paging_mode sv57"
+                },
+                "test_paging_g_mode": {
+                    "name": ["--test_paging_g_mode"],
+                    "default": "",
+                    "type": "str",
+                    "choices": ["sv32", "sv39", "sv48", "sv57", "any", "disable"],
+                    "help": "Specify g-stage paging mode for the test to be forced. e.g. \n\t--test_paging_g_mode sv57"
+                },
+                "test_env": {"name": ["--test_env"], "type": "str", "choices": ["bare_metal", "virtualized"], "help": "Specify environment for the test to be forced. e.g. \n\t--test_env bare_metal"},
+                "test_env_any": {"name": ["--test_env_any"], "action": "store_true", "help": "Allow test environment to be randomly selected between bare_metal and virtualized if any is specified"},
+                "test_secure_mode": {
+                    "name": ["--test_secure_mode"],
+                    "type": "str",
+                    "choices" : ["on", "off", "random"],
+                    "help": "Specify secure mode for the test to be forced. e.g. \n\t--test_secure_mode random \nIf random is selected then the probability of secure mode is 20%%"
+                }
+            },
+            "Test Generation": {
+                "description": "Arguments that affect misc test generation",
+                "repeat_times": {"name": ["--repeat_times", "-rt"], "default": "3", "type": "int", "help": "Number of times each discrete test should be run"},
+                "big_endian": {"name": ["--big_endian", "-big_e"], "action": "store_true", "help": "Mode for enabling big-endian for cross-compilers and ISS"},
+                "counter_event_path": {"name": ["--counter_event_path"], "type": "Path", "default": null, "help": "path to counter event file, used to randomize events in counter files"},
+                "disable_wfi_wait": {"name": ["--disable_wfi_wait", "-disable_wfi_wait"], "action": "store_true", "help": "[Required for MP spike runs] Disable wfi wait in sync loops."},
+                "secure_access_probability": {"name": ["--secure_access_probability"], "default": 30, "type": "int", "help": "Probability of secure access in the test"},
+                "secure_pt_probability": {"name": ["--secure_pt_probability"], "default": 0, "type": "int", "help": "Probability of secure pagetable in the test"},
+                "a_d_bit_randomization": {"name": ["--a_d_bit_randomization"], "default": 0, "type": "int", "help": "Probability of randomizing A and D bits in page table entries (0-100)"},
+                "pbmt_ncio_randomization": {"name": ["--pbmt_ncio_randomization"], "default": 0, "type": "int", "help": "Probability of randomizing PBMT NC vs IO bits in page table entries (0-100)"}
+            },
+            "Test OS Code": {
+                "description": "Argumnets that affect Test OS code generation",
+                "deleg_excp_to": {
+                    "name": ["--deleg_excp_to", "-deleg_excp_to"],
+                    "default": "random",
+                    "choices": ["super", "machine", "random"],
+                    "type": "str",
+                    "help": "Specify privilege where exceptions are handled. Default: machine or super (random)"
+                },
+                "switch_to_machine_page": {
+                    "name": ["--switch_to_machine_page", "-switch_to_machine_page"],
+                    "default": "code_machine_0",
+                    "type": "str",
+                    "help": "Specify the page where the handler will return control after using ecall function 0xf0010001"
+                },
+                "switch_to_super_page": {
+                    "name": ["--switch_to_super_page", "-switch_to_super_page"],
+                    "default": "code_super_0",
+                    "type": "str",
+                    "help": "Specify the page where the handler will return control after using ecall function 0xf0010002"
+                },
+                "switch_to_user_page": {
+                    "name": ["--switch_to_user_page", "-switch_to_user_page"],
+                    "default": "code_user_0",
+                    "type": "str",
+                    "help": "Specify the page where the handler will return control after using ecall function 0xf0010003"
+                },
+                "user_interrupt_table": {"name": ["--user_interrupt_table"], "action": "store_true", "help": "Overrides jump to default interrupt table with user symbol 'USER_INTERRUPT_TABLE'"},
+                "excp_hooks": {
+                    "name": ["--excp_hooks", "-excp_hooks"],
+                    "action": "store_true",
+                    "help": "Insert exception handler hooks. RiescueD will call excp_handler_pre: and excp_handler_post: functions right before entering the exception hndler and after before returning from exception handler respectively"
+                },
+                "vmm_hooks": {
+                    "name": ["--vmm_hooks", "-vmm_hooks"],
+                    "action": "store_true",
+                    "help": "Insert vmm hooks in the virtualized mode. RiescueD will call vmm_handler_pre: and vmm_handler_post: functions before launching the guest and after exiting from guest respectively"
+                }
+            },
+            "Multiprocessor": {
+                "description": "Arguments for multiprocessor tests",
+                "mp": {"name": ["--mp"], "default": "", "type": "str", "help": "Overrides MP enablement in cpuconfig file or overridden in test file. Legal values are: 'on', 'off'"},
+                "mp_mode": {
+                    "name": ["--mp_mode"],
+                    "default": "",
+                    "type": "str",
+                    "help": "Overrides MP mode provided in cpuconfig file or overridden in test file. Legal values are: 'simultaneous', 'parallel'"
+                },
+                "parallel_scheduling_mode": {
+                    "name": ["--parallel_scheduling_mode"],
+                    "default": "",
+                    "type": "str",
+                    "help": "Overrides parallel scheduling mode provided in cpuconfig file or overridden in test file. Legal values are: 'round_robin', 'exhaustive'"
+                },
+                "num_cpus": {
+                    "name": ["--num_cpus"],
+                    "default": "",
+                    "type": "str",
+                    "help": "Overrides number of CPUs provided in cpuconfig file or overridden in test file. Legal values are positive integers"
+                }
+            },
+            "Test CSR": {
+                "description": "Argumnets that override starting CSR values",
+                "medeleg": {"name": ["--medeleg"], "default": "0xffffffffffffffff", "type": "hex", "help": "Override medeleg when --test_env supervisor/user"},
+                "mideleg": {"name": ["--mideleg"], "default": "0xffffffffffffffff", "type": "hex", "help": "Override mideleg when --test_env supervisor/user"},
+                "hedeleg": {
+                    "name": ["--hedeleg"],
+                    "default": "0xffffffffffffffff",
+                    "type": "hex",
+                    "help": "Override hedeleg when '--test_env supervisor/user' and '--test_env virtualized' in VS mode OS"
+                },
+                "hideleg": {
+                    "name": ["--hideleg"],
+                    "default": "0xffffffffffffffff",
+                    "type": "hex",
+                    "help": "Override hideleg when '--test_env supervisor/user' and '--test_env virtualized' in VS mode OS"
+                },
+                "menvcfg": {"name": ["--menvcfg"], "default": "0x0", "type": "hex", "help": "Override menvcfg value to write in loader"},
+                "henvcfg": {"name": ["--henvcfg"], "default": "0x0", "type": "hex", "help": "Override henvcfg value to write in loader"},
+                "senvcfg": {"name": ["--senvcfg"], "default": "0x0", "type": "hex", "help": "Override senvcfg value to write in loader. Default 0x0."},
+                "setup_pmp": {"name": ["--setup_pmp"], "action": "store_true", "help": "Ask riescued to setup PMP registers"},
+                "needs_pma": {"name": ["--needs_pma"], "action": "store_true", "help": "Indicates if the test wants to enable PMA functionality of Riescue-D"},
+                "num_pmas": {
+                    "name": ["--num_pmas"],
+                    "default": "16",
+                    "type": "int",
+                    "help": "Number of PMACFG registers implemented. Default is 16. Changing this number requires an update in the whisper_config.json"
+                },
+                "setup_stateen": {
+                    "name": ["--setup_stateen"],
+                    "action": "store_true",
+                    "help": "Ask riescued to setup stateen registers as per smstateen extension"
+                }
+            },
+            "CSR Initialization" : {
+                "csr_init" : {
+                    "name" : ["--csr_init"],
+                    "action" : "append",
+                    "type" : "str",
+                    "help" : "Initialize a CSR with a value. Format: 'csr_name=value' or 'csr_number=value'. Can be specified multiple times. Example: --csr_init mstatus=0x8000 --csr_init 0x300=0x1"
+                },
+                "csr_init_mask" : {
+                    "name" : ["--csr_init_mask"],
+                    "action" : "append",
+                    "type" : "str",
+                    "help" : "Initialize a CSR using read-modify-write with a mask. Format: 'csr_name=mask=value' or 'csr_number=mask=value'. Can be specified multiple times. Example: --csr_init_mask mstatus=0x8000=0x8000"
+                }
+            },
+            "Random CSR Arguments": {
+                "no_random_csr_reads": {
+                    "name": ["--no_random_csr_reads", "-no_random_csr_reads"],
+                    "action": "store_true",
+                    "default": false,
+                    "help": "Disable random CSR read randomization that happens in the OS scheduler code"
+                },
+                "max_random_csr_reads": {
+                    "name": ["--max_random_csr_reads", "-max_random_csr_read"],
+                    "default": "16",
+                    "type": "int",
+                    "help": "Maximum number of CSRs read to inject for the randomization. Default: 16. Minimum: 3."
+                },
+                "random_machine_csr_list": {
+                    "name": ["--random_machine_csr_list", "-random_machine_csr_list"],
+                    "action": "append",
+                    "type": "str",
+                    "help": "List csr name that the CSR read randomization logic must include when OS is in machine mode. Specify list this: --random_machine_csr_list mstatus,mcause FIXME: use choices"
+                },
+                "random_supervisor_csr_list": {
+                    "name": ["--random_supervisor_csr_list", "-random_supervisor_csr_list"],
+                    "action": "append",
+                    "type": "str",
+                    "help": "List csr name that the CSR read randomization logic must include when OS is in supervisor/machine mode. Specify list this: --random_supervisor_csr_list sstatus,scause"
+                },
+                "random_user_csr_list": {
+                    "name": ["--random_user_csr_list", "-random_user_csr_list"],
+                    "action": "append",
+                    "type": "str",
+                    "help": "List csr name that the CSR read randomization logic must include when OS is in user/supervisor/machine mode. Specify list this: --random_supervisor_csr_list fcsr,time"
+                }
+            },
+            "gold": {
+                "description": "Deprecated ???",
+                "gold_standard_filepath": {"name": ["--gold_standard_filepath"], "type": "str", "help": "Path to gold standard file. Signals that test output should be diffed against this file"},
+                "replace_gold_standard": {"name": ["--replace_gold_standard"], "action": "store_true", "help": "Convenience option to replace gold standard with test output"},
+                "riescue_d_gold_test": {"name": ["--riescue_d_gold_test"], "action": "store_true", "help": "Run the test with Riescue-D gold standard"},
+                "repo_gold_file_used": {"name": ["--repo_gold_file_used"], "action": "store_true", "help": "Indicates that the gold standard file is in the repo"}
+            }
+        }
+    }
+}
