@@ -18,3 +18,4 @@ API Reference
 
    api/riescue.lib
    api/riescue.dtest_framework
+   api/riescue.dtest_framework.runtime

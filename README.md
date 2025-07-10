@@ -1,54 +1,52 @@
-- [RiESCUE](#riescue)
 - [Open Source Roadmap](#open-source-roadmap)
+- [RiESCUE](#riescue)
 - [Installation and Usage](#installation-and-usage)
-- [Contributing](#contributing)
+- [Contributing](#developing-and-contributing)
 
 
-## Roadmap
-<details>
+# Open Source Roadmap
+We are excited to announce that we will be open-sourcing a suite of tools under the RiESCUE umbrella. Below is a list of tools that we plan to release in the coming months.
 
-<summary>Click here to expand roadmap</summary>
 
 ## RiescueD - Directed Test Framework
-A powerful  framework for writing directed tests in RISC-V assembly and provides library for test generator development, with features like:
-OS code simulation
-Random address generation
-Memory management
-Page table generation
-Exception handling and self-checking
-Hypervisor
-Multi-processer support
-Support for various privilege modes, paging modes, and virtualization modes
+A powerful framework for writing directed tests in RISC-V assembly and provides library for test generator development, with features like:
+ - OS code simulation
+ - Random address generation
+ - Memory management
+ - Page table generation
+ - Exception handling and self-checking
+ - Hypervisor
+ - Multi-processer support
+ - Support for various privilege modes, paging modes, and virtualization modes
+
 ## RiescueC - Compliance Test Generator
-- A specialized test generator for RISC-V compliance testing that supports:
+A specialized test generator for RISC-V compliance testing that supports:
 - Multiple RISC-V extensions (I, M, A, F, C, D, V, etc.)
 - Self-checking test generation
 - Configurable test constraints
 - Comprehensive RISC-V RVA23 extensions support
 
 ## CTK - Compliance Test Kit
-- Tool for generating a suite of architectural compliance tests using the RiescueC framework (wrapper around RiescueC)
+Tool for generating a suite of architectural compliance tests using the RiescueC framework (wrapper around RiescueC)
 - Allows configuration of test environments: privilege modes, paging, virtualization
 - Supports a variety of RISC-V base ISAs, privilege specifications, and extensions
 - Flexible support for different memory maps and system configurations
 - Used for generating the [tenstorrent/tt_riscv_arch_tests](https://github.com/tenstorrent/riscv_arch_tests) self-checking architectural test suite
 
 ## CoreArchCoverage
-- Framework for auto-generating and collecting architectural (ISA) coverage from reference models (ISS)
+Framework for auto-generating and collecting architectural (ISA) coverage from reference models (ISS)
 - Can generate SystemVerilog coverage packages, while allowing user-defined, case-specific coverages
 - Supports ISS-only sampling for fast feedback from regression tests
 - Provides support for coverage collection in cosimulation scenarios
-- Core archcoverage white paper <insert link - hosted in GH/TT> (internal link)
+- Core archcoverage white paper [link](https://github.com/tenstorrent/riescue/releases/download/v0.2.5/tenstorrent-Architectural-Coverage-Framework.pdf) (PDF Warning!)
 
 ## Core Test Plan
-- Extensible framework for defining, managing, and consuming RISC-V architectural compliance test plans
+Extensible framework for defining, managing, and consuming RISC-V architectural compliance test plans
 - Generates both human-readable documentation and machine-parseable input for compliance test generation
 - Provides a common format and APIs for:
 - Writing RISC-V architectural test plans and test scenarios
 - Parsing and transforming scenarios into structured data for downstream tools
 - Rendering test plans as documentation
-
-</details>
 
 # RiESCUE
 RISC-V Directed Test Framework and Compliance Suite, RiESCUE
@@ -73,6 +71,9 @@ A powerful Python library for writing directed tests in assembly with features l
 
 [Learn more about RiescueD](riescue/dtest_framework/README.md)
 
+[Detailed RiescueD User Guide](https://docs.tenstorrent.com/riescue/user_guides/riescued_tutorial.html)
+
+
 ### 2. RiescueC - Compliance Test Generator
 A specialized test generator for RISC-V compliance testing that supports:
 - Multiple RISC-V extensions (I, M, A, F, C, D, V, etc.)
@@ -80,10 +81,10 @@ A specialized test generator for RISC-V compliance testing that supports:
 - Configurable test constraints
 - Comprehensive extension support
 
-[Learn more about RiescueC](riescue/compliance/README.md)
+[Learn more about RiescueC](riescue/compliance/README.md) (Link works when RiescueC is open-sourced)
 
 
-# Installation
+# Installation and Usage
 ## From git
 To install directly
 ```
@@ -119,7 +120,7 @@ Like toolchains, simulators can be set with a command line switch, environment v
 
 
 ## Getting Started
-Check out the [RiescueD Tutorial](https://solid-eureka-nro2r55.pages.github.io/user_guides/riescued_tutorial.html) for more info on getting started.
+Check out the [RiescueD Tutorial](https://docs.tenstorrent.com/riescue/user_guides/riescued_tutorial.html) for more info on getting started.
 
 # Developing and Contributing
 The main dependency needed for developing is singularity or apptainer. See the [Contributing page](.github/CONTRIBUTING.md) for information on setting up a developer environment.

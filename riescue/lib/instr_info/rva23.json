@@ -1,0 +1,357 @@
+{
+    "RVA23U64": {
+        "mandatory": [
+            {
+                "ext": "i",
+                "description": "Integer base ISA"
+            },
+            {
+                "ext": "m",
+                "description": "Integer multiplication and division."
+            },
+            {
+                "ext": "a",
+                "description": "Atomic instructions."
+            },
+            {
+                "ext": "f",
+                "description": "Single-precision floating-point instructions."
+            },
+            {
+                "ext": "d",
+                "description": "Double-precision floating-point instructions."
+            },
+            {
+                "ext": "c",
+                "description": "Compressed instructions."
+            },
+            {
+                "ext": "zicsr",
+                "description": "CSR instructions.  These are implied by presence of F."
+            },
+            {
+                "ext": "zicntr",
+                "description": "Base counters and timers."
+            },
+            {
+                "ext": "zihpm",
+                "description": "Hardware performance counters."
+            },
+            {
+                "ext": "ziccif",
+                "description": "Main memory regions with both the cacheability and coherence PMAs must support instruction fetch, and any instruction fetches of naturally aligned power-of-2 sizes up to min(ILEN,XLEN) (i.e., 32 bits for RVA23) are atomic."
+            },
+            {
+                "ext": "ziccrse",
+                "description": "Main memory regions with both the cacheability and coherence PMAs must support RsrvEventual."
+            },
+            {
+                "ext": "ziccamoa",
+                "description": "Main memory regions with both the cacheability and coherence PMAs must support all atomics in A."
+            },
+            {
+                "ext": "zicclsm",
+                "description": "Misaligned loads and stores to main memory regions with both the cacheability and coherence PMAs must be supported."
+            },
+            {
+                "ext": "za64rs",
+                "description": "Reservation sets are contiguous, naturally aligned, and a maximum of 64 bytes."
+            },
+            {
+                "ext": "zihintpause",
+                "description": "Pause hint."
+            },
+            {
+                "ext": "zba",
+                "description": "Address generation."
+            },
+            {
+                "ext": "zbb",
+                "description": "Basic bit-manipulation."
+            },
+            {
+                "ext": "zbs",
+                "description": "Single-bit instructions."
+            },
+            {
+                "ext": "zic64b",
+                "description": "Cache blocks must be 64 bytes in size, naturally aligned in the address space."
+            },
+            {
+                "ext": "zicbom",
+                "description": "Cache-block management instructions."
+            },
+            {
+                "ext": "zicbop",
+                "description": "Cache-block prefetch instructions."
+            },
+            {
+                "ext": "zicboz",
+                "description": "Cache-Block Zero Instructions."
+            },
+            {
+                "ext": "zfhmin",
+                "description": "Half-precision floating-point."
+            },
+            {
+                "ext": "zkt",
+                "description": "Data-independent execution latency."
+            },
+            {
+                "ext": "v",
+                "description": "Vector extension."
+            },
+            {
+                "ext": "zvfhmin",
+                "description": "Vector minimal half-precision floating-point."
+            },
+            {
+                "ext": "zvbb",
+                "description": "Vector basic bit-manipulation instructions."
+            },
+            {
+                "ext": "zvkt",
+                "description": "Vector data-independent execution latency."
+            },
+            {
+                "ext": "zihintntl",
+                "description": "Non-temporal locality hints."
+            },
+            {
+                "ext": "zicond",
+                "description": "Integer conditional operations."
+            },
+            {
+                "ext": "zimop",
+                "description": "may-be-operations."
+            },
+            {
+                "ext": "zcmop",
+                "description": "Compressed may-be-operations."
+            },
+            {
+                "ext": "zcb",
+                "description": "Additional compressed instructions."
+            },
+            {
+                "ext": "zfa",
+                "description": "Additional floating-Point instructions."
+            },
+            {
+                "ext": "zawrs",
+                "description": "Wait-on-reservation-set instructions."
+            },
+            {
+                "ext": "supm",
+                "description": "Pointer masking, with the execution environment providing a means to select PMLEN=0 and PMLEN=7 at minimum."
+            }
+        ],
+        "optional": [
+            {
+                "ext": "zvkng",
+                "description": "Vector crypto NIST algorithms with GCM."
+            },
+            {
+                "ext": "zvksg",
+                "description": "Vector crypto ShangMi algorithms with GCM."
+            },
+            {
+                "ext": "zabha",
+                "expansion": true,
+                "description": "Byte and halfword atomic memory operations."
+            },
+            {
+                "ext": "zacas",
+                "expansion": true,
+                "description": "Compare-and-Swap instructions."
+            },
+            {
+                "ext": "ziccamoc",
+                "expansion": true,
+                "description": "Main memory regions with both the cacheability and coherence PMAs must provide AMOCASQ level PMA support."
+            },
+            {
+                "ext": "zvbc",
+                "expansion": true,
+                "description": "Vector carryless multiplication."
+            },
+            {
+                "ext": "zama16b",
+                "expansion": true,
+                "description": "Misaligned loads, stores, and AMOs to main memory regions that do not cross a naturally aligned 16-byte boundary are atomic."
+            },
+            {
+                "ext": "zfh",
+                "expansion": true,
+                "description": "Scalar half-precision floating-point."
+            },
+            {
+                "ext": "zbc",
+                "expansion": true,
+                "description": "Scalar carryless multiply."
+            },
+            {
+                "ext": "zvfh",
+                "expansion": true,
+                "description": "Vector half-precision floating-point."
+            },
+            {
+                "ext": "zfbfmin",
+                "expansion": true,
+                "description": "Scalar BF16 converts."
+            },
+            {
+                "ext": "zvfbfmin",
+                "expansion": true,
+                "description": "Vector BF16 converts."
+            },
+            {
+                "ext": "zvfbfwma",
+                "expansion": true,
+                "description": "Vector BF16 widening mul-add."
+            }
+        ]
+    },
+    "RVA23S64": {
+        "mandatory": [
+            {
+                "ext": "zifencei",
+                "description": "Instruction-Fetch Fence."
+            },
+            {
+                "ext": "ss1p13",
+                "description": "Supervisor architecture version 1.13."
+            },
+            {
+                "ext": "svbare",
+                "description": "The `satp` mode Bare must be supported."
+            },
+            {
+                "ext": "sv39",
+                "description": "Page-based 39-bit virtual-Memory system."
+            },
+            {
+                "ext": "svade",
+                "description": "Page-fault exceptions are raised when a page is accessed when A bit is clear, or written when D bit is clear."
+            },
+            {
+                "ext": "ssccptr",
+                "description": "Main memory regions with both the cacheability and coherence PMAs must support hardware page-table reads."
+            },
+            {
+                "ext": "sstvecd",
+                "description": "stvec.MODE must be capable of holding the value 0 (Direct). When stvec.MODE=Direct, stvec.BASE must be capable of holding any valid four-byte-aligned address."
+            },
+            {
+                "ext": "sstvala",
+                "description": "stval must be written with the faulting virtual address for load, store, and instruction page-fault, access-fault, and misaligned exceptions, and for breakpoint exceptions other than those caused by execution of the EBREAK or C.EBREAK instructions. For virtual-instruction and illegal-instruction exceptions, stval must be written with the faulting instruction."
+            },
+            {
+                "ext": "sscounterenw",
+                "description": "For any hpmcounter that is not read-only zero, the corresponding bit in scounteren must be writable."
+            },
+            {
+                "ext": "svpbmt",
+                "description": "Page-based memory types"
+            },
+            {
+                "ext": "svinval",
+                "description": "Fine-grained address-translation cache invalidation."
+            },
+            {
+                "ext": "svnapot",
+                "description": "NAPOT translation contiguity."
+            },
+            {
+                "ext": "sstc",
+                "description": "supervisor-mode timer interrupts."
+            },
+            {
+                "ext": "sscofpmf",
+                "description": "count overflow and mode-based filtering."
+            },
+            {
+                "ext": "ssnpm",
+                "description": "Pointer masking, with senvcfg.PME and henvcfg.PME supporting, at minimum, settings PMLEN=0 and PMLEN=7."
+            },
+            {
+                "ext": "ssu64xl",
+                "description": "sstatus.UXL must be capable of holding the value 2 (i.e., UXLEN=64 must be supported)."
+            },
+            {
+                "ext": "h",
+                "description": "The hypervisor extension."
+            },
+            {
+                "ext": "ssstateen",
+                "description": "Supervisor-mode view of the state-enable extension. The supervisor-mode (sstateen0-3) and hypervisor-mode (hstateen0-3) state-enable registers must be provided."
+            },
+            {
+                "ext": "shcounterenw",
+                "description": "For any `hpmcounter` that is not read-only zero, the corresponding bit in `hcounteren` must be writable."
+            },
+            {
+                "ext": "shvstvala",
+                "description": "`vstval` must be written in all cases described above for `stval`."
+            },
+            {
+                "ext": "shtvala",
+                "description": "`htval` must be written with the faulting guest physical address in all circumstances permitted by the ISA"
+            },
+            {
+                "ext": "shvstvecd",
+                "description": "`vstvec.MODE` must be capable of holding the value 0 (Direct)."
+            },
+            {
+                "ext": "shvsatpa",
+                "description": "All translation modes supported in `satp` must be supported in `vsatp`."
+            },
+            {
+                "ext": "shgatpa",
+                "description": "For each supported virtual memory scheme SvNN supported in satp, the corresponding hgatp SvNNx4 mode must be supported. The hgatp mode Bare must also be supported."
+            }
+        ],
+        "optional": [
+            {
+                "ext": "sv48",
+                "expansion": true,
+                "description": "Page-based 48-bit virtual-memory system."
+            },
+            {
+                "ext": "sv57",
+                "expansion": true,
+                "description": "Page-based 57-bit virtual-memory system."
+            },
+            {
+                "ext": "zkr",
+                "expansion": true,
+                "description": "Entropy CSR."
+            },
+            {
+                "ext": "svadu",
+                "expansion": true,
+                "description": "Hardware A/D bit updates."
+            },
+            {
+                "ext": "sdtrig",
+                "expansion": true,
+                "description": "Debug triggers."
+            },
+            {
+                "ext": "ssstrict",
+                "expansion": true,
+                "description": "No non-conforming extensions are present. Attempts to execute unimplemented opcodes or access unimplemented CSRs in the standard or reserved encoding spaces raises an illegal instruction exception that results in a contained trap to the supervisor-mode trap handler."
+            },
+            {
+                "ext": "svvptc",
+                "expansion": true,
+                "description": "Transitions from invalid to valid PTEs will be visible in bounded time without an explicit memory-management fence."
+            },
+            {
+                "ext": "sspm",
+                "expansion": true,
+                "description": "Supervisor-mode pointer masking, with the supervisor execution environment providing a means to select PMLEN=0 and PMLEN=7 at minimum."
+            }
+        ]
+    }
+}

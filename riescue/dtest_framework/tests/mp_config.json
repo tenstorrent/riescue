@@ -1,0 +1,23 @@
+{
+  "mmap" : {
+    "spike" : {
+      "address" : "0x0",
+      "size" : "0x200000"
+    },
+    "clint" : {
+      "address" : "0x2000000",
+      "size" : "0xc000"
+    },
+    "trickbox" : {
+      "address" : "0x9000000",
+      "size" : "0xc0000"
+    },
+    "htif" : {
+      "address" : "0x70000000",
+      "size" : "0x1000"
+    }
+  },
+
+  "isa" : [ "c" ],
+  "mp" : true
+}

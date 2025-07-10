@@ -9,7 +9,7 @@ Nothing's here yet but it should include some splash text for getting started as
 .. toctree::
    :maxdepth: 2
    :caption: User Guides:
-   :hidden:
+
 
    getting_started
    riescued_tutorial

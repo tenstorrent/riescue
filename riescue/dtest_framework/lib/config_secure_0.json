@@ -1,0 +1,128 @@
+{
+  "mmap": {
+    "_comment": "TODO: Memory regions need to have types e.g. DRAM, MMIO etc",
+    "dram" : {
+      "address" : "0x0",
+      "size" : "0x4_0000_0000_0000"
+    },
+    "secure1": {
+      "address": "0x4_0000_0000_0000",
+      "size": "0x4_0000_0000_0000"
+    },
+    "dram1" : {
+      "address" : "0x8_0000_0000_0000",
+      "size" : "0x4_0000_0000_0000"
+    },
+    "dram2" : {
+      "address" : "0xc_0000_0000_0000",
+      "size" : "0x4_0000_0000_0000"
+    },
+    "reset_pc": "0x8000_0000",
+    "io": {
+      "address": "0",
+      "size": "0x8000_0000",
+      "items": {
+        "boot": {
+          "address" : "0x1_0000",
+          "size" : "0x1_0000"
+        },
+        "io0": {
+          "address" : "0x0",
+          "size" : "0x1_0000"
+        },
+        "io1": {
+          "address" : "0x2_0000",
+          "size" : "0x2_0000"
+        },
+        "io2": {
+          "address" : "0x200_c000",
+          "size" : "0x5ff_4000",
+          "test_access" : "available"
+        },
+        "io3": {
+          "address": "0x7000_0010",
+          "size": "0xfff_fff0",
+          "test_access": "available"
+        },
+        "io4": {
+          "address": "0x1a0_c000",
+          "size": "0x5f_4000",
+          "test_access": "available"
+        },
+        "clint": {
+          "address": "0x200_0000",
+          "size": "0xc000"
+        },
+        "aclint": {
+          "address": "0x4218_0000",
+          "size": "0xc000"
+        },
+        "uart0": {
+          "address": "0x200_0000",
+          "size": "0x20",
+          "test_access": "available"
+        },
+        "maplic": {
+          "address": "0x1080_0000",
+          "size": "0x10_0000"
+        },
+        "saplic": {
+          "address": "0x2080_0000",
+          "size": "0x10_0000"
+        },
+        "scratch": {
+          "address": "0x800_0000",
+          "size" : "0x10_0000"
+        },
+        "trickbox": {
+          "address": "0x900_0000",
+          "size": "0xc_0000"
+        },
+        "scratchpad_xtor": {
+          "address": "0x90c_0000",
+          "size": "0x100"
+        },
+        "scratch2": {
+          "address": "0x90c_0100",
+          "size": "0x38f3_fef0"
+        },
+        "scratch3": {
+          "address": "0x1090_0000",
+          "size": "0xff0_0000"
+        },
+        "scratch4": {
+          "address": "0x2090_0000",
+          "size": "0x2188_0000"
+        },
+        "trace_cfg": {
+          "address": "0x4200_0000",
+          "size": "0x010_0000"
+        },
+        "mmr_cbqri": {
+          "address": "0x421a_0000",
+          "size": "0x1000"
+        },
+        "mmr_intercluster": {
+          "address": "0x4220_0000",
+          "size": "0x10_0000"
+        },
+        "preload": {
+          "address": "0x5000_0000",
+          "size": "0x2000_0000"
+        },
+        "htif": {
+          "address": "0x7000_0000",
+          "size": "0x10"
+        }
+      }
+    }
+  },
+  "isa": [
+    "c"
+  ],
+  "mp": "off",
+  "mp_mode": "simultaneous",
+  "num_cpus": "1"
+}
+
+

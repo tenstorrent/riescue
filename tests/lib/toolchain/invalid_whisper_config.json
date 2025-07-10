@@ -1,0 +1,6 @@
+{
+    "xlen" : 64,
+    "isa" : "rv60afdchvus",
+    "reset_vec"             : "0x80000000"
+
+}
