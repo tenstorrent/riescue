@@ -1,0 +1,378 @@
+{
+    "xlen" : 64,
+    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zvqdot_zjpm_svpbmt_svadu_sstc",
+    "reset_vec"             : "0x80000000",
+    "enable_performance_counters" : "true",
+    "perf_count_atomic_load_store" : "true",
+    "perf_count_fp_load_store" : "true",
+	"enable_counter_overflow": "true",
+
+
+    "Comment" : "Print memory addres of ld/st instructions in trace log.",
+    "print_load_store_address" : "true",
+
+    "Comment" : "2 performance counters implemented (mhpmcount3 and 4), rest (5 to 31) hardwired to 0",
+    "num_mmode_perf_regs" : 8,
+
+	"memmap" : {
+		"Comment"            : "Set physical memory size to be 56-bits",
+		"size"               : "0x00fffffffffff000"
+	 },
+
+    "csr" : {
+	    "misa" : {
+	        "reset-comment" : "imabfcvsu",
+	        "reset" : "0x403411af",
+	        "mask-comment" : "Misa is not writable by CSR instructions",
+	        "mask" : "0x0"
+	    },
+
+		"c_misa_rva23u64_M" : {
+           "reset" : "0x0",
+           "number" : "0xbca"
+         },
+        "c_misa_rva23u64_O" : {
+           "reset" : "0x0",
+           "number" : "0xbcb"
+         },
+        "c_misa_rva23s64_M" : {
+           "reset" : "0x0",
+           "number" : "0xbcc"
+         },
+        "c_misa_rva23s64_O" : {
+           "reset" : "0x0",
+           "number" : "0xbcd"
+         },
+
+		 "c_wfitimer" : {
+			"c_wfitimer-comment"  : "Timer control register",
+			"reset"           : "0x100000",
+			"number"          : "0xbc8",
+			"mask"            : "0xffffffffffffffff"
+		   },
+		  "c_tracecfg" : {
+			 "reset" : "0x0",
+			 "number" : "0xbc9"
+		   },
+
+		"mcounteren": {
+			"mcounteren-comment" : "FIXME: Hardwired to 2 to enable time csr access. Temporary until wfi/imsic is implemented",
+			"reset" : "0x2"
+		},
+
+		"scounteren": {
+			"scounteren-comment" : "Hardwired to 2 to enable time csr access. Temporary until wfi/imsic is implemented",
+			"reset" : "0x2"
+		},
+
+	    "mstatus" : {
+	        "mstatus-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x47804",
+	        "mask" : "0xffffffffffffffff"
+	    },
+
+	    "sstatus" : {
+	        "sstatus-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x47804",
+	        "mask" : "0xffffffffffffffff"
+	    },
+
+	    "satp" : {
+	        "satp-comment" : "Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x0",
+	        "mask" : "0xffffffffffffffff"
+	    },
+
+	    "stvec" : {
+	        "stvec-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x0",
+	        "mask" : "0xffffffffffffffff"
+	    },
+
+	    "medeleg" : {
+	        "medeleg-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x0",
+	        "mask" : "0xffffffffffffffff"
+	    },
+
+	    "hedeleg" : {
+	        "medeleg-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x0",
+	        "mask" : "0xfffffffffff0f1ff"
+	    },
+
+	    "tselect" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "tdata1" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "tdata2" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "tdata3" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "dcsr" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "dpc" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "dscratch" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "dscratch1" : {
+	        "Comment" : "Hardwired to 0",
+	        "number" : "0x7b3",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+		"mnstatus" : {
+	        "exists" : "true"
+	    },
+
+	    "cycle" : {
+	        "exists" : "false"
+	    },
+
+	    "instret" : {
+	        "exists" : "false"
+	    },
+
+	    "time" : {
+	        "exists" : "true"
+	    },
+
+        "pmpaddr0" : { "exists" : "false" },
+        "pmpaddr1" : { "exists" : "false" },
+        "pmpaddr2" : { "exists" : "false" },
+        "pmpaddr3" : { "exists" : "false" },
+        "pmpaddr4" : { "exists" : "false" },
+        "pmpaddr5" : { "exists" : "false" },
+        "pmpaddr6" : { "exists" : "false" },
+        "pmpaddr7" : { "exists" : "false" },
+        "pmpaddr8" : { "exists" : "false" },
+        "pmpaddr9" : { "exists" : "false" },
+        "pmpaddr10" : { "exists" : "false" },
+        "pmpaddr11" : { "exists" : "false" },
+        "pmpaddr12" : { "exists" : "false" },
+        "pmpaddr13" : { "exists" : "false" },
+        "pmpaddr14" : { "exists" : "false" },
+        "pmpaddr15" : { "exists" : "false" },
+        "pmpaddr16" : { "exists" : "false" },
+	    "pmpaddr17" : { "exists" : "false" },
+	    "pmpaddr18" : { "exists" : "false" },
+	    "pmpaddr19" : { "exists" : "false" },
+	    "pmpaddr20" : { "exists" : "false" },
+	    "pmpaddr21" : { "exists" : "false" },
+	    "pmpaddr22" : { "exists" : "false" },
+	    "pmpaddr23" : { "exists" : "false" },
+	    "pmpaddr24" : { "exists" : "false" },
+	    "pmpaddr25" : { "exists" : "false" },
+	    "pmpaddr26" : { "exists" : "false" },
+	    "pmpaddr27" : { "exists" : "false" },
+	    "pmpaddr28" : { "exists" : "false" },
+	    "pmpaddr29" : { "exists" : "false" },
+	    "pmpaddr30" : { "exists" : "false" },
+	    "pmpaddr31" : { "exists" : "false" },
+	    "pmpaddr32" : { "exists" : "false" },
+	    "pmpaddr33" : { "exists" : "false" },
+	    "pmpaddr34" : { "exists" : "false" },
+	    "pmpaddr35" : { "exists" : "false" },
+	    "pmpaddr36" : { "exists" : "false" },
+	    "pmpaddr37" : { "exists" : "false" },
+	    "pmpaddr38" : { "exists" : "false" },
+	    "pmpaddr39" : { "exists" : "false" },
+	    "pmpaddr40" : { "exists" : "false" },
+	    "pmpaddr41" : { "exists" : "false" },
+	    "pmpaddr42" : { "exists" : "false" },
+	    "pmpaddr43" : { "exists" : "false" },
+	    "pmpaddr44" : { "exists" : "false" },
+	    "pmpaddr45" : { "exists" : "false" },
+	    "pmpaddr46" : { "exists" : "false" },
+	    "pmpaddr47" : { "exists" : "false" },
+	    "pmpaddr48" : { "exists" : "false" },
+	    "pmpaddr49" : { "exists" : "false" },
+	    "pmpaddr50" : { "exists" : "false" },
+	    "pmpaddr51" : { "exists" : "false" },
+	    "pmpaddr52" : { "exists" : "false" },
+	    "pmpaddr53" : { "exists" : "false" },
+	    "pmpaddr54" : { "exists" : "false" },
+	    "pmpaddr55" : { "exists" : "false" },
+	    "pmpaddr56" : { "exists" : "false" },
+	    "pmpaddr57" : { "exists" : "false" },
+	    "pmpaddr58" : { "exists" : "false" },
+	    "pmpaddr59" : { "exists" : "false" },
+	    "pmpaddr60" : { "exists" : "false" },
+	    "pmpaddr61" : { "exists" : "false" },
+	    "pmpaddr62" : { "exists" : "false" },
+	    "pmpaddr63" : { "exists" : "false" },
+	    "pmacfg0": {
+            "number"          : "0x7e0",
+            "reset"           : "0x0",
+            "mask"            : "0xffffffffffffffff",
+            "poke_mask"       : "0xffffffffffffffff"
+        },
+        "pmacfg1": {
+          "number"          : "0x7e1",
+          "reset"           : "0x0",
+          "mask"            : "0xfcfffffffffff1ff",
+	      "poke_mask": "0xfcfffffffffff1ff"
+        },
+	    "pmacfg2": {
+	    	"number": "0x7e2",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg3": {
+	    	"number": "0x7e3",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg4": {
+	    	"number": "0x7e4",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg5": {
+	    	"number": "0x7e5",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg6": {
+	    	"number": "0x7e6",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg7": {
+	    	"number": "0x7e7",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg8": {
+	    	"number": "0x7e8",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg9": {
+	    	"number": "0x7e9",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg10": {
+	    	"number": "0x7ea",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg11": {
+	    	"number": "0x7eb",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg12": {
+	    	"number": "0x7ec",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg13": {
+	    	"number": "0x7ed",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg14": {
+	    	"comment": "Cover default 0-2gb range for IO",
+	    	"number": "0x7ee",
+	    	"reset": "0x7c00000000000007",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg15": {
+	    	"comment": "Cover default 2gb-52bit range for dram",
+	    	"number": "0x7ef",
+	    	"reset": "0xd0000000000001e7",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    }
+    },
+
+	"auto_increment_timer" : true,
+    "time_down_sample": 2,
+    "aclint" : {
+      "base"               : "0x042180000",
+      "size"               : "0xc000",
+      "timer_offset"       : "0x8000",
+      "time_offset"        : "0x0",
+      "deliver_interrupts" : true,
+      "time_adjust"        : 0,
+      "timecmp_reset"      : "0xffffffff"
+    },
+
+
+    "mmode_perf_event_map" : {
+	    "None"         : "0x0",
+	    "Mult"         : "0x00000e00",
+	    "Div"          : "0x00000f00",
+	    "Csr"          : "0x00001000",
+	    "MultDiv"      : "0x00003000",
+	    "Bitmanip"     : "0x00005000",
+	    "FpSingle"     : "0x00006000",
+	    "FpHalf"       : "0x00007000",
+	    "InstCommited" : "0x00800000",
+	    "Load"         : "0x00c00000",
+	    "Store"        : "0x00d00000"
+    },
+
+    "vector" : {
+		"bytes_per_vec"        : 32,
+		"min_bytes_per_elem"   : 1,
+		"Comment"              : "Hardware supports 32-bit ELEN plus some widening operations from 32 to 64-bit",
+		"max_bytes_per_elem"   : 8,
+		"mask_agnostic_policy" : "ones",
+		"tail_agnostic_policy" : "ones",
+		"update_whole_mask"    : true,
+		"trap_invalid_vtype"   : false,
+		"trap_non_zero_vstart" : true,
+		"legalize_vsetvl_avl"  : true,
+		"legalize_vsetvli_avl" : true,
+		"legalize_for_egs"     : true,
+		"max_bytes_per_lmul"   : { "mf8" : 1, "mf4" : 2, "mf2" : 4 },
+		"tt_fp_usum_tree_reduction" : [ "e16", "e32", "e64" ],
+		"fp_usum_nan_canonicalize" : [ "e16", "e32", "e64" ],
+		"partial_segment_update" : false
+    }
+}

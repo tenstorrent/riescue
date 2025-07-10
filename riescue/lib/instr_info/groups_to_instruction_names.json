@@ -1,0 +1,1253 @@
+{
+    "all_extensions": {
+        "rv64i_compute_register_immediate": [
+            "addiw"
+        ],
+        "rv64i_compute_register_register": [
+            "addw",
+            "subw",
+            "sllw",
+            "srlw",
+            "sraw"
+        ],
+        "rv64i_load_store": [
+            "ld",
+            "lwu",
+            "sd"
+        ],
+        "rv64i_shift": [
+            "slli",
+            "srli",
+            "srai",
+            "slliw",
+            "srliw",
+            "sraiw"
+        ],
+        "rv32m_multiply": [
+            "mul",
+            "mulh",
+            "mulhsu",
+            "mulhu"
+        ],
+        "rv32m_divide": [
+            "div",
+            "divu",
+            "rem",
+            "remu"
+        ],
+        "rv32zfh_half_precision_reg_reg": [
+            "fadd.h",
+            "fsub.h",
+            "fmul.h",
+            "fdiv.h",
+            "fmin.h",
+            "fmax.h"
+        ],
+        "rv32zfh_half_precision_convert_move": [
+            "fsgnj.h",
+            "fsgnjn.h",
+            "fsgnjx.h",
+            "fcvt.h.s",
+            "fcvt.s.h",
+            "fcvt.w.h",
+            "fcvt.wu.h",
+            "fmv.x.h",
+            "fcvt.h.w",
+            "fcvt.h.wu",
+            "fmv.h.x"
+        ],
+        "rv32zfh_half_precision_reg": [
+            "fsqrt.h"
+        ],
+        "rv32zfh_half_precision_compare": [
+            "fle.h",
+            "flt.h",
+            "feq.h"
+        ],
+        "rv32zfh_half_precision_classify": [
+            "fclass.h"
+        ],
+        "rv32zfh_half_precision_load_store": [
+            "flh",
+            "fsh"
+        ],
+        "rv32zfh_half_precision_reg_reg_reg": [
+            "fmadd.h",
+            "fmsub.h",
+            "fnmsub.h",
+            "fnmadd.h"
+        ],
+        "rv64f_single_conversion": [
+            "fcvt.l.s",
+            "fcvt.lu.s",
+            "fcvt.s.l",
+            "fcvt.s.lu"
+        ],
+        "rvcd_compressed_dp_reg_based_load": [
+            "c.fld"
+        ],
+        "rvcd_compressed_dp_reg_based_store": [
+            "c.fsd"
+        ],
+        "rvcd_compressed_dp_stack_based_load": [
+            "c.fldsp"
+        ],
+        "rvcd_compressed_dp_stack_based_store": [
+            "c.fsdsp"
+        ],
+        "rv32i_control_transfer_conditional": [
+            "beq",
+            "bne",
+            "blt",
+            "bge",
+            "bltu",
+            "bgeu"
+        ],
+        "rv32i_control_transfer_unconditional": [
+            "jalr",
+            "jal"
+        ],
+        "rv32i_compute_register_immediate": [
+            "addi",
+            "slti",
+            "sltiu",
+            "xori",
+            "ori",
+            "andi",
+            "lui",
+            "auipc"
+        ],
+        "rv32i_compute_register_register": [
+            "add",
+            "sub",
+            "sll",
+            "slt",
+            "sltu",
+            "xor",
+            "srl",
+            "sra",
+            "or",
+            "and"
+        ],
+        "rv32i_load_store": [
+            "lb",
+            "lh",
+            "lw",
+            "lbu",
+            "lhu",
+            "sb",
+            "sh",
+            "sw"
+        ],
+        "rv32i_mem_order": [
+            "fence",
+            "fence.i"
+        ],
+        "rv64m_multiply": [
+            "mulw"
+        ],
+        "rv64m_divide": [
+            "divw",
+            "divuw",
+            "remw",
+            "remuw"
+        ],
+        "rv64zba_compute_register_register": [
+            "add.uw"
+        ],
+        "rv64zba_addr_calc_instr": [
+            "sh1add.uw",
+            "sh2add.uw",
+            "sh3add.uw"
+        ],
+        "rv64zba_shift": [
+            "slli.uw"
+        ],
+        "rv64zbs_basic_single_bit": [
+            "bclri",
+            "bexti",
+            "binvi",
+            "bseti"
+        ],
+        "rv32zbb_basic_negate": [
+            "andn",
+            "orn",
+            "xnor"
+        ],
+        "rv32zbb_basic_count_zeros": [
+            "clz",
+            "ctz"
+        ],
+        "rv32zbb_basic_count_bits_set": [
+            "cpop"
+        ],
+        "rv32zbb_basic_min_max": [
+            "max",
+            "maxu",
+            "min",
+            "minu"
+        ],
+        "rv32zbb_basic_sign_extend": [
+            "sext.b",
+            "sext.h"
+        ],
+        "rv32zbb_perm_rotate": [
+            "rol",
+            "ror"
+        ],
+        "rv32zba_addr_calc_instr": [
+            "sh1add",
+            "sh2add",
+            "sh3add"
+        ],
+        "rv32d_zfh_half_double_conversion": [
+            "fcvt.h.d",
+            "fcvt.d.h"
+        ],
+        "rvc_compressed_branches": [
+            "c.beqz",
+            "c.bnez"
+        ],
+        "rvc_compressed_jumps": [
+            "c.j",
+            "c.jr",
+            "c.jalr"
+        ],
+        "rvc_compressed_int_ls_sp_based": [
+            "c.lwsp",
+            "c.swsp"
+        ],
+        "rvc_compressed_int_ls_reg_based": [
+            "c.lw",
+            "c.sw"
+        ],
+        "rvc_compressed_nop": [
+            "c.nop"
+        ],
+        "rvc_compressed_integer_computation_reg_imm_operation": [
+            "c.addi",
+            "c.addi16sp",
+            "c.addi4spn"
+        ],
+        "rvc_compressed_integer_computation_constant_generation": [
+            "c.li",
+            "c.lui",
+            "c.andi"
+        ],
+        "rvc_compressed_integer_computation_reg_reg_operation": [
+            "c.add",
+            "c.mv",
+            "c.sub",
+            "c.xor",
+            "c.or",
+            "c.and"
+        ],
+        "rv64c_compressed_int_ls_reg_based": [
+            "c.ld",
+            "c.sd"
+        ],
+        "rv64c_compressed_int_comp_reg_reg_ops": [
+            "c.subw",
+            "c.addw"
+        ],
+        "rv64c_compressed_int_comp_reg_imm_ops": [
+            "c.addiw",
+            "c.srli",
+            "c.srai",
+            "c.slli"
+        ],
+        "rv64c_compressed_int_ls_sp_based": [
+            "c.ldsp",
+            "c.sdsp"
+        ],
+        "rv64a_atomic_memory_operations_double_word": [
+            "amoadd.d",
+            "amoxor.d",
+            "amoor.d",
+            "amoand.d",
+            "amomin.d",
+            "amomax.d",
+            "amominu.d",
+            "amomaxu.d",
+            "amoswap.d"
+        ],
+        "rv64a_load_reserved_store_conditional_double_word": [
+            "lr.d",
+            "sc.d"
+        ],
+        "rv32a_atomic_memory_operations_single_word": [
+            "amoadd.w",
+            "amoxor.w",
+            "amoor.w",
+            "amoand.w",
+            "amomin.w",
+            "amomax.w",
+            "amominu.w",
+            "amomaxu.w",
+            "amoswap.w"
+        ],
+        "rv32a_load_reserved_store_conditional_single_word": [
+            "lr.w",
+            "sc.w"
+        ],
+        "rv32zbc_carry_less_multiply": [
+            "clmul",
+            "clmulr",
+            "clmulh"
+        ],
+        "rv64d_double_precision_convert_move": [
+            "fcvt.l.d",
+            "fcvt.lu.d",
+            "fmv.x.d",
+            "fcvt.d.l",
+            "fcvt.d.lu",
+            "fmv.d.x"
+        ],
+        "rv32f_single_precision_reg_reg": [
+            "fadd.s",
+            "fsub.s",
+            "fmul.s",
+            "fdiv.s",
+            "fmin.s",
+            "fmax.s"
+        ],
+        "rv32f_single_precision_reg_reg_reg": [
+            "fnmsub.s",
+            "fnmadd.s",
+            "fmadd.s",
+            "fmsub.s"
+        ],
+        "rv32f_single_precision_reg": [
+            "fsqrt.s"
+        ],
+        "rv32f_single_precision_compare": [
+            "fle.s",
+            "flt.s",
+            "feq.s"
+        ],
+        "rv32f_single_precision_convert_move": [
+            "fcvt.w.s",
+            "fcvt.wu.s",
+            "fmv.x.w",
+            "fcvt.s.w",
+            "fcvt.s.wu",
+            "fmv.w.x"
+        ],
+        "rv32f_single_precision_sign_injection": [
+            "fsgnj.s",
+            "fsgnjn.s",
+            "fsgnjx.s"
+        ],
+        "rv32f_single_precision_load_store": [
+            "flw",
+            "fsw"
+        ],
+        "rv32f_single_precision_classify": [
+            "fclass.s"
+        ],
+        "rv64zbb_basic_count_zeroes": [
+            "clzw",
+            "ctzw"
+        ],
+        "rv64zbb_basic_count_bits_set": [
+            "cpopw"
+        ],
+        "rv64zbb_perm_rotate": [
+            "rolw",
+            "rorw",
+            "roriw",
+            "rori"
+        ],
+        "vector_configuration_setting": [
+            "vsetivli",
+            "vsetvli",
+            "vsetvl"
+        ],
+        "vector_load_unit_stride": [
+            "vlm.v",
+            "vle8.v",
+            "vle16.v",
+            "vle32.v",
+            "vle64.v"
+        ],
+        "vector_store_unit_stride" : [
+            "vsm.v",
+            "vse8.v",
+            "vse16.v",
+            "vse32.v",
+            "vse64.v"
+        ],
+        "vector_store_unit_stride_segmented": [
+            "vsseg2e8.v",
+            "vsseg2e16.v",
+            "vsseg2e32.v",
+            "vsseg2e64.v",
+            "vsseg3e8.v",
+            "vsseg3e16.v",
+            "vsseg3e32.v",
+            "vsseg3e64.v",
+            "vsseg4e8.v",
+            "vsseg4e16.v",
+            "vsseg4e32.v",
+            "vsseg4e64.v",
+            "vsseg5e8.v",
+            "vsseg5e16.v",
+            "vsseg5e32.v",
+            "vsseg5e64.v",
+            "vsseg6e8.v",
+            "vsseg6e16.v",
+            "vsseg6e32.v",
+            "vsseg6e64.v",
+            "vsseg7e8.v",
+            "vsseg7e16.v",
+            "vsseg7e32.v",
+            "vsseg7e64.v",
+            "vsseg8e8.v",
+            "vsseg8e16.v",
+            "vsseg8e32.v",
+            "vsseg8e64.v"
+        ],
+        "vector_load_unit_stride_segmented": [
+            "vlseg2e8.v",
+            "vlseg2e16.v",
+            "vlseg2e32.v",
+            "vlseg2e64.v",
+            "vlseg3e8.v",
+            "vlseg3e16.v",
+            "vlseg3e32.v",
+            "vlseg3e64.v",
+            "vlseg4e8.v",
+            "vlseg4e16.v",
+            "vlseg4e32.v",
+            "vlseg4e64.v",
+            "vlseg5e8.v",
+            "vlseg5e16.v",
+            "vlseg5e32.v",
+            "vlseg5e64.v",
+            "vlseg6e8.v",
+            "vlseg6e16.v",
+            "vlseg6e32.v",
+            "vlseg6e64.v",
+            "vlseg7e8.v",
+            "vlseg7e16.v",
+            "vlseg7e32.v",
+            "vlseg7e64.v",
+            "vlseg8e8.v",
+            "vlseg8e16.v",
+            "vlseg8e32.v",
+            "vlseg8e64.v"
+        ],
+        "vector_load_indexed_unordered": [
+            "vluxei8.v",
+            "vluxei16.v",
+            "vluxei32.v",
+            "vluxei64.v"
+        ],
+        "vector_store_indexed_unordered" : [
+            "vsuxei8.v",
+            "vsuxei16.v",
+            "vsuxei32.v",
+            "vsuxei64.v"
+        ],
+        "vector_load_indexed_ordered": [
+            "vloxei8.v",
+            "vloxei16.v",
+            "vloxei32.v",
+            "vloxei64.v"
+        ],
+        "vector_store_indexed_ordered" : [
+            "vsoxei8.v",
+            "vsoxei16.v",
+            "vsoxei32.v",
+            "vsoxei64.v"
+        ],
+        "vector_load_indexed_segmented": [
+            "vluxseg2ei8.v",
+            "vloxseg2ei8.v",
+            "vluxseg2ei16.v",
+            "vloxseg2ei16.v",
+            "vluxseg2ei32.v",
+            "vloxseg2ei32.v",
+            "vluxseg2ei64.v",
+            "vloxseg2ei64.v",
+            "vluxseg3ei8.v",
+            "vloxseg3ei8.v",
+            "vluxseg3ei16.v",
+            "vloxseg3ei16.v",
+            "vluxseg3ei32.v",
+            "vloxseg3ei32.v",
+            "vluxseg3ei64.v",
+            "vloxseg3ei64.v",
+            "vluxseg4ei8.v",
+            "vloxseg4ei8.v",
+            "vluxseg4ei16.v",
+            "vloxseg4ei16.v",
+            "vluxseg4ei32.v",
+            "vloxseg4ei32.v",
+            "vluxseg4ei64.v",
+            "vloxseg4ei64.v",
+            "vluxseg5ei8.v",
+            "vloxseg5ei8.v",
+            "vluxseg5ei16.v",
+            "vloxseg5ei16.v",
+            "vluxseg5ei32.v",
+            "vloxseg5ei32.v",
+            "vluxseg5ei64.v",
+            "vloxseg5ei64.v",
+            "vluxseg6ei8.v",
+            "vloxseg6ei8.v",
+            "vluxseg6ei16.v",
+            "vloxseg6ei16.v",
+            "vluxseg6ei32.v",
+            "vloxseg6ei32.v",
+            "vluxseg6ei64.v",
+            "vloxseg6ei64.v",
+            "vluxseg7ei8.v",
+            "vloxseg7ei8.v",
+            "vluxseg7ei16.v",
+            "vloxseg7ei16.v",
+            "vluxseg7ei32.v",
+            "vloxseg7ei32.v",
+            "vluxseg7ei64.v",
+            "vloxseg7ei64.v",
+            "vluxseg8ei8.v",
+            "vloxseg8ei8.v",
+            "vluxseg8ei16.v",
+            "vloxseg8ei16.v",
+            "vluxseg8ei32.v",
+            "vloxseg8ei32.v",
+            "vluxseg8ei64.v",
+            "vloxseg8ei64.v"
+        ],
+        "vector_store_indexed_segmented": [
+            "vsuxseg2ei8.v",
+            "vsoxseg2ei8.v",
+            "vsuxseg2ei16.v",
+            "vsoxseg2ei16.v",
+            "vsuxseg2ei32.v",
+            "vsoxseg2ei32.v",
+            "vsuxseg2ei64.v",
+            "vsoxseg2ei64.v",
+            "vsuxseg3ei8.v",
+            "vsoxseg3ei8.v",
+            "vsuxseg3ei16.v",
+            "vsoxseg3ei16.v",
+            "vsuxseg3ei32.v",
+            "vsoxseg3ei32.v",
+            "vsuxseg3ei64.v",
+            "vsoxseg3ei64.v",
+            "vsuxseg4ei8.v",
+            "vsoxseg4ei8.v",
+            "vsuxseg4ei16.v",
+            "vsoxseg4ei16.v",
+            "vsuxseg4ei32.v",
+            "vsoxseg4ei32.v",
+            "vsuxseg4ei64.v",
+            "vsoxseg4ei64.v",
+            "vsuxseg5ei8.v",
+            "vsoxseg5ei8.v",
+            "vsuxseg5ei16.v",
+            "vsoxseg5ei16.v",
+            "vsuxseg5ei32.v",
+            "vsoxseg5ei32.v",
+            "vsuxseg5ei64.v",
+            "vsoxseg5ei64.v",
+            "vsuxseg6ei8.v",
+            "vsoxseg6ei8.v",
+            "vsuxseg6ei16.v",
+            "vsoxseg6ei16.v",
+            "vsuxseg6ei32.v",
+            "vsoxseg6ei32.v",
+            "vsuxseg6ei64.v",
+            "vsoxseg6ei64.v",
+            "vsuxseg7ei8.v",
+            "vsoxseg7ei8.v",
+            "vsuxseg7ei16.v",
+            "vsoxseg7ei16.v",
+            "vsuxseg7ei32.v",
+            "vsoxseg7ei32.v",
+            "vsuxseg7ei64.v",
+            "vsoxseg7ei64.v",
+            "vsuxseg8ei8.v",
+            "vsoxseg8ei8.v",
+            "vsuxseg8ei16.v",
+            "vsoxseg8ei16.v",
+            "vsuxseg8ei32.v",
+            "vsoxseg8ei32.v",
+            "vsuxseg8ei64.v",
+            "vsoxseg8ei64.v"
+        ],
+        "vector_load_strided": [
+            "vlse8.v",
+            "vlse16.v",
+            "vlse32.v",
+            "vlse64.v"
+        ],
+        "vector_store_strided" : [
+            "vsse8.v",
+            "vsse16.v",
+            "vsse32.v",
+            "vsse64.v"
+        ],
+        "vector_load_strided_segmented": [
+            "vlsseg2e8.v",
+            "vlsseg2e16.v",
+            "vlsseg2e32.v",
+            "vlsseg2e64.v",
+            "vlsseg3e8.v",
+            "vlsseg3e16.v",
+            "vlsseg3e32.v",
+            "vlsseg3e64.v",
+            "vlsseg4e8.v",
+            "vlsseg4e16.v",
+            "vlsseg4e32.v",
+            "vlsseg4e64.v",
+            "vlsseg5e8.v",
+            "vlsseg5e16.v",
+            "vlsseg5e32.v",
+            "vlsseg5e64.v",
+            "vlsseg6e8.v",
+            "vlsseg6e16.v",
+            "vlsseg6e32.v",
+            "vlsseg6e64.v",
+            "vlsseg7e8.v",
+            "vlsseg7e16.v",
+            "vlsseg7e32.v",
+            "vlsseg7e64.v",
+            "vlsseg8e8.v",
+            "vlsseg8e16.v",
+            "vlsseg8e32.v",
+            "vlsseg8e64.v"
+        ],
+        "vector_store_strided_segmented" : [
+            "vssseg2e8.v",
+            "vssseg2e16.v",
+            "vssseg2e32.v",
+            "vssseg2e64.v",
+            "vssseg3e8.v",
+            "vssseg3e16.v",
+            "vssseg3e32.v",
+            "vssseg3e64.v",
+            "vssseg4e8.v",
+            "vssseg4e16.v",
+            "vssseg4e32.v",
+            "vssseg4e64.v",
+            "vssseg5e8.v",
+            "vssseg5e16.v",
+            "vssseg5e32.v",
+            "vssseg5e64.v",
+            "vssseg6e8.v",
+            "vssseg6e16.v",
+            "vssseg6e32.v",
+            "vssseg6e64.v",
+            "vssseg7e8.v",
+            "vssseg7e16.v",
+            "vssseg7e32.v",
+            "vssseg7e64.v",
+            "vssseg8e8.v",
+            "vssseg8e16.v",
+            "vssseg8e32.v",
+            "vssseg8e64.v"
+        ],
+        "vector_load_fault_only_first": [
+            "vle8ff.v",
+            "vle16ff.v",
+            "vle32ff.v",
+            "vle64ff.v"
+        ],
+        "vector_load_fault_only_first_segmented":[
+            "vlseg2e8ff.v",
+            "vlseg2e16ff.v",
+            "vlseg2e32ff.v",
+            "vlseg2e64ff.v",
+            "vlseg3e8ff.v",
+            "vlseg3e16ff.v",
+            "vlseg3e32ff.v",
+            "vlseg3e64ff.v",
+            "vlseg4e8ff.v",
+            "vlseg4e16ff.v",
+            "vlseg4e32ff.v",
+            "vlseg4e64ff.v",
+            "vlseg5e8ff.v",
+            "vlseg5e16ff.v",
+            "vlseg5e32ff.v",
+            "vlseg5e64ff.v",
+            "vlseg6e8ff.v",
+            "vlseg6e16ff.v",
+            "vlseg6e32ff.v",
+            "vlseg6e64ff.v",
+            "vlseg7e8ff.v",
+            "vlseg7e16ff.v",
+            "vlseg7e32ff.v",
+            "vlseg7e64ff.v",
+            "vlseg8e8ff.v",
+            "vlseg8e16ff.v",
+            "vlseg8e32ff.v",
+            "vlseg8e64ff.v"
+        ],
+        "vector_load_whole_reg" : [
+            "vl1r.v",
+            "vl1re16.v",
+            "vl1re32.v",
+            "vl1re64.v",
+            "vl1re8.v",
+            "vl2r.v",
+            "vl2re16.v",
+            "vl2re32.v",
+            "vl2re64.v",
+            "vl2re8.v",
+            "vl4r.v",
+            "vl4re16.v",
+            "vl4re32.v",
+            "vl4re64.v",
+            "vl4re8.v",
+            "vl8r.v",
+            "vl8re16.v",
+            "vl8re32.v",
+            "vl8re64.v",
+            "vl8re8.v"
+        ],
+        "vector_store_whole_reg" : [
+            "vs1r.v",
+            "vs2r.v",
+            "vs4r.v",
+            "vs8r.v"
+        ],
+        "vector_int_arithmetic": [
+            "vadd.vx",
+            "vsub.vx",
+            "vrsub.vx",
+            "vminu.vx",
+            "vmin.vx",
+            "vmaxu.vx",
+            "vmax.vx",
+            "vand.vx",
+            "vor.vx",
+            "vxor.vx",
+            "vrgather.vx",
+            "vslideup.vx",
+            "vslidedown.vx"
+        ],
+        "vector_opivx_2_data_processing": [
+            "vadc.vxm",
+            "vmadc.vxm",
+            "vmadc.vx",
+            "vsbc.vxm",
+            "vmsbc.vxm",
+            "vmsbc.vx",
+            "vmv.v.x",
+            "vmseq.vx",
+            "vmsne.vx",
+            "vmsltu.vx",
+            "vmslt.vx",
+            "vmsleu.vx",
+            "vmsle.vx",
+            "vmsgtu.vx",
+            "vmsgt.vx"
+        ],
+        "vector_opivv": [
+            "vadd.vv",
+            "vsub.vv",
+            "vminu.vv",
+            "vmin.vv",
+            "vmaxu.vv",
+            "vmax.vv",
+            "vand.vv",
+            "vor.vv",
+            "vxor.vv",
+            "vrgather.vv",
+            "vrgatherei16.vv"
+        ],
+        "vector_opivv_2_data_processing": [
+            "vadc.vvm",
+            "vmadc.vvm",
+            "vmadc.vv",
+            "vsbc.vvm",
+            "vmsbc.vvm",
+            "vmsbc.vv",
+            "vmv.v.v",
+            "vmseq.vv",
+            "vmsne.vv",
+            "vmsltu.vv",
+            "vmslt.vv",
+            "vmsleu.vv",
+            "vmsle.vv"
+        ],
+        "vector_opivi": [
+            "vadd.vi",
+            "vrsub.vi",
+            "vand.vi",
+            "vor.vi",
+            "vxor.vi",
+            "vrgather.vi",
+            "vslideup.vi",
+            "vslidedown.vi"
+        ],
+        "vector_opivi_2_data_processing": [
+            "vadc.vim",
+            "vmadc.vim",
+            "vmadc.vi",
+            "vmv.v.i",
+            "vmseq.vi",
+            "vmsne.vi",
+            "vmsleu.vi",
+            "vmsle.vi",
+            "vmsgtu.vi",
+            "vmsgt.vi"
+        ],
+        "vector_opmvv_2_data_processing": [
+            "vcompress.vm",
+            "vmandn.mm",
+            "vmand.mm",
+            "vmor.mm",
+            "vmxor.mm",
+            "vmorn.mm",
+            "vmnand.mm",
+            "vmnor.mm",
+            "vmxnor.mm"
+        ],
+        "vector_opmvv_3_data_processing": [
+            "vmsbf.m",
+            "vmsof.m",
+            "vmsif.m",
+            "viota.m"
+        ],
+        "vector_opmvv_vid": [
+            "vid.v"
+        ],
+        "vector_opmvv_3_a_data_processing": [
+            "vcpop.m",
+            "vfirst.m"
+        ],
+        "vector_opmvv_4_data_processing": [
+            "vdivu.vv",
+            "vdiv.vv",
+            "vremu.vv",
+            "vrem.vv",
+            "vmulhu.vv",
+            "vmul.vv",
+            "vmulhsu.vv",
+            "vmulh.vv"
+        ],
+        "vector_opmvv_macc": [
+            "vmacc.vv"
+        ],
+        "vector_opmvx_1_data_processing": [
+            "vslide1up.vx",
+            "vslide1down.vx",
+            "vdivu.vx",
+            "vdiv.vx",
+            "vremu.vx",
+            "vrem.vx",
+            "vmulhu.vx",
+            "vmul.vx",
+            "vmulhsu.vx",
+            "vmulh.vx"
+        ],
+        "vector_opmvx_macc": [
+            "vmacc.vx"
+        ],
+        "rv32d_double_precision_reg_reg": [
+            "fadd.d",
+            "fsub.d",
+            "fmul.d",
+            "fdiv.d",
+            "fmin.d",
+            "fmax.d"
+        ],
+        "rv32d_double_precision_reg_reg_reg": [
+            "fmadd.d",
+            "fmsub.d",
+            "fnmsub.d",
+            "fnmadd.d"
+        ],
+        "rv32d_double_precision_reg": [
+            "fsqrt.d"
+        ],
+        "rv32d_double_precision_compare": [
+            "fle.d",
+            "flt.d",
+            "feq.d"
+        ],
+        "rv32d_double_precision_convert_move": [
+            "fcvt.s.d",
+            "fcvt.d.s",
+            "fcvt.w.d",
+            "fcvt.wu.d",
+            "fcvt.d.w",
+            "fcvt.d.wu",
+            "fsgnj.d",
+            "fsgnjn.d",
+            "fsgnjx.d"
+        ],
+        "rv32d_double_precision_load_store": [
+            "fld",
+            "fsd"
+        ],
+        "rv32d_double_precision_classify": [
+            "fclass.d"
+        ],
+        "rv32zbs_basic_single_bit": [
+            "bclr",
+            "bext",
+            "binv",
+            "bset"
+        ],
+        "rv64zfh_half_conversion": [
+            "fcvt.l.h",
+            "fcvt.lu.h",
+            "fcvt.h.l",
+            "fcvt.h.lu"
+        ],
+        "rv_zfbfmin_conversion": [
+            "fcvt.bf16.s",
+            "fcvt.s.bf16"
+        ],
+        "rv_v_fp_muldiv": [
+            "vfmul.vf",
+            "vfmul.vv",
+            "vfdiv.vf",
+            "vfdiv.vv",
+            "vfrdiv.vf"
+        ],
+        "rv_v_fp_fma_s": [
+            "vfmacc.vf",
+            "vfmacc.vv",
+            "vfnmacc.vf",
+            "vfnmacc.vv",
+            "vfmsac.vf",
+            "vfmsac.vv",
+            "vfnmsac.vf",
+            "vfnmsac.vv",
+            "vfmadd.vf",
+            "vfmadd.vv",
+            "vfnmadd.vf",
+            "vfnmadd.vv",
+            "vfmsub.vf",
+            "vfmsub.vv",
+            "vfnmsub.vf",
+            "vfnmsub.vv"
+        ],
+        "rv_v_fp_convert": [
+            "vfcvt.f.x.v",
+            "vfcvt.f.xu.v",
+            "vfcvt.rtz.x.f.v",
+            "vfcvt.rtz.xu.f.v",
+            "vfcvt.x.f.v",
+            "vfcvt.xu.f.v",
+            "vfncvt.f.f.w",
+            "vfncvt.f.x.w",
+            "vfncvt.f.xu.w",
+            "vfncvt.rod.f.f.w",
+            "vfncvt.rtz.x.f.w",
+            "vfncvt.rtz.xu.f.w",
+            "vfncvt.x.f.w",
+            "vfncvt.xu.f.w",
+            "vfwcvt.f.f.v",
+            "vfwcvt.f.x.v",
+            "vfwcvt.f.xu.v",
+            "vfwcvt.rtz.x.f.v",
+            "vfwcvt.rtz.xu.f.v",
+            "vfwcvt.x.f.v",
+            "vfwcvt.xu.f.v"
+        ],
+        "rv_v_fp_minmax": [
+            "vfmin.vf",
+            "vfmin.vv",
+            "vfmax.vf",
+            "vfmax.vv"
+        ],
+        "rv_v_fp_signinj": [
+            "vfsgnj.vv",
+            "vfsgnj.vf",
+            "vfsgnjn.vv",
+            "vfsgnjn.vf",
+            "vfsgnjx.vv",
+            "vfsgnjx.vf"
+        ],
+        "rv_v_fp_class": [
+            "vfclass.v"
+        ],
+        "rv_v_fp_merge": [
+            "vfmerge.vfm"
+        ],
+        "rv_v_fp_move": [
+            "vfmv.v.f"
+        ],
+        "rv_v_fp_addsub_s": [
+            "vfadd.vv",
+            "vfadd.vf",
+            "vfsub.vv",
+            "vfsub.vf",
+            "vfrsub.vf"
+        ],
+        "zvbb": [
+            "vandn.vv",
+            "vandn.vx",
+            "vbrev.v",
+            "vbrev8.v",
+            "vrev8.v",
+            "vclz.v",
+            "vctz.v",
+            "vcpop.v",
+            "vrol.vv",
+            "vrol.vx",
+            "vror.vv",
+            "vror.vx",
+            "vror.vi",
+            "vwsll.vv",
+            "vwsll.vx",
+            "vwsll.vi"
+        ],
+        "rvv_whole_vec_reg_move":[
+            "vmv1r.v",
+            "vmv2r.v",
+            "vmv4r.v",
+            "vmv8r.v"
+        ],
+        "rvv_vec_int_extension":[
+            "vzext.vf2",
+            "vsext.vf2",
+            "vzext.vf4",
+            "vsext.vf4",
+            "vzext.vf8",
+            "vsext.vf8"
+        ],
+        "rvv_vec_single_width_shift":[
+            "vsll.vv",
+            "vsrl.vv",
+            "vsra.vv",
+            "vsll.vx",
+            "vsrl.vx",
+            "vsra.vx",
+            "vsll.vi",
+            "vsrl.vi",
+            "vsra.vi"
+        ],
+        "rvv_vec_single_width_integer_fma":[
+            "vnmsac.vv",
+            "vnmsac.vx",
+            "vmadd.vv",
+            "vmadd.vx",
+            "vnmsub.vv",
+            "vnmsub.vx"
+        ],
+        "rvv_vec_integer_merge":[
+            "vmerge.vvm",
+            "vmerge.vxm",
+            "vmerge.vim"
+        ],
+        "rvv_fixed_point_saturation_add_sub":[
+          "vsaddu.vv", 
+          "vsaddu.vx", 
+          "vsaddu.vi", 
+          "vsadd.vv", 
+          "vsadd.vx", 
+          "vsadd.vi", 
+          "vssubu.vv", 
+          "vssubu.vx", 
+          "vssub.vv", 
+          "vssub.vx"
+        ],
+        "rvv_fixed_point_averaging_add_sub":[
+          "vaaddu.vv",
+          "vaaddu.vx",
+          "vaadd.vv", 
+          "vaadd.vx", 
+          "vasubu.vv",
+          "vasubu.vx",
+          "vasub.vv",
+          "vasub.vx"
+        ],
+        "rvv_fixed_point_multiply_saturating_rounding" : [ 
+          "vsmul.vv", 
+          "vsmul.vx"
+        ],
+        "rvv_fixed_point_scaling_shift":[
+          "vssrl.vv", 
+          "vssrl.vx", 
+          "vssrl.vi", 
+          "vssra.vv", 
+          "vssra.vx", 
+          "vssra.vi"
+        ],
+        "rvv_fixed_point_narrowing_clip":[ 
+          "vnclipu.wv", 
+          "vnclipu.wx", 
+          "vnclipu.wi", 
+          "vnclip.wv", 
+          "vnclip.wx", 
+          "vnclip.wi"     
+        ],
+        "rvv_int_narrowing_right_shift":[ 
+          "vnsrl.wv", 
+          "vnsrl.wx", 
+          "vnsrl.wi", 
+          "vnsra.wv", 
+          "vnsra.wx", 
+          "vnsra.wi" 
+        ],
+        "rvv_int_widening_add_sub":[ 
+          "vwaddu.vv", 
+          "vwaddu.vx", 
+          "vwsubu.vv", 
+          "vwsubu.vx", 
+          "vwaddu.wv",
+          "vwaddu.wx",
+          "vwsubu.wv",
+          "vwsubu.wx",
+          "vwadd.vv",
+          "vwadd.vx",
+          "vwsub.vv",
+          "vwsub.vx",
+          "vwadd.wv",
+          "vwadd.wx",
+          "vwsub.wv",
+          "vwsub.wx"
+        ],
+        "rvv_int_widening_mul":[
+          "vwmul.vv",
+          "vwmul.vx",
+          "vwmulu.vv",
+          "vwmulu.vx",
+          "vwmulsu.vv", 
+          "vwmulsu.vx" 
+        ],
+        "rvv_fp_sqrt" : [
+          "vfsqrt.v"
+        ],
+        "rvv_fp_rec_sqrt_est": [
+          "vfrsqrt7.v"
+        ],
+        "rvv_fp_rec_est": [
+          "vfrec7.v"
+        ],
+        "rvv_fp_compare": [
+          "vmfeq.vf",
+          "vmfle.vf",
+          "vmflt.vf",
+          "vmfne.vf",
+          "vmfgt.vf",
+          "vmfge.vf",
+          "vmfeq.vv",       
+          "vmfle.vv",       
+          "vmflt.vv",       
+          "vmfne.vv"       
+        ],
+        "rvv_fp_widening_add_sub": [
+          "vfwadd.vf",     
+          "vfwsub.vf",     
+          "vfwadd.wf",     
+          "vfwsub.wf",     
+          "vfwadd.vv",     
+          "vfwsub.vv",     
+          "vfwadd.wv",     
+          "vfwsub.wv"     
+        ],
+        "rvv_fp_widening_mul": [
+          "vfwmul.vv",
+          "vfwmul.vf"
+        ],
+        "rvv_fp_widening_mac": [
+          "vfwmacc.vf",   
+          "vfwnmacc.vf",    
+          "vfwmsac.vf",   
+          "vfwnmsac.vf",    
+          "vfwmacc.vv",   
+          "vfwnmacc.vv",    
+          "vfwmsac.vv",   
+          "vfwnmsac.vv"    
+        ],
+        "rvv_fp_slides": [
+          "vfslide1up.vf", 
+          "vfslide1down.vf" 
+        ],
+        "rv_zvfbfmin": [
+            "vfncvtbf16.f.f.w",
+            "vfwcvtbf16.f.f.v"
+        ],
+        "zvbc": [
+            "vclmul.vv",
+            "vclmul.vx",
+            "vclmulh.vv",
+            "vclmulh.vx"
+        ],
+        "zvkg": [
+            "vgmul.vv",
+            "vghsh.vv"
+        ],
+        "rv_zvfbfwma": [
+            "vfwmaccbf16.vf",
+            "vfwmaccbf16.vv"
+        ],
+        "vec_fp_single_width_reductions": [
+            "vfredmax.vs",
+            "vfredmin.vs",
+            "vfredosum.vs",
+            "vfredusum.vs"
+        ],
+        "vec_fp_widening_reductions": [
+            "vfwredosum.vs",
+            "vfwredusum.vs"
+        ],
+        "vec_aes_block_cipher": [
+            "vaesef.vv",
+            "vaesef.vs",
+            "vaesem.vv",
+            "vaesem.vs",
+            "vaesdf.vv",
+            "vaesdf.vs",
+            "vaesdm.vv",
+            "vaesdm.vs",
+            "vaeskf1.vi",
+            "vaeskf2.vi",
+            "vaesz.vs"
+        ],
+        "vec_scalar_move":[
+            "vmv.s.x",
+            "vmv.x.s"
+        ],
+        "vec_int_single_width_reductions":[
+            "vredand.vs",
+            "vredmax.vs",
+            "vredmaxu.vs",
+            "vredmin.vs",
+            "vredminu.vs",
+            "vredor.vs",
+            "vredsum.vs",
+            "vredxor.vs"
+        ],
+        "vec_int_widening_reductions":[
+            "vwredsumu.vs",
+            "vwredsum.vs"
+        ],
+        "vec_int_widening_multiply_add":[
+            "vwmacc.vv",
+            "vwmacc.vx",
+            "vwmaccsu.vv",
+            "vwmaccsu.vx",
+            "vwmaccu.vv",
+            "vwmaccu.vx",
+            "vwmaccus.vx"
+        ],
+        "vec_fp_scalar_move":[
+            "vfmv.f.s",
+            "vfmv.s.f"
+        ],
+        "vec_int_quad_widening_4d_dot_prod":[
+            "vqdot.vv",
+            "vqdot.vx",
+            "vqdotu.vv",
+            "vqdotu.vx",
+            "vqdotsu.vv",
+            "vqdotsu.vx",
+            "vqdotus.vx"
+        ],
+        "vector_sha2_secure_hash":[
+            "vsha2ch.vv",
+            "vsha2cl.vv",
+            "vsha2ms.vv"
+        ],
+        "do_not_test" : []
+    }
+}
