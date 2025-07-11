@@ -34,37 +34,40 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    container: rockylinux:9.1
     if: github.ref != 'refs/heads/main'
     needs: lint
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
+
+      - name: Install Base Dependencies
+        run: |
+          ./infra/build_base_deps.sh
 
 
       - name: Download RISC-V toolchain
         run: |
           mkdir -p $HOME/RV_TOOLCHAIN
-          wget -q https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.05.30/riscv64-elf-ubuntu-24.04-gcc-nightly-2025.05.30-nightly.tar.xz
-          tar -xf riscv64-elf-ubuntu-24.04-gcc-nightly-2025.05.30-nightly.tar.xz -C $HOME/RV_TOOLCHAIN
+          wget -q https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.05.30/riscv64-elf-ubuntu-22.04-gcc-nightly-2025.05.30-nightly.tar.xz
+          tar -xJf riscv64-elf-ubuntu-22.04-gcc-nightly-2025.05.30-nightly.tar.xz -C $HOME/RV_TOOLCHAIN
           echo "RV_TOOLCHAIN=$HOME/RV_TOOLCHAIN/riscv/bin" >> "$GITHUB_ENV"
           echo "$HOME/RV_TOOLCHAIN/riscv/bin" >> $GITHUB_PATH
+
       - name: Install Python dependencies
         run: |
           python3 -m pip install wheel
           python3 -m pip install -e .
 
-      - name: Install Spike
-        run: |
-          NO_SINGULARITY=1 ./infra/build_spike.sh
-
       - name: Install Whisper
         run: |
           mkdir -p $HOME/whisper
 
-          NO_SINGULARITY=1 ./infra/whisper.sh
-          echo "WHISPER_PATH=$HOME/whisper" >> "$GITHUB_ENV"
+          NO_SINGULARITY=1 ./infra/build_whisper.sh
+          echo "WHISPER_PATH=/usr/bin/whisper" >> "$GITHUB_ENV"
+
+      - name: Install Spike
+        run: |
+          NO_SINGULARITY=1 ./infra/build_spike.sh
 
       - name: Run tests
         run: python3 -m unittest discover -s tests/ -p "*_test.py"
