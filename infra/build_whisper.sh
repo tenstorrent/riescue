@@ -62,11 +62,11 @@ else
     $build_cmd
     mv build-Linux/whisper whisper
 
-    # Copy to system location if in container
-    if [ -z "$NO_SINGULARITY" ]; then
-        cp whisper /usr/bin/whisper
-    fi
+    cp whisper /usr/bin/whisper
+    echo "Installing whisper in /usr/bin/whisper"
 
+    # remove repository after installing
+    rm -rf "$whisper_dir"
     popd
 fi
 
