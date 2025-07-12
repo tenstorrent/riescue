@@ -84,7 +84,6 @@ class Tool(ABC):
         """
         cmd = [self.executable] + self.args
         run_str = f"Running {' '.join(str(c) for c in cmd)}"
-        # print(run_str)
         log.info(run_str)
 
         if output_file is not None:
@@ -177,7 +176,7 @@ class Compiler(Tool):
                 rng = RandNum()
                 feat_mgr = FeatMgr(rng=rng, pool=None, config_path=args.config_json, test_config=None, cmdline=args)  # Not needed for march generation  # Not needed for march generation
             except ImportError as e:
-                print(f"Warning: Could not import FeatMgr: {e}")
+                log.warning(f"Could not import FeatMgr: {e}")
                 feat_mgr = None
 
         return cls(compiler_path=args.compiler_path, compiler_opts=args.compiler_opts, compiler_march=args.compiler_march, test_equates=args.test_equates, feat_mgr=feat_mgr)
@@ -247,7 +246,7 @@ class Objcopy(Tool):
 
     def _classify(self, process: subprocess.CompletedProcess, output_file: Optional[Path]):
         if process.returncode != 0:
-            print(process.stderr, process.stdout, process.returncode)
+            log.error(f"Objcopy failed - stderr: {process.stderr}, stdout: {process.stdout}, returncode: {process.returncode}")
             self._raise_toolchain_error(process, ToolFailureType.COMPILE_FAILURE, process.stderr)
 
 
