@@ -1897,7 +1897,7 @@ class Generator:
         lin_addr = None
         phys_addr = None
 
-        if start_addr:
+        if start_addr is not None:
             # No need to generate addresses
             lin_addr = start_addr
             phys_addr = start_addr
