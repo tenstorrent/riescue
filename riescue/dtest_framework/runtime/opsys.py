@@ -534,6 +534,9 @@ class OpSys(AssemblyGenerator):
         code = f"""
         .align 6; .global tohost_mutex; tohost_mutex: .dword 0; # Used to protect access to tohost
 
+        tohost_addr_mem:
+            .dword tohost
+
         os_end_test:
         os_write_tohost:
 
@@ -582,7 +585,8 @@ class OpSys(AssemblyGenerator):
             li gp, 0x{self.featmgr.eot_fail_val:x}
 
         load_tohost_addr:
-            la t0, tohost
+            ld t0, tohost_addr_mem
+
 
         write_to_tohost:
             fence iorw, iorw

@@ -5,7 +5,7 @@
         "testname": {"name": ["--testname", "-t"], "required": "True", "type": "Path", "help": "Testname with path to be compiled with RiESCUE-D"},
         "run_dir": {"name": ["--run_dir", "-rd"], "type": "Path", "default": "./", "help": "Run directory where the test will be run"},
         "seed": {"name": ["--seed"], "default": null, "type": "int", "help": "Seed for the test"},
-        "cpuconfig": {"name": ["--cpuconfig"], "default": "", "type": "str", "help": "Path to cpu feature configuration"},
+        "cpuconfig": {"name": ["--cpuconfig"], "default": "dtest_framework/lib/config.json", "type": "Path", "help": "Path to cpu feature configuration"},
         "fe_tb": {
             "name": ["--fe_tb", "-fe_tb"],
             "action": "store_true",

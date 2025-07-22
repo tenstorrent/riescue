@@ -723,6 +723,7 @@ class ParsedRandomData:
     name: str = ""
     type: str = ""
     and_mask: int = 0xFFFFFFFFFFFFF000
+    or_mask: int = 0x0
 
 
 @dataclass
