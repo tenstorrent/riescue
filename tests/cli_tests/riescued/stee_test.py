@@ -17,7 +17,7 @@ class Test_SteeTests(BaseRiescuedTest):
     def test_stee_secure_config(self):
         args = [
             "--run_iss",
-            "--cpuconfig=riescue/dtest_framework/lib/config_secure_0.json",
+            "--cpuconfig=dtest_framework/lib/config_secure_0.json",
             "--whisper_config_json=dtest_framework/lib/whisper_secure_config.json",
         ]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
@@ -26,7 +26,7 @@ class Test_SteeTests(BaseRiescuedTest):
         args = [
             "--run_iss",
             "--all_4kb_pages",
-            "--cpuconfig=riescue/dtest_framework/lib/config_secure_0.json",
+            "--cpuconfig=dtest_framework/lib/config_secure_0.json",
             "--whisper_config_json=dtest_framework/lib/whisper_secure_config.json",
         ]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
