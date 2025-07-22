@@ -60,7 +60,7 @@ class Generator:
         self.os_data_sections = ["os_data", "os_stack"]
         self.io_sections = []  # IO sections to be added
         if self.featmgr.io_htif_addr is not None:
-            self.io_sections.append("io_htif")  # If unset, don't want to make it a section (and add to linker); this effectively places io_htif after data
+            self.io_sections.append("io_htif")  # If unset, don't want to make it a section (and add to linker); this effectively places io_htif after OS code
 
         self.c_used_sections = [
             "bss",
@@ -213,10 +213,11 @@ class Generator:
             rand_val = 0
             if "bits" in data_type:
                 num_bits = int(re.findall(r"bits(\d+)", data_type)[0])
+                or_mask = random_data.or_mask & (2**num_bits - 1)
                 if num_bits == 1:
-                    rand_val = self.rng.get_rand_bits(1) & random_data.and_mask
+                    rand_val = (self.rng.get_rand_bits(1) & random_data.and_mask) | or_mask
                 else:
-                    rand_val = self.rng.random_in_bitrange(1, num_bits - 1) & random_data.and_mask
+                    rand_val = (self.rng.random_in_bitrange(1, num_bits - 1) & random_data.and_mask) | or_mask
             elif "fp" in data_type or "int" in data_type:
                 rand_val = self.numgen.rand_num(RV.DataType[data_type.upper()])
             self.pool.add_random_datum(random_data.name, rand_val)

@@ -3,11 +3,17 @@
 
 import unittest
 import os
+import logging
 from pathlib import Path
 from typing import Any, Generator
 
 from riescue.riescued import RiescueD
 from riescue.lib.toolchain.exceptions import ToolchainError, ToolFailureType
+
+
+class NoOpHandler(logging.Handler):
+    def emit(self, record):
+        pass  # Do nothing
 
 
 class BaseRiescuedTest(unittest.TestCase):
@@ -30,7 +36,7 @@ class BaseRiescuedTest(unittest.TestCase):
                 super().setUp()
 
             def test_riescued(self):
-                cli_args = ["--testname", "dtest_framework/tests/test.s", "--run_iss", "--cpuconfig", "riescue/dtest_framework/tests/cpu_config.json", "--seed", "0"]
+                cli_args = ["--testname", "dtest_framework/tests/test.s", "--run_iss", "--cpuconfig", "dtest_framework/tests/cpu_config.json", "--seed", "0"]
                 self.run_riescued()
 
     """
@@ -133,3 +139,12 @@ class BaseRiescuedTest(unittest.TestCase):
                     RiescueD.run_cli(args=command)
                 self.assertEqual(runtime_error.exception.kind, failure_kind)
                 yield runtime_error.exception
+
+    def enable_logging(self, level: int = logging.DEBUG):
+        "Enables debbug logging. Should really only be called when running single tests and not checked in"
+        logging.basicConfig(level=level)
+
+    def disable_logging(self):
+        "Should disable logging since riescue.lib.logger checks for existing"
+        riescue_logger = logging.getLogger("riescue")
+        riescue_logger.addHandler(NoOpHandler())
