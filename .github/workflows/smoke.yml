@@ -30,7 +30,7 @@ jobs:
           flake8 . --config=.flake8
           black --check .
       - name: Check docs
-        run: ./docs/build.py --build_dir=public --source_dir=docs/public_source --check
+        run: ./docs/build.py --build_dir=public --source_dir=docs/source --check
 
   test:
     runs-on: ubuntu-latest
@@ -89,7 +89,7 @@ jobs:
         run: |
           python3 -m pip install wheel
           python3 -m pip install -e .
-          ./docs/build.py --build_dir=public --source_dir=docs/public_source
+          ./docs/build.py --build_dir=public --source_dir=docs/source
 
       - name: Deploy to GitHub Pages
         uses: actions/upload-pages-artifact@v3
