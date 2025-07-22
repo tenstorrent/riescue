@@ -71,7 +71,7 @@ class TestEnvTests(BaseRiescuedTest):
         # The default test (test.s) requests memory which can not be satisfied with our secure configs.
         # This test_long.s is a simple test that does not request memory with unsatisifiable constraints.
         cli_args = ["--run_iss", "--test_secure_mode=on"]
-        cli_args += ["--cpuconfig=riescue/dtest_framework/lib/config_secure_0.json", "--whisper_config_json=dtest_framework/lib/whisper_secure_config.json"]
+        cli_args += ["--cpuconfig=dtest_framework/lib/config_secure_0.json", "--whisper_config_json=dtest_framework/lib/whisper_secure_config.json"]
         self.run_riescued(testname="dtest_framework/tests/test_long.s", cli_args=cli_args, iterations=self.iterations)
 
     def test_secure_mode_random(self):
@@ -83,7 +83,7 @@ class TestEnvTests(BaseRiescuedTest):
         # When we do random secure mode, we need to use the secure config always to ensure when secure mode is randomly selected,
         # we have the correct config. But when secure mode is not selected, we need to setup pmp to work with the secure config.
         cli_args = ["--run_iss", "--test_secure_mode=random", "--setup_pmp"]
-        cli_args += ["--cpuconfig=riescue/dtest_framework/lib/config_secure_0.json", "--whisper_config_json=dtest_framework/lib/whisper_secure_config.json"]
+        cli_args += ["--cpuconfig=dtest_framework/lib/config_secure_0.json", "--whisper_config_json=dtest_framework/lib/whisper_secure_config.json"]
         self.run_riescued(testname="dtest_framework/tests/test_long.s", cli_args=cli_args, iterations=self.iterations)
 
 

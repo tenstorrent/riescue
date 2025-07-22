@@ -27,12 +27,12 @@ class DefaultTest(BaseRiescuedTest):
 
     def test_cli_cpuconfig(self):
         "Default test with cpuconfig"
-        cli_args = ["--run_iss", "--cpuconfig", "riescue/dtest_framework/tests/cpu_config.json"]
+        cli_args = ["--run_iss", "--cpuconfig", "dtest_framework/tests/cpu_config.json"]
         self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=self.iterations)
 
     def test_2gb_dragm_4kb_pages(self):
         "Default test with 2gb dram and 4kb pages"
-        cli_args = ["--run_iss", "--cpuconfig", "riescue/dtest_framework/lib/twogb_dram_config.json", "--reserve_partial_phys_memory", "--all_4kb_pages", "--seed", "0"]
+        cli_args = ["--run_iss", "--cpuconfig", "dtest_framework/lib/twogb_dram_config.json", "--reserve_partial_phys_memory", "--all_4kb_pages", "--seed", "0"]
         self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=self.iterations)
 
     def test_cli_force_alignment_whisper(self):
@@ -46,7 +46,7 @@ class DefaultTest(BaseRiescuedTest):
         self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=self.iterations)
 
     def test_long_spike(self):
-        args = ["--run_iss", "--iss", "spike", "--tohost", "auto", "--cpuconfig", "riescue/dtest_framework/lib/twogb_dram_config.json"]
+        args = ["--run_iss", "--iss", "spike", "--tohost", "auto", "--cpuconfig", "dtest_framework/lib/twogb_dram_config.json"]
         testname = "dtest_framework/tests/test_long.s"
         self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
 

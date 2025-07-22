@@ -11,7 +11,7 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.23
+    VERSION 1.24
 
 %setup
     set -eux
@@ -20,8 +20,9 @@ Stage: devel
     pyproject.toml /app/
     README.md /app/
     riescue /app/riescue
-    *.py /app/
+    pyproject.toml /app/
     infra/build_spike.sh /build_spike.sh
+    infra/build_whisper.sh /build_whisper.sh
     infra/build_base_deps.sh /build_base_deps.sh
 
 %post
@@ -36,30 +37,11 @@ Stage: devel
     pip uninstall riescue -y
     cd -
 
-
     # non-packaged dependencies
-    local=/usr/local/
-
-    whisper_remote="https://github.com/tenstorrent/whisper.git"
-    whisper_sha="b24e30f238d462d3930744cb084d74129d0873a8"
-    whisper_dir="/usr/local/whisper"
-
-
-    set -o pipefail
-
     export NO_SINGULARITY=1
-    echo "Building Whisper"
-    mkdir $whisper_dir
-    pushd $whisper_dir
-    git init &&
-    git remote add origin "$whisper_remote" &&
-    git fetch --depth 1 origin "$whisper_sha" &&
-    git checkout FETCH_HEAD
-    make -j 20 BOOST_LIB_DIR=/usr/lib64/ BOOST_INC=/usr/include/boost/ STATIC_LINK=0 SOFT_FLOAT=1
-    mv build-Linux/whisper whisper
-    cp whisper /usr/bin/whisper
-    popd
 
+    echo "Building whisper"
+    ./build_whisper.sh
 
     echo "Building spike"
     ./build_spike.sh

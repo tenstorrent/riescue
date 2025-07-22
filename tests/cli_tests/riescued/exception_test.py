@@ -15,7 +15,7 @@ class Test_ExcpTests(BaseRiescuedTest):
         super().setUp()
 
     def test_excp_with_cpuconfig(self):
-        args = ["--run_iss", "--cpuconfig", "riescue/dtest_framework/tests/cpu_config.json"]
+        args = ["--run_iss", "--cpuconfig", "dtest_framework/tests/cpu_config.json"]
         self.testname = "dtest_framework/tests/test_excp.s"
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 

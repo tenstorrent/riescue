@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
@@ -19,6 +21,7 @@ from riescue.lib.rand import RandNum
 from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.lib.memory import Memory
 from riescue.dtest_framework.parser import PmaInfo, PmpInfo
+from riescue.lib.feature_discovery import FeatureDiscovery
 
 log = logging.getLogger(__name__)
 
@@ -324,102 +327,6 @@ class TestConfig:
                 self.opts[k] = v
 
 
-class FeatureAccessor:
-    """
-    Provides a clean API for accessing feature information from FeatMgr.
-
-    .. code-block:: python
-
-    Usage:
-        featmgr.feature.is_supported("f")
-        featmgr.feature.is_enabled("d")
-        featmgr.feature.get_randomize("v")
-    """
-
-    def __init__(self, featmgr):
-        self._featmgr = featmgr
-
-    def is_supported(self, feature_name: str) -> bool:
-        """
-        Check if a feature is supported.
-
-        Args:
-            feature_name: Name of the feature to check
-
-        Returns:
-            True if the feature is supported, False otherwise
-        """
-        return self._featmgr.is_feature_supported(feature_name)
-
-    def is_enabled(self, feature_name: str) -> bool:
-        """
-        Check if a feature is enabled.
-
-        Args:
-            feature_name: Name of the feature to check
-
-        Returns:
-            True if the feature is enabled, False otherwise
-        """
-        return self._featmgr.is_feature_enabled(feature_name)
-
-    def get_randomize(self, feature_name: str) -> int:
-        """
-        Get the randomization percentage for a feature.
-
-        Args:
-            feature_name: Name of the feature to check
-
-        Returns:
-            Randomization percentage (0-100) for the feature
-        """
-        return self._featmgr.get_feature_randomize(feature_name)
-
-    def get_config(self, feature_name: str) -> dict:
-        """
-        Get the complete configuration for a feature.
-
-        Args:
-            feature_name: Name of the feature to check
-
-        Returns:
-            Dictionary containing 'supported', 'enabled', and 'randomize' values
-        """
-        feature_config = self._featmgr.features.get(feature_name, {})
-        if isinstance(feature_config, dict):
-            return feature_config.copy()
-        else:
-            # Handle simple boolean features
-            return {"supported": bool(feature_config), "enabled": bool(feature_config), "randomize": 0}
-
-    def list_features(self) -> list:
-        """
-        Get a list of all feature names.
-
-        Returns:
-            List of feature names
-        """
-        return list(self._featmgr.features.keys())
-
-    def list_enabled_features(self) -> list:
-        """
-        Get a list of all enabled feature names.
-
-        Returns:
-            List of enabled feature names
-        """
-        return [name for name in self._featmgr.features.keys() if self.is_enabled(name)]
-
-    def list_supported_features(self) -> list:
-        """
-        Get a list of all supported feature names.
-
-        Returns:
-            List of supported feature names
-        """
-        return [name for name in self._featmgr.features.keys() if self.is_supported(name)]
-
-
 # @dataclass(frozen=True)
 @dataclass()
 class FeatMgr(dict):
@@ -444,33 +351,32 @@ class FeatMgr(dict):
         3. Command line (highest priority)
         """
 
-        # Initialize feature accessor for clean API (must be first)
-        self.feature = FeatureAccessor(self)
-
-        with open(self.config_path, "r") as f:
-            cfg = json.load(f)
-
-        # Initialize features dictionary with test.features (lowest priority)
-        self.features = {}
+        # Initialize feature discovery using centralized FeatureDiscovery
+        # Convert test_config.features to string format for FeatureDiscovery
+        test_features_str = None
         if hasattr(self.test_config, "features") and self.test_config.features:
-            # Copy test features as base
+            # Convert test_config.features dict to string format
+            feature_tokens = []
             for feature_name, feature_config in self.test_config.features.items():
                 if isinstance(feature_config, dict):
-                    self.features[feature_name] = feature_config.copy()
+                    if feature_config.get("enabled", False):
+                        feature_tokens.append(f"ext_{feature_name}.enable")
+                    else:
+                        feature_tokens.append(f"ext_{feature_name}.disable")
                 else:
                     # Handle simple boolean features like wysiwyg
-                    self.features[feature_name] = feature_config
+                    if feature_config:
+                        feature_tokens.append("wysiwyg")
+            test_features_str = " ".join(feature_tokens)
 
-        # Apply cpu_config.json features (medium priority - overrides test features)
-        if "features" in cfg:
-            self._load_features_from_config(cfg["features"])
-        elif "isa" in cfg:
-            self._load_features_from_isa(cfg["isa"])
+        # Create FeatureDiscovery instance with test header overrides
+        self.feature_discovery = FeatureDiscovery.from_config_with_overrides(self.config_path, test_features_str)
 
-        # TODO: Add command line feature overrides here (highest priority)
-        # Command line overrides would go here when implemented
-        # if hasattr(self.cmdline, 'features') and self.cmdline.features:
-        #     self._apply_cmdline_feature_overrides(self.cmdline.features)
+        # Maintain existing API compatibility - self.feature points to FeatureDiscovery
+        self.feature = self.feature_discovery
+
+        # Keep the features dictionary for backward compatibility
+        self.features = self.feature_discovery.features
 
         # FIXME: Make sure this all works the same after removing Singletons, then worry about changing
         self.isa = list()
@@ -507,6 +413,9 @@ class FeatMgr(dict):
         self.excp_hooks: bool = self.cmdline.excp_hooks
         self.linux_mode: bool = self.cmdline.linux_mode
         self.force_alignment: bool = self.cmdline.force_alignment
+
+        with open(self.config_path, "r") as f:
+            cfg = json.load(f)
 
         self.io_htif_addr = self.get_io_htif_addr(cfg)
         self.reset_pc = get_int(cfg.get("mmap", {}).get("reset_pc", 0x8000_0000))
@@ -553,7 +462,7 @@ class FeatMgr(dict):
         self.big_endian = False
         self.counter_event_path = None
         self.disable_wfi_wait = False
-        self.wysiwyg = self.test_config.features.get("wysiwyg", False)
+        self.wysiwyg = self.feature_discovery.is_feature_enabled("wysiwyg")
         self.iss_timeout = 600
 
         # configuration set within command line
@@ -597,16 +506,16 @@ class FeatMgr(dict):
 
         # Handle pbmt randomization using feature system
         self.pbmt_ncio = 0
-        if self.feature.is_supported("svpbmt") and self.feature.get_randomize("svpbmt") > 0:
-            if self.rng.with_probability_of(self.feature.get_randomize("svpbmt")):
+        if self.feature_discovery.is_feature_supported("svpbmt") and self.feature_discovery.get_feature_randomize("svpbmt") > 0:
+            if self.rng.with_probability_of(self.feature_discovery.get_feature_randomize("svpbmt")):
                 self.pbmt_ncio = 1
         if self.cmdline.pbmt_ncio_randomization:
             self.pbmt_ncio_randomization = self.cmdline.pbmt_ncio_randomization
 
         # Handle svadu randomization using feature system
         self.svadu = 0
-        if self.feature.is_supported("svadu") and self.feature.get_randomize("svadu") > 0:
-            if self.rng.with_probability_of(self.feature.get_randomize("svadu")):
+        if self.feature_discovery.is_feature_supported("svadu") and self.feature_discovery.get_feature_randomize("svadu") > 0:
+            if self.rng.with_probability_of(self.feature_discovery.get_feature_randomize("svadu")):
                 self.svadu = 1
         if self.cmdline.a_d_bit_randomization:
             self.a_d_bit_randomization = self.cmdline.a_d_bit_randomization
@@ -701,9 +610,6 @@ class FeatMgr(dict):
 
         self.single_assembly_file = self.cmdline.single_assembly_file
 
-        # Initialize feature accessor for clean API
-        self.feature = FeatureAccessor(self)
-
     def get_io_htif_addr(self, cfg):
         htif_str = "auto"
         # Prioritize command line value for htif address
@@ -769,128 +675,34 @@ class FeatMgr(dict):
     def mp_mode_on(self) -> bool:
         return self.mp == RV.RiscvMPEnablement.MP_ON
 
-    def _load_features_from_isa(self, isa_str: str):
-        """
-        Load features from ISA string in cpuconfig.json
-        This merges with existing features, giving config.json priority over test.features
-        Format: rv64imafdcv_zfh_zvfh_zba_zbb_zbs_zfbfmin_zvbb_zbc_zvfbfmin
-        or list of extensions: ["rv64", "i", "m", "a", "f", "d", "c", "v", "zfh", ...]
-        """
-        # Handle both string and list inputs
-        if isinstance(isa_str, list):
-            extensions = isa_str
-        else:
-            extensions = isa_str.split("_")
-
-        # Parse base ISA
-        if "rv64" in extensions:
-            feature_config = {"supported": True, "enabled": True, "randomize": 100}
-            if "rv64" in self.features:
-                if isinstance(self.features["rv64"], dict):
-                    self.features["rv64"].update(feature_config)
-                else:
-                    self.features["rv64"] = feature_config
-            else:
-                self.features["rv64"] = feature_config
-        elif "rv32" in extensions:
-            feature_config = {"supported": True, "enabled": True, "randomize": 100}
-            if "rv32" in self.features:
-                if isinstance(self.features["rv32"], dict):
-                    self.features["rv32"].update(feature_config)
-                else:
-                    self.features["rv32"] = feature_config
-            else:
-                self.features["rv32"] = feature_config
-
-        # Parse base extensions
-        base_extensions = ["i", "m", "a", "f", "d", "c", "v"]
-        for ext in base_extensions:
-            if ext in extensions:
-                feature_config = {"supported": True, "enabled": True, "randomize": 100}
-                if ext in self.features:
-                    if isinstance(self.features[ext], dict):
-                        self.features[ext].update(feature_config)
-                    else:
-                        self.features[ext] = feature_config
-                else:
-                    self.features[ext] = feature_config
-
-        # Parse additional extensions
-        for ext in extensions:
-            if ext.startswith("z"):
-                feature_config = {"supported": True, "enabled": True, "randomize": 0}
-                if ext in self.features:
-                    if isinstance(self.features[ext], dict):
-                        self.features[ext].update(feature_config)
-                    else:
-                        self.features[ext] = feature_config
-                else:
-                    self.features[ext] = feature_config
-
-    def _load_features_from_config(self, features_config: dict):
-        """
-        Load features from features section in cpuconfig.json
-        This merges with existing features, giving config.json priority over test.features
-        Format: {
-            "feature_name": {
-                "supported": true/false,
-                "enabled": true/false,
-                "randomize": percentage
-            }
-        }
-        """
-        for feature_name, feature_config in features_config.items():
-            # Merge or overwrite feature configuration
-            if feature_name in self.features:
-                # If feature exists from test.features, update it with config.json values
-                if isinstance(self.features[feature_name], dict) and isinstance(feature_config, dict):
-                    self.features[feature_name].update(feature_config)
-                else:
-                    # Overwrite non-dict features
-                    self.features[feature_name] = feature_config
-            else:
-                # Add new feature from config.json
-                self.features[feature_name] = feature_config
-
+    # Legacy methods for backward compatibility - delegate to FeatureDiscovery
     def is_feature_supported(self, feature: str) -> bool:
-        """Check if a feature is supported"""
-        feature_config = self.features.get(feature, {})
-        if isinstance(feature_config, dict):
-            return feature_config.get("supported", False)
-        else:
-            return bool(feature_config)
+        """Check if a feature is supported - delegate to FeatureDiscovery"""
+        return self.feature_discovery.is_feature_supported(feature)
 
     def is_feature_enabled(self, feature: str) -> bool:
-        """Check if a feature is enabled"""
-        feature_config = self.features.get(feature, {})
-        if isinstance(feature_config, dict):
-            return feature_config.get("enabled", False)
-        else:
-            return bool(feature_config)
+        """Check if a feature is enabled - delegate to FeatureDiscovery"""
+        return self.feature_discovery.is_feature_enabled(feature)
 
     def get_feature_randomize(self, feature: str) -> int:
-        """Get the randomization probability for a feature"""
-        feature_config = self.features.get(feature, {})
-        if isinstance(feature_config, dict):
-            return feature_config.get("randomize", 0)
-        else:
-            return 100 if feature_config else 0
+        """Get the randomization probability for a feature - delegate to FeatureDiscovery"""
+        return self.feature_discovery.get_feature_randomize(feature)
 
     def get_misa_bits(self) -> int:
         """Get MISA bits based on enabled features"""
         misa = 0
 
         # Base ISA
-        if self.is_feature_enabled("rv64"):
+        if self.feature_discovery.is_feature_enabled("rv64"):
             misa |= 1 << 62  # MXL = 2 for RV64
-        elif self.is_feature_enabled("rv32"):
+        elif self.feature_discovery.is_feature_enabled("rv32"):
             misa |= 1 << 30  # MXL = 1 for RV32
 
         # Base extensions
         extension_bits = {"i": 8, "m": 12, "a": 0, "f": 5, "d": 3, "c": 2, "v": 21}  # I  # M  # A  # F  # D  # C  # V
 
         for ext, bit in extension_bits.items():
-            if self.is_feature_enabled(ext):
+            if self.feature_discovery.is_feature_enabled(ext):
                 misa |= 1 << bit
 
         # Additional extensions (Z*)
@@ -899,73 +711,15 @@ class FeatMgr(dict):
                 # Map Z extensions to their MISA bits
                 # This mapping should be expanded based on your specific Z extensions
                 z_bits = {"zfh": 5, "zvfh": 5, "zba": 0, "zbb": 0, "zbs": 0, "zfbfmin": 5, "zvbb": 21, "zbc": 21, "zvfbfmin": 5}  # F  # F  # A  # A  # A  # F  # V  # V  # F
-                if feature in z_bits and self.is_feature_enabled(feature):
+                if feature in z_bits and self.feature_discovery.is_feature_enabled(feature):
                     misa |= 1 << z_bits[feature]
 
         return misa
 
     def enable_features_by_randomization(self):
-        """
-        Enable features based on their randomization probability.
-        For each supported feature, if it has a non-zero randomization percentage,
-        there is that percentage chance it will be enabled.
-        """
-        for feature_name, feature_info in self.features.items():
-            if feature_info["supported"] and feature_info["randomize"] > 0:
-                # Use the random number generator to determine if feature should be enabled
-                if self.rng.with_probability_of(feature_info["randomize"]):
-                    feature_info["enabled"] = True
-                else:
-                    feature_info["enabled"] = False
+        """Enable features based on their randomization percentages"""
+        self.feature_discovery.enable_features_by_randomization(self.rng)
 
     def get_compiler_march_string(self) -> str:
-        """
-        Generate a compiler march string from enabled features.
-        Returns a string suitable for use with gcc's -march parameter.
-        """
-        # Start with base architecture
-        march_components = []
-
-        # Base architecture (rv32 or rv64)
-        if self.is_feature_enabled("rv64"):
-            march_components.append("rv64")
-        elif self.is_feature_enabled("rv32"):
-            march_components.append("rv32")
-        else:
-            march_components.append("rv64")  # Default to rv64
-
-        # Base extensions in standard order
-        base_extensions = ["i", "m", "a", "f", "d", "c", "h", "v", "u", "s"]
-        for ext in base_extensions:
-            if self.is_feature_enabled(ext):
-                march_components.append(ext)
-
-        # Z-extensions (alphabetically sorted)
-        z_extensions = []
-        for feature_name in sorted(self.features.keys()):
-            if feature_name.startswith("z") and self.is_feature_enabled(feature_name):
-                z_extensions.append(feature_name)
-
-        # S-extensions (supervisor extensions)
-        s_extensions = []
-        for feature_name in sorted(self.features.keys()):
-            if feature_name.startswith("sv") and self.is_feature_enabled(feature_name):
-                s_extensions.append(feature_name)
-
-        # Combine base architecture with base extensions (no underscores between them)
-        if len(march_components) > 1:
-            base_string = march_components[0] + "".join(march_components[1:])
-        else:
-            base_string = march_components[0]
-
-        # Start with base string
-        result = [base_string]
-
-        # Add Z-extensions with underscores
-        result.extend(z_extensions)
-
-        # Add S-extensions with underscores
-        result.extend(s_extensions)
-
-        # Join with underscores
-        return "_".join(result)
+        """Generate a compiler march string from enabled features"""
+        return self.feature_discovery.get_compiler_march_string()

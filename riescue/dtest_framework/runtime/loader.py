@@ -177,79 +177,11 @@ class Loader(AssemblyGenerator):
             {"" if self.featmgr.disable_wfi_wait else "li t0, 0x2"}
             {"" if self.featmgr.disable_wfi_wait else "csrw mcounteren, t0"}
 
-            # Initialize FP registers
-            li t0, check_excp
-            fld f0 , 0(t0)
-            fld f1 , 0(t0)
-            fld f2 , 0(t0)
-            fld f3 , 0(t0)
-            fld f4 , 0(t0)
-            fld f5 , 0(t0)
-            fld f6 , 0(t0)
-            fld f7 , 0(t0)
-            fld f8 , 0(t0)
-            fld f9 , 0(t0)
-            fld f10, 0(t0)
-            fld f11, 0(t0)
-            fld f12, 0(t0)
-            fld f13, 0(t0)
-            fld f14, 0(t0)
-            fld f15, 0(t0)
-            fld f16, 0(t0)
-            fld f17, 0(t0)
-            fld f18, 0(t0)
-            fld f19, 0(t0)
-            fld f20, 0(t0)
-            fld f21, 0(t0)
-            fld f22, 0(t0)
-            fld f23, 0(t0)
-            fld f24, 0(t0)
-            fld f25, 0(t0)
-            fld f26, 0(t0)
-            fld f27, 0(t0)
-            fld f28, 0(t0)
-            fld f29, 0(t0)
-            fld f30, 0(t0)
-            fld f31, 0(t0)
+            # Initialize FP and Vector registers if supported
+            {self.generate_fp_init_code() if self.featmgr.feature.is_supported("f") or self.featmgr.feature.is_supported("d") else ""}
 
-            #Initialize Vector Registers
-            li x4, 0x0
-            li x5, 0x4
-            li x6, 0xd8
-            li t0, check_excp
-            vsetvl x4,x5,x6
-            vmv.v.x v0,  x0
-            vmv.v.x v1,  x0
-            vmv.v.x v2,  x0
-            vmv.v.x v3,  x0
-            vmv.v.x v4,  x0
-            vmv.v.x v5,  x0
-            vmv.v.x v6,  x0
-            vmv.v.x v7,  x0
-            vmv.v.x v8,  x0
-            vmv.v.x v9,  x0
-            vmv.v.x v10, x0
-            vmv.v.x v11, x0
-            vmv.v.x v12, x0
-            vmv.v.x v13, x0
-            vmv.v.x v14, x0
-            vmv.v.x v15, x0
-            vmv.v.x v16, x0
-            vmv.v.x v17, x0
-            vmv.v.x v18, x0
-            vmv.v.x v19, x0
-            vmv.v.x v20, x0
-            vmv.v.x v21, x0
-            vmv.v.x v22, x0
-            vmv.v.x v23, x0
-            vmv.v.x v24, x0
-            vmv.v.x v25, x0
-            vmv.v.x v26, x0
-            vmv.v.x v27, x0
-            vmv.v.x v28, x0
-            vmv.v.x v29, x0
-            vmv.v.x v30, x0
-            vmv.v.x v31, x0
+            # Initialize Vector registers if supported
+            {self.generate_vector_init_code() if self.featmgr.feature.is_supported("v") else ""}
 
         """
         # Setup pmacfg* if requested
@@ -722,3 +654,91 @@ _start:
                     continue
 
         return code
+
+    def generate_fp_init_code(self):
+        """Generate FP register initialization code if FP extensions are supported"""
+        if not (self.featmgr.feature.is_supported("f") or self.featmgr.feature.is_supported("d")):
+            return ""
+
+        return """
+            # Initialize FP registers
+            li t0, check_excp
+            fld f0 , 0(t0)
+            fld f1 , 0(t0)
+            fld f2 , 0(t0)
+            fld f3 , 0(t0)
+            fld f4 , 0(t0)
+            fld f5 , 0(t0)
+            fld f6 , 0(t0)
+            fld f7 , 0(t0)
+            fld f8 , 0(t0)
+            fld f9 , 0(t0)
+            fld f10, 0(t0)
+            fld f11, 0(t0)
+            fld f12, 0(t0)
+            fld f13, 0(t0)
+            fld f14, 0(t0)
+            fld f15, 0(t0)
+            fld f16, 0(t0)
+            fld f17, 0(t0)
+            fld f18, 0(t0)
+            fld f19, 0(t0)
+            fld f20, 0(t0)
+            fld f21, 0(t0)
+            fld f22, 0(t0)
+            fld f23, 0(t0)
+            fld f24, 0(t0)
+            fld f25, 0(t0)
+            fld f26, 0(t0)
+            fld f27, 0(t0)
+            fld f28, 0(t0)
+            fld f29, 0(t0)
+            fld f30, 0(t0)
+            fld f31, 0(t0)
+        """
+
+    def generate_vector_init_code(self):
+        """Generate vector register initialization code if vector extension is supported"""
+        if not self.featmgr.feature.is_supported("v"):
+            return ""
+
+        return """
+            # Initialize Vector Registers
+            li x4, 0x0
+            li x5, 0x4
+            li x6, 0xd8
+            li t0, check_excp
+            vsetvl x4,x5,x6
+            vmv.v.x v0,  x0
+            vmv.v.x v1,  x0
+            vmv.v.x v2,  x0
+            vmv.v.x v3,  x0
+            vmv.v.x v4,  x0
+            vmv.v.x v5,  x0
+            vmv.v.x v6,  x0
+            vmv.v.x v7,  x0
+            vmv.v.x v8,  x0
+            vmv.v.x v9,  x0
+            vmv.v.x v10, x0
+            vmv.v.x v11, x0
+            vmv.v.x v12, x0
+            vmv.v.x v13, x0
+            vmv.v.x v14, x0
+            vmv.v.x v15, x0
+            vmv.v.x v16, x0
+            vmv.v.x v17, x0
+            vmv.v.x v18, x0
+            vmv.v.x v19, x0
+            vmv.v.x v20, x0
+            vmv.v.x v21, x0
+            vmv.v.x v22, x0
+            vmv.v.x v23, x0
+            vmv.v.x v24, x0
+            vmv.v.x v25, x0
+            vmv.v.x v26, x0
+            vmv.v.x v27, x0
+            vmv.v.x v28, x0
+            vmv.v.x v29, x0
+            vmv.v.x v30, x0
+            vmv.v.x v31, x0
+        """

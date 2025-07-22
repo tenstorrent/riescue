@@ -74,14 +74,7 @@ class RiescueD(CliBase):
         run_dir = Path(cl_args.run_dir).resolve()
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        file = cl_args.testname
-        filepath = Path(file).resolve()
-        if not filepath.exists():
-            filepath = (self.package_path / file).resolve()
-        if not filepath.exists():
-            filepath = (run_dir / file).resolve()
-        if not filepath.exists():
-            raise FileNotFoundError(f"Couldn't resolve path to file - tried {Path(file).resolve()} and {filepath}")
+        filepath = self.resolve_path(cl_args.testname, run_dir)
         testname = filepath.stem
 
         # Output Files
@@ -105,13 +98,7 @@ class RiescueD(CliBase):
         parser.parse()
 
         # Setup simulation configuration
-        cpu_config = cl_args.cpuconfig
-        if cl_args.cpuconfig:
-            cpu_config = self.package_path / cl_args.cpuconfig
-            if not cpu_config.exists():
-                cpu_config = self.package_path.parent / cl_args.cpuconfig
-        else:
-            cpu_config = self.package_path / "dtest_framework/lib/config.json"
+        cpu_config = self.resolve_path(cl_args.cpuconfig, run_dir)
         featmgr = configure(rng=self.rng, pool=self.pool, json_config=cpu_config, cmdline_args=cl_args)
 
         print(f"test_config: env: {featmgr.env}")
@@ -236,6 +223,24 @@ class RiescueD(CliBase):
                     raise RunnerError(f"WYSIWYG mode failed to find the correct exit value - last line {line}")
 
             print("\nTest \x1b[0;30;42m PASSED \x1b[0m successfully on ISS\n")
+
+    def resolve_path(self, file: str, run_dir: Path) -> Path:
+        """
+        Helper function to resolve config/test file paths. Tries relative to cwd, then package/install dir, then run_dir.
+
+          relative to install directory.
+        """
+        filepath = Path(file).resolve()
+        if not filepath.exists():
+            filepath = (self.package_path / file).resolve()
+        if not filepath.exists():
+            filepath = (run_dir / file).resolve()
+        if not filepath.exists():
+            # temp until cpuconfig paths are fixed, check relative to install directory as last resort
+            filepath = (self.package_path.parent / file).resolve()
+        if not filepath.exists():
+            raise FileNotFoundError(f"Couldn't resolve path to file - tried {Path(file).resolve()} and relative to install directory {filepath}")
+        return filepath
 
 
 def main():

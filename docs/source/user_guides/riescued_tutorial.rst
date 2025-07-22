@@ -4,8 +4,8 @@ RiescueD User Guide
 Welcome to RiescueD, the **RiESCUE Directed Test Framework** - a powerful Python library for generating RISC-V directed tests with randomization capabilities, memory management, and comprehensive environment simulation.
 
 .. contents:: Table of Contents
-   :local:
-   :depth: 2
+    :local:
+    :depth: 2
 
 What is RiescueD?
 -----------------
@@ -41,15 +41,15 @@ Basic Workflow
 
 .. code-block:: bash
 
-   # Basic usage
-   python3 riescued.py run --testname test.s --cpuconfig cpu_config.json
+    # Basic usage
+    python3 riescued.py run --testname test.s --cpuconfig cpu_config.json
 
-   # With specific environment settings
-   python3 riescued.py run --testname test.s \
-     --cpuconfig cpu_config.json \
-     --test_paging_mode sv39 \
-     --test_privilege_mode supervisor \
-     --test_env bare_metal
+    # With specific environment settings
+    python3 riescued.py run --testname test.s \
+        --cpuconfig cpu_config.json \
+        --test_paging_mode sv39 \
+        --test_privilege_mode supervisor \
+        --test_env bare_metal
 
 RiescueD Directives Reference
 -----------------------------
@@ -63,17 +63,17 @@ Test header directives define the overall test configuration and are placed at t
 
 .. code-block:: asm
 
-   ;#test.name       my_test
-   ;#test.author     your.email@company.com
-   ;#test.arch       rv64
-   ;#test.priv       machine super user any
-   ;#test.env        virtualized bare_metal any
-   ;#test.cpus       1
-   ;#test.paging     sv39 sv48 sv57 disable any
-   ;#test.category   arch
-   ;#test.class      vector
-   ;#test.features   ext_v.enable ext_fp.disable
-   ;#test.tags       vectors load_store
+    ;#test.name       my_test
+    ;#test.author     your.email@company.com
+    ;#test.arch       rv64
+    ;#test.priv       machine super user any
+    ;#test.env        virtualized bare_metal any
+    ;#test.cpus       1
+    ;#test.paging     sv39 sv48 sv57 disable any
+    ;#test.category   arch
+    ;#test.class      vector
+    ;#test.features   ext_v.enable ext_fp.disable
+    ;#test.tags       vectors load_store
 
 **Available Test Header Options:**
 
@@ -93,9 +93,9 @@ Generate random data values with optional constraints:
 
 .. code-block:: asm
 
-   ;#random_data(name=data1, type=bits32, and_mask=0xfffffff0)
-   ;#random_data(name=data2, type=bits64, and_mask=0xffffffffffffffff)
-   ;#random_data(name=data3, type=bits20)
+    ;#random_data(name=data1, type=bits32, and_mask=0xfffffff0)
+    ;#random_data(name=data2, type=bits64, and_mask=0xffffffffffffffff)
+    ;#random_data(name=data3, type=bits20)
 
 **Parameters:**
 
@@ -107,10 +107,10 @@ Generate random data values with optional constraints:
 
 .. code-block:: asm
 
-   .section .data
-   my_data:
-       .dword data1    # Uses the random value generated
-       .dword data2
+    .section .data
+    my_data:
+        .dword data1    # Uses the random value generated
+        .dword data2
 
 Random Address Generation
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -119,17 +119,17 @@ Generate random addresses for memory operations:
 
 .. code-block:: asm
 
-   ;#random_addr(name=lin1, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
-   ;#random_addr(name=phys1, type=physical, size=0x1000, and_mask=0xfffffffffffff000)
-   ;#random_addr(name=io_addr, type=physical, io=1, size=0x1000, and_mask=0xfffffffffffff000)
+    ;#random_addr(name=lin1, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
+    ;#random_addr(name=phys1, type=physical, size=0x1000, and_mask=0xfffffffffffff000)
+    ;#random_addr(name=io_addr, type=physical, io=1, size=0x1000, and_mask=0xfffffffffffff000)
 
 **Parameters:**
 
 - ``name``: Address variable name
 - ``type``: Address space type
 
-  - ``linear``: Virtual/linear address space
-  - ``physical``: Physical address space
+    - ``linear``: Virtual/linear address space
+    - ``physical``: Physical address space
 
 - ``size``: Size of the memory region
 - ``and_mask``: Address alignment mask
@@ -142,8 +142,8 @@ Reserve specific memory regions:
 
 .. code-block:: asm
 
-   ;#reserve_memory(start_addr=0x600000, addr_type=linear, size=0x1000)
-   ;#reserve_memory(start_addr=0x500000, addr_type=physical, size=0x1000)
+    ;#reserve_memory(start_addr=0x600000, addr_type=linear, size=0x1000)
+    ;#reserve_memory(start_addr=0x500000, addr_type=physical, size=0x1000)
 
 **Parameters:**
 
@@ -158,9 +158,9 @@ Automatically generate page table entries:
 
 .. code-block:: asm
 
-   ;#page_mapping(lin_name=lin1, phys_name=phys1, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb', '2mb', '1gb', '512gb', '256tb', 'any'])
-   ;#page_mapping(lin_addr=0x5000000, phys_addr=0x5000000, v=1, r=1, w=1, pagesize=['4kb'])
-   ;#page_mapping(lin_name=lin2, phys_name=&random, v=1, r=1, w=1, pagesize=['2mb'])
+    ;#page_mapping(lin_name=lin1, phys_name=phys1, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb', '2mb', '1gb', '512gb', '256tb', 'any'])
+    ;#page_mapping(lin_addr=0x5000000, phys_addr=0x5000000, v=1, r=1, w=1, pagesize=['4kb'])
+    ;#page_mapping(lin_name=lin2, phys_name=&random, v=1, r=1, w=1, pagesize=['2mb'])
 
 **Parameters:**
 
@@ -174,12 +174,12 @@ Automatically generate page table entries:
 - ``d``: Dirty bit (0 or 1)
 - ``pagesize``: Page size options
 
-  - ``'4kb'``: 4KB pages
-  - ``'2mb'``: 2MB pages
-  - ``'1gb'``: 1GB pages
-  - ``'512gb'``: 512GB pages
-  - ``'256tb'``: 256TB pages
-  - ``'any'``: Let RiescueD choose
+    - ``'4kb'``: 4KB pages
+    - ``'2mb'``: 2MB pages
+    - ``'1gb'``: 1GB pages
+    - ``'512gb'``: 512GB pages
+    - ``'256tb'``: 256TB pages
+    - ``'any'``: Let RiescueD choose
 
 **Special Values:**
 
@@ -193,10 +193,10 @@ Initialize memory sections with data:
 
 .. code-block:: asm
 
-   ;#init_memory @section_name
-   .section .section_name, "aw"
-       .dword data1
-       .dword data2
+    ;#init_memory @section_name
+    .section .section_name, "aw"
+        .dword data1
+        .dword data2
 
 This directive initializes the memory region with the specified data.
 
@@ -207,80 +207,80 @@ Here's a complete example showing how to structure a RiescueD test:
 
 .. code-block:: asm
 
-   ;#test.name       load_store_test
-   ;#test.author     developer@company.com
-   ;#test.arch       rv64
-   ;#test.priv       supervisor
-   ;#test.env        virtualized
-   ;#test.cpus       1
-   ;#test.paging     sv39
-   ;#test.category   memory
-   ;#test.class      load_store
-   ;#test.features   ext_i.enable
-   ;#test.tags       load store virtual_memory
-   ;#test.summary    Test load/store operations with virtual memory
+    ;#test.name       load_store_test
+    ;#test.author     developer@company.com
+    ;#test.arch       rv64
+    ;#test.priv       supervisor
+    ;#test.env        virtualized
+    ;#test.cpus       1
+    ;#test.paging     sv39
+    ;#test.category   memory
+    ;#test.class      load_store
+    ;#test.features   ext_i.enable
+    ;#test.tags       load store virtual_memory
+    ;#test.summary    Test load/store operations with virtual memory
 
-   #####################
-   # Random Data Generation
-   #####################
-   ;#random_data(name=test_data1, type=bits64, and_mask=0xffffffffffffffff)
-   ;#random_data(name=test_data2, type=bits32, and_mask=0xfffffff0)
+    #####################
+    # Random Data Generation
+    #####################
+    ;#random_data(name=test_data1, type=bits64, and_mask=0xffffffffffffffff)
+    ;#random_data(name=test_data2, type=bits32, and_mask=0xfffffff0)
 
-   #####################
-   # Address Generation and Page Mapping
-   #####################
-   ;#random_addr(name=data_region, type=linear, size=0x2000, and_mask=0xfffffffffffff000)
-   ;#random_addr(name=data_phys, type=physical, size=0x2000, and_mask=0xfffffffffffff000)
-   ;#page_mapping(lin_name=data_region, phys_name=data_phys, v=1, r=1, w=1, pagesize=['4kb'])
+    #####################
+    # Address Generation and Page Mapping
+    #####################
+    ;#random_addr(name=data_region, type=linear, size=0x2000, and_mask=0xfffffffffffff000)
+    ;#random_addr(name=data_phys, type=physical, size=0x2000, and_mask=0xfffffffffffff000)
+    ;#page_mapping(lin_name=data_region, phys_name=data_phys, v=1, r=1, w=1, pagesize=['4kb'])
 
-   ;#reserve_memory(start_addr=0x10000000, addr_type=linear, size=0x1000)
-   ;#page_mapping(lin_addr=0x10000000, phys_name=&random, v=1, r=1, w=1, pagesize=['4kb'])
+    ;#reserve_memory(start_addr=0x10000000, addr_type=linear, size=0x1000)
+    ;#page_mapping(lin_addr=0x10000000, phys_name=&random, v=1, r=1, w=1, pagesize=['4kb'])
 
-   .section .text
+    .section .code, "ax"
 
-   #####################
-   # Test Setup
-   #####################
-   test_setup:
-       # Executed before each test, exactly once
-       li t0, 0x12345678
-       j test01
+    #####################
+    # Test Setup
+    #####################
+    test_setup:
+        # Executed before each test, exactly once
+        li t0, 0x12345678
+        j test01
 
-   #####################
-   # Discrete Tests
-   #####################
-   ;#discrete_test(test=test01)
-   test01:
-       # Load from virtual address
-       la t1, data_region
-       ld t2, 0(t1)
+    #####################
+    # Discrete Tests
+    #####################
+    ;#discrete_test(test=test01)
+    test01:
+        # Load from virtual address
+        li t1, data_region
+        ld t2, 0(t1)
 
-       # Store to virtual address
-       sd t0, 8(t1)
+        # Store to virtual address
+        sd t0, 8(t1)
 
-       # Verify the store
-       ld t3, 8(t1)
-       beq t0, t3, test01_pass
-       j failed
+        # Verify the store
+        ld t3, 8(t1)
+        beq t0, t3, test01_pass
+        j failed
 
-   test01_pass:
-       j passed
+    test01_pass:
+        j passed
 
-   #####################
-   # Test Cleanup
-   #####################
-   test_cleanup:
-       # Executed after all tests are run, exactly once
-       li t0, 0x12345678
-       j passed
+    #####################
+    # Test Cleanup
+    #####################
+    test_cleanup:
+        # Executed after all tests are run, exactly once
+        li t0, 0x12345678
+        j passed
 
-   #####################
-   # Memory Sections
-   #####################
-   ;#init_memory @data_region
-   .section .data_region, "aw"
-       .dword test_data1
-       .dword test_data2
+    #####################
+    # Memory Sections
+    #####################
+    .section .data
+    ;#init_memory @data_region
+        .dword test_data1
+        .dword test_data2
 
 Advanced Features
 -----------------
@@ -294,7 +294,7 @@ RiescueD provides powerful exception testing capabilities through the ``OS_SETUP
 
 .. code-block:: text
 
-   OS_SETUP_CHECK_EXCP expected_cause, expected_pc, return_pc, expected_tval=0
+    OS_SETUP_CHECK_EXCP expected_cause, expected_pc, return_pc, expected_tval=0
 
 **Parameters:**
 
@@ -327,35 +327,35 @@ Common exception causes that can be tested:
 
 .. code-block:: asm
 
-   # Test ecall exception
-   OS_SETUP_CHECK_EXCP ECALL, ecall_instr, after_ecall
+    # Test ecall exception
+    OS_SETUP_CHECK_EXCP ECALL, ecall_instr, after_ecall
 
-   ecall_instr:
-       ecall          # This instruction will cause an exception
-       j failed       # Should never reach here
+    ecall_instr:
+        ecall          # This instruction will cause an exception
+        j failed       # Should never reach here
 
-   after_ecall:
-       # Continue test execution here
-       j passed
+    after_ecall:
+        # Continue test execution here
+        j passed
 
 **Page Fault Testing Example:**
 
 .. code-block:: asm
 
-   # Test store page fault on a non-writable page
-   ;#page_mapping(lin_name=readonly_page, phys_name=readonly_phys, v=1, r=1, w=0, pagesize=['4kb'])
+    # Test store page fault on a non-writable page
+    ;#page_mapping(lin_name=readonly_page, phys_name=readonly_phys, v=1, r=1, w=0, pagesize=['4kb'])
 
-   # Setup expected page fault
-   OS_SETUP_CHECK_EXCP STORE_PAGE_FAULT, fault_store, after_fault, readonly_page
+    # Setup expected page fault
+    OS_SETUP_CHECK_EXCP STORE_PAGE_FAULT, fault_store, after_fault, readonly_page
 
-   fault_store:
-       li t1, readonly_page
-       sw t0, 0(t1)    # This will cause a store page fault
-       j failed        # Should never reach here
+    fault_store:
+        li t1, readonly_page
+        sw t0, 0(t1)    # This will cause a store page fault
+        j failed        # Should never reach here
 
-   after_fault:
-       # Exception was handled correctly
-       j passed
+    after_fault:
+        # Exception was handled correctly
+        j passed
 
 Page Map Feature
 ~~~~~~~~~~~~~~~~
@@ -373,11 +373,11 @@ You can define custom page maps for specialized testing scenarios:
 
 .. code-block:: asm
 
-   # Page belongs to custom map
-   ;#page_mapping(lin_name=custom_page, phys_name=custom_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['custom_map'])
+    # Page belongs to custom map
+    ;#page_mapping(lin_name=custom_page, phys_name=custom_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['custom_map'])
 
-   # Page belongs to multiple maps
-   ;#page_mapping(lin_name=shared_page, phys_name=shared_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['map_os', 'custom_map'])
+    # Page belongs to multiple maps
+    ;#page_mapping(lin_name=shared_page, phys_name=shared_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['map_os', 'custom_map'])
 
 **Use Cases for Page Maps:**
 
@@ -385,30 +385,30 @@ You can define custom page maps for specialized testing scenarios:
 
 .. code-block:: asm
 
-   # Process 1 pages
-   ;#page_mapping(lin_name=proc1_stack, phys_name=proc1_stack_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['proc1_map'])
-   ;#page_mapping(lin_name=proc1_heap, phys_name=proc1_heap_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['proc1_map'])
+    # Process 1 pages
+    ;#page_mapping(lin_name=proc1_stack, phys_name=proc1_stack_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['proc1_map'])
+    ;#page_mapping(lin_name=proc1_heap, phys_name=proc1_heap_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['proc1_map'])
 
-   # Process 2 pages
-   ;#page_mapping(lin_name=proc2_stack, phys_name=proc2_stack_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['proc2_map'])
-   ;#page_mapping(lin_name=proc2_heap, phys_name=proc2_heap_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['proc2_map'])
+    # Process 2 pages
+    ;#page_mapping(lin_name=proc2_stack, phys_name=proc2_stack_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['proc2_map'])
+    ;#page_mapping(lin_name=proc2_heap, phys_name=proc2_heap_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['proc2_map'])
 
 2. **Virtualization Testing:**
 
 .. code-block:: asm
 
-   # Guest OS pages
-   ;#page_mapping(lin_name=guest_kernel, phys_name=guest_kernel_phys, v=1, r=1, w=1, x=1, pagesize=['4kb'], page_maps=['map_os'])
+    # Guest OS pages
+    ;#page_mapping(lin_name=guest_kernel, phys_name=guest_kernel_phys, v=1, r=1, w=1, x=1, pagesize=['4kb'], page_maps=['map_os'])
 
-   # Hypervisor pages
-   ;#page_mapping(lin_name=hyp_pages, phys_name=hyp_phys, v=1, r=1, w=1, x=1, pagesize=['4kb'], page_maps=['map_hyp'])
+    # Hypervisor pages
+    ;#page_mapping(lin_name=hyp_pages, phys_name=hyp_phys, v=1, r=1, w=1, x=1, pagesize=['4kb'], page_maps=['map_hyp'])
 
 3. **Shared Memory Testing:**
 
 .. code-block:: asm
 
-   # Shared between processes
-   ;#page_mapping(lin_name=shared_mem, phys_name=shared_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['proc1_map', 'proc2_map'])
+    # Shared between processes
+    ;#page_mapping(lin_name=shared_mem, phys_name=shared_phys, v=1, r=1, w=1, pagesize=['4kb'], page_maps=['proc1_map', 'proc2_map'])
 
 **Advanced Page Map Features:**
 
@@ -508,18 +508,18 @@ Create a ``cpu_config.json`` file to specify your target system:
 
 .. code-block:: json
 
-   {
-       "memory_map": {
-           "ram": {
-               "start": "0x80000000",
-               "size": "0x10000000"
-           },
-           "io": {
-               "start": "0x10000000",
-               "size": "0x1000000"
-           }
-       }
-   }
+    {
+        "memory_map": {
+            "ram": {
+                "start": "0x80000000",
+                "size": "0x10000000"
+            },
+            "io": {
+                "start": "0x10000000",
+                "size": "0x1000000"
+            }
+        }
+    }
 
 Integration with Simulators
 ---------------------------
