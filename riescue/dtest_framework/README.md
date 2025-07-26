@@ -29,7 +29,7 @@ RiescueD is a Python library serving as a Directed Test Framework for RISC-V, of
 
 ### Test Generation Process
 1. Write `.s` file using assembly with RiescueD Directives
-2. Provide system memory map and configuration in cpuconfig json file
+2. Provide system memory map and configuration in cpuconfig JSON file
 3. Run RiescueD to produce:
    - `.S` assembly file
    - `.ld` Linker Script

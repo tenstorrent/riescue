@@ -20,14 +20,27 @@ To see available run options, run:
 
 .. code-block:: bash
 
-   ./riescued.py -h
+   python3 -m riescued  -h
 
 
 To run a directed test, use
 
 .. code-block:: bash
 
-   ./riescued.py run --testname <path/to/test.s> --cpuconfig <path/to/cpuconfig.json>
+   python3 -m riescued  --testname <path/to/test.s> --cpuconfig <path/to/cpuconfig.json>
+
+
+You can also run a wrapper script, e.g.
+
+
+.. code-block:: python
+
+   from riescue import RiescueD
+
+   RiescueD.run_cli("-t test.s".split())
+   RiescueD.run_cli(["--t", "test.s"])
+
+
 
 
 
