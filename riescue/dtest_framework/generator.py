@@ -596,7 +596,7 @@ class Generator:
             if self.pool.parsed_random_addr_exists(addr_name=parsed_page_mapping.phys_name):
                 phys_random_addr = self.pool.get_parsed_addr(parsed_page_mapping.phys_name)
                 phys_random_addr.size = address_size
-                phys_random_addr.align = address_mask
+                phys_random_addr.and_mask = address_mask
 
         if re.match(r"linear", addr_type):
             if random_addr.addr_bits is None:
