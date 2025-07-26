@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
 import yaml
 import json
 import copy
 from collections import OrderedDict
 import pathlib
-
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-# SPDX-License-Identifier: Apache-2.0
 
 
 # Simpler and more easily read and updated instruction info source.

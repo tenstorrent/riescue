@@ -19,12 +19,9 @@ Riescue documentation
 
 .. rubric:: Getting Started, Guides, and Tutorials
 
-Starting for the first time? Checkout :doc:`/user_guides/getting_started`
+Starting for the first time? Checkout :doc:`/user_guides/getting_started` for information on installing Riescue and its dependencies.
 
-More user guides and tutorials are available in :doc:`/user_guides/overview`
-
-
-
+User guides and tutorials are available in :doc:`/user_guides/overview`
 
 
 

@@ -42,14 +42,24 @@ Basic Workflow
 .. code-block:: bash
 
     # Basic usage
-    python3 riescued.py run --testname test.s --cpuconfig cpu_config.json
+    python3 -m riescued  run --testname test.s --cpuconfig cpu_config.json
 
     # With specific environment settings
-    python3 riescued.py run --testname test.s \
+    python3 -m riescued  run --testname test.s \
         --cpuconfig cpu_config.json \
         --test_paging_mode sv39 \
         --test_privilege_mode supervisor \
         --test_env bare_metal
+
+Users can also run a wrapper script, e.g.
+
+.. code-block:: python
+
+    from riescue import RiescueD
+
+    RiescueD.run_cli("-t test.s".split())
+    RiescueD.run_cli(["--t", "test.s"])
+
 
 RiescueD Directives Reference
 -----------------------------
@@ -509,17 +519,49 @@ Create a ``cpu_config.json`` file to specify your target system:
 .. code-block:: json
 
     {
-        "memory_map": {
-            "ram": {
-                "start": "0x80000000",
-                "size": "0x10000000"
-            },
+        "mmap": {
+            "dram": {"address": "0x8000_0000", "size": "0x10_0000_0000_0000"},
+            "reset_pc": "0x8000_0000",
             "io": {
-                "start": "0x10000000",
-                "size": "0x1000000"
+                "address": "0",
+                "size": "0x8000_0000",
+                "items": {
+                    "io0": {"address": "0x0", "size": "0x1_0000"},
+                    "htif": {"address": "0x7000_0000", "size": "0x10"}
+                }
             }
+        },
+        "features": {
+            "rv64": {"supported": true, "enabled": true, "randomize": 100},
+            "i": {"supported": true, "enabled": true, "randomize": 100},
+            "m": {"supported": true, "enabled": true, "randomize": 100},
+            "a": {"supported": true, "enabled": true, "randomize": 100},
+            "f": {"supported": true, "enabled": true, "randomize": 100},
+            "d": {"supported": true, "enabled": true, "randomize": 100},
+            "c": {"supported": true, "enabled": true, "randomize": 100},
+            "h": {"supported": true, "enabled": true, "randomize": 100},
+            "v": {"supported": true, "enabled": false, "randomize": 100},
+            "u": {"supported": true, "enabled": true, "randomize": 100},
+            "s": {"supported": true, "enabled": true, "randomize": 100},
+        },
+        "test_generation": {
+            "secure_access_probability": 30,
+            "secure_pt_probability": 0,
+            "a_d_bit_randomization": 0,
+            "pbmt_ncio_randomization": 0
         }
     }
+
+* The ``mmap`` section sepcifies the memory map for the target system
+   * ``dram``: The main memory region, with ``"address"`` and ``"size"`` detailing the address and size of the DRAM region
+   * ``reset_pc``: The address of the reset vector
+   * ``io``: The I/O region, with ``"address"`` and ``"size"`` detailing the address and size of the I/O region
+      * ``items``: A list of I/O devices, with ``"address"`` and ``"size"`` detailing the address and size of the I/O device
+      * ``htif``: The HTIF device, with ``"address"`` and ``"size"`` detailing the address and size of the HTIF device
+
+
+``htif`` specifices the default end of test address. i.e. ``0x7000_0000`` would be the ``tohost`` address that gets written to by the test.
+
 
 Integration with Simulators
 ---------------------------

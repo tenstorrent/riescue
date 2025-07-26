@@ -207,3 +207,4 @@ The following dependencies are utilized by this project but are not explicitly
 distributed as part of the software:
 
 - riscv-isa-sim - https://github.com/riscv-software-src/riscv-isa-sim/blob/master/LICENSE
+- riscv-dv - https://github.com/chipsalliance/riscv-dv/blob/master/LICENSE.txt

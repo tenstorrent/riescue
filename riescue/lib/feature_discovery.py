@@ -12,7 +12,7 @@ It consolidates feature discovery logic that was previously scattered across dte
 Usage:
     .. code-block:: python
 
-        from riescue.lib.feature_discovery import FeatureDiscovery
+        from riescue.lib.feature_discovery import FeatureDiscovery, Features
 
         # Load features from config.json
         fd = FeatureDiscovery.from_config("path/to/config.json")
@@ -21,12 +21,169 @@ Usage:
         enabled_features = fd.get_enabled_features()
         march_string = fd.get_compiler_march_string()
         is_supported = fd.is_feature_supported("v")
+
+        # Use feature constants
+        @features(enabled=[Features.V, Features.F])
 """
 
 import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
+
+
+class Features:
+    """
+    Constants for RISC-V features. Provides IDE support and type safety.
+
+    This class centralizes all RISC-V feature string constants to avoid magic strings
+    and provide IDE autocomplete support across the entire codebase.
+
+    Usage:
+        from riescue.lib.feature_discovery import Features
+
+        # In decorators
+        @features(enabled=[Features.V, Features.F], excluded=[Features.C])
+
+        # In code
+        if fd.is_feature_enabled(Features.V):
+            # Vector extension is enabled
+
+        # You can also mix constants with strings for experimental features
+        @features(enabled=[Features.V, "experimental_vendor_ext"])
+    """
+
+    # Base ISA Extensions
+    I = "i"  # Integer base ISA  # noqa: E741
+    M = "m"  # Integer multiplication/division
+    A = "a"  # Atomic instructions
+    F = "f"  # Single-precision floating-point
+    D = "d"  # Double-precision floating-point
+    C = "c"  # Compressed instructions
+    V = "v"  # Vector extension
+    H = "h"  # Hypervisor extension
+    U = "u"  # User-level ISA
+    S = "s"  # Supervisor-level ISA
+
+    # Bit manipulation extensions
+    ZBA = "zba"  # Address generation
+    ZBB = "zbb"  # Basic bit manipulation
+    ZBC = "zbc"  # Carry-less multiplication
+    ZBS = "zbs"  # Single-bit operations
+
+    # Floating-point extensions
+    ZFA = "zfa"  # Additional floating-point
+    ZFH = "zfh"  # Half-precision floating-point
+    ZFHMIN = "zfhmin"  # Minimal half-precision floating-point
+    ZFBFMIN = "zfbfmin"  # Brain floating-point minimal
+
+    # Vector extensions
+    ZVFH = "zvfh"  # Vector half-precision floating-point
+    ZVFHMIN = "zvfhmin"  # Vector half-precision floating-point minimal
+    ZVBB = "zvbb"  # Vector bit manipulation
+    ZVBC = "zvbc"  # Vector carry-less multiplication
+    ZVFBFMIN = "zvfbfmin"  # Vector brain floating-point minimal
+    ZVFBFWMA = "zvfbfwma"  # Vector brain floating-point widening multiply-add
+
+    # Cryptographic extensions
+    ZVKG = "zvkg"  # Vector cryptographic - GCM
+    ZVKNED = "zvkned"  # Vector cryptographic - AES/DES
+    ZVKNHB = "zvknhb"  # Vector cryptographic - NIST hash functions
+    ZBKB = "zbkb"  # Bitmanip for cryptography
+    ZBKX = "zbkx"  # Crossbar permutation
+    ZKND = "zknd"  # NIST AES decryption
+    ZKNE = "zkne"  # NIST AES encryption
+    ZKSED = "zksed"  # ShangMi Suite: SM4 block cipher
+    ZKSH = "zksh"  # ShangMi Suite: SM3 hash function
+    ZKT = "zkt"  # Data-independent execution latency
+    ZVKT = "zvkt"  # Vector data-independent execution latency
+
+    # Cache management
+    ZICBOM = "zicbom"  # Cache block management
+    ZICBOP = "zicbop"  # Cache block prefetch
+    ZICBOZ = "zicboz"  # Cache block zero
+
+    # Control and status
+    ZICSR = "zicsr"  # Control and status register access
+    ZICNTR = "zicntr"  # Base counters
+    ZIHPM = "zihpm"  # Hardware performance counters
+    ZIHINTPAUSE = "zihintpause"  # Pause hint
+    ZIHINTNTL = "zihintntl"  # Non-temporal locality hints
+    ZIFENCEI = "zifencei"  # Instruction fetch fence
+
+    # Conditional operations
+    ZICOND = "zicond"  # Conditional operations
+
+    # Memory ordering
+    ZICCIF = "ziccif"  # Main memory regions with both cacheable and integrity attributes
+    ZICCRSE = "ziccrse"  # Main memory regions with both cacheable, coherent, and reservation set attributes
+    ZICCAMOA = "ziccamoa"  # Main memory regions with both cacheable and atomic attributes
+    ZICCLSM = "zicclsm"  # Main memory regions with both cacheable and load/store atomicity attributes
+
+    # Supervisor extensions
+    SVPBMT = "svpbmt"  # Page-based memory types
+    SVADU = "svadu"  # Hardware A/D bit updates
+    SVINVAL = "svinval"  # Fine-grained address translation cache invalidation
+    SSTC = "sstc"  # Supervisor-mode timer interrupts
+    SSTATEEN = "sstateen"  # Supervisor-mode access to xstateen CSRs
+
+    # Architecture test extensions
+    ZA64RS = "za64rs"  # 64-byte reservation sets
+    ZIC64B = "zic64b"  # 64-byte cache blocks
+
+    # More extensions...
+    ZAWRS = "zawrs"  # Wait-on-reservation-set
+    ZIMOP = "zimop"  # Main memory operations
+    ZCMOP = "zcmop"  # Compressed main memory operations
+    ZVQDOT = "zvqdot"  # Vector quad-widening integer dot product
+    ZJPM = "zjpm"  # Jump pair macro-op
+
+    # Compliance extensions
+    SUPM = "supm"  # Supervisor-mode pointer masking
+    SS1P13 = "ss1p13"  # Supervisor-mode address translation and protection version 1.13
+    SVBARE = "svbare"  # Supervisor-mode bare metal
+    SV39 = "sv39"  # Supervisor-mode virtual memory (39-bit)
+    SVADE = "svade"  # Supervisor-mode address translation and protection with A/D bits
+
+    # Secure extensions
+    SSCCPTR = "ssccptr"  # Supervisor-mode secure code control pointer
+    SSTVECD = "sstvecd"  # Supervisor-mode secure trap vector
+    SSTVALA = "sstvala"  # Supervisor-mode secure trap value
+    SSCOUNTERENW = "sscounterenw"  # Supervisor-mode secure counter enable write
+    SSSTATEEN = "ssstateen"  # Supervisor-mode secure state enable
+
+    # Hypervisor secure extensions
+    SHCOUNTERENW = "shcounterenw"  # Hypervisor-mode secure counter enable write
+    SHVSTVALA = "shvstvala"  # Hypervisor-mode secure virtual supervisor trap value
+    SHTVALA = "shtvala"  # Hypervisor-mode secure trap value
+    SHVSTVECD = "shvstvecd"  # Hypervisor-mode secure virtual supervisor trap vector
+    SHVSATPA = "shvsatpa"  # Hypervisor-mode secure virtual supervisor address translation
+    SHGATPA = "shgatpa"  # Hypervisor-mode secure guest address translation
+
+    # Newer cryptographic extensions
+    ZVKNG = "zvkng"  # Vector cryptographic - NIST suite (no GCM)
+    ZVKSG = "zvksg"  # Vector cryptographic - ShangMi suite
+    ZABHA = "zabha"  # Address computation with half-word atomics
+    ZACAS = "zacas"  # Atomic compare-and-swap
+    ZICCAMOC = "ziccamoc"  # Main memory regions with cacheable and atomic attributes with operation combining
+    ZAMA16B = "zama16b"  # Atomic memory operations on 16-byte naturally aligned data
+
+    # Debug and trace
+    SDTRIG = "sdtrig"  # Debug triggers
+    SSSTRICT = "ssstrict"  # Supervisor-mode strict ordering
+    SVVPTC = "svvptc"  # Supervisor-mode virtual machine virtualization protection translation cache
+    SSPM = "sspm"  # Supervisor-mode pointer masking
+
+    # Special features
+    BIG_ENDIAN = "big_endian"  # Big endian mode
+
+    # Compressed extensions
+    ZCB = "zcb"  # Compressed basic
+
+
+# Create a set of all known features for validation
+KNOWN_FEATURES = {getattr(Features, attr) for attr in dir(Features) if not attr.startswith("_") and isinstance(getattr(Features, attr), str)}
+
 
 log = logging.getLogger(__name__)
 
