@@ -1,9 +1,9 @@
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Assembly code routine helper functions that are used in multiple places, such as both OS and test macros.
 """
-
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-# SPDX-License-Identifier: Apache-2.0
 
 
 class Routines:

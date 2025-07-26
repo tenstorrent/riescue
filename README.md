@@ -9,7 +9,7 @@ We are excited to announce that we will be open-sourcing a suite of tools under 
 
 
 ## RiescueD - Directed Test Framework
-A powerful framework for writing directed tests in RISC-V assembly and provides library for test generator development, with features like:
+A powerful framework for writing directed tests in RISC-V assembly. It provides a library for test generator development, with features such as:
  - OS code simulation
  - Random address generation
  - Memory management
@@ -27,31 +27,32 @@ A specialized test generator for RISC-V compliance testing that supports:
 - Comprehensive RISC-V RVA23 extensions support
 
 ## CTK - Compliance Test Kit
-Tool for generating a suite of architectural compliance tests using the RiescueC framework (wrapper around RiescueC)
+Tool for generating a suite of architectural compliance tests using the RiescueC framework (with wrapper around RiescueC)
 - Allows configuration of test environments: privilege modes, paging, virtualization
 - Supports a variety of RISC-V base ISAs, privilege specifications, and extensions
-- Flexible support for different memory maps and system configurations
+- Supports numerous memory maps and system configurations for additional flexibility
 - Used for generating the [tenstorrent/tt_riscv_arch_tests](https://github.com/tenstorrent/riscv_arch_tests) self-checking architectural test suite
 
 ## CoreArchCoverage
 Framework for auto-generating and collecting architectural (ISA) coverage from reference models (ISS)
 - Can generate SystemVerilog coverage packages, while allowing user-defined, case-specific coverages
-- Supports ISS-only sampling for fast feedback from regression tests
-- Provides support for coverage collection in cosimulation scenarios
+- Supports ISS-only sampling for timely feedback from regression tests
+- Provides support for coverage collection in co-simulation scenarios
 - Core archcoverage white paper [link](https://github.com/tenstorrent/riescue/releases/download/v0.2.5/tenstorrent-Architectural-Coverage-Framework.pdf) (PDF Warning!)
 
 ## Core Test Plan
 Extensible framework for defining, managing, and consuming RISC-V architectural compliance test plans
-- Generates both human-readable documentation and machine-parseable input for compliance test generation
-- Provides a common format and APIs for:
-- Writing RISC-V architectural test plans and test scenarios
-- Parsing and transforming scenarios into structured data for downstream tools
-- Rendering test plans as documentation
+* Generates both human-readable documentation and machine-parseable input for compliance test generation
+* Provides a common format and APIs for:
+  * Writing RISC-V architectural test plans and test scenarios
+  * Parsing and transforming scenarios into structured data for downstream tools
+  * Rendering test plans as documentation
+
 
 # RiESCUE
 RISC-V Directed Test Framework and Compliance Suite, RiESCUE
 
-RiESCUE provides a suite of python scripts and libraries for generating RISC-V tests:
+RiESCUE provides a suite of Python scripts and libraries for generating RISC-V tests:
 * `RiescueD` - RiESCUE Directed Test Framework
 * `RiescueC` - RiESCUE Compliance Test Generator 'RiescueC'
 
@@ -62,7 +63,7 @@ Other Riescue projects include:
 
 
 ### 1. RiescueD - Directed Test Framework
-A powerful Python library for writing directed tests in assembly with features like:
+A powerful Python library for writing directed tests in assembly with features such as:
 - OS code simulation
 - Random address generation
 - Memory management
@@ -88,25 +89,23 @@ A specialized test generator for RISC-V compliance testing that supports:
 ## From git
 To install directly
 ```
-pip install git+git@github.com:tenstorrent/riescue.git#egg=riescue
+python3 -m pip install git+https://github.com/tenstorrent/riescue.git
 ```
 
-This will install the command line scripts `riescued`, along with making the `riescue` python package available for importing.
+This installs the command line scripts `riescued`, along with making the `riescue` Python package available for importing.
 
 ## Requirements
 ### Singularity / Apptainer
-This repo currently uses a `singularity` container flow to manage the environment. All dependencies can be found listed in the [Container.def](infra/Container.def) file.
+This repo currently uses a `singularity` container flow to manage the environment. All dependencies are listed in the [Container.def](infra/Container.def) file.
 
-This will be changed in the future to use the python `setuptools` to source python dependencies.
+In the future, the Python `setuptools` script will source Python dependencies.
 
 ### Toolchains
 RiescueD uses the riscv-gnu-toolchain to assemble, compile, and disassemble ELF tests. Toolchain paths can be passed as a command line flag, set as an environment variable, or added to the `PATH`.
 - `riscv64-unknown-elf-gcc` is the default executable used for assembling and compiling
-  - Searches for a `--compiler_path`, followed by the environment variable `RV_GCC`, then `riscv64-unknown-elf-gcc` in the `PATH`
+  - Searches for `--compiler_path`, followed by the environment variable `RV_GCC`, then `riscv64-unknown-elf-gcc` in the `PATH`
 - `riscv64-unknown-elf-objdump` is the default executable used for disassembling
-  - Searches for a `--disassembler_path`, followed by the environment variable `RV_OBJDUMP`, then `riscv64-unknown-elf-objdump` in the `PATH`
-
-
+  - Searches for `--disassembler_path`, followed by the environment variable `RV_OBJDUMP`, then `riscv64-unknown-elf-objdump` in the `PATH`
 
 ### Simulators
 Riescue invokes the following Instruction Set Simulators:
@@ -116,11 +115,14 @@ Riescue invokes the following Instruction Set Simulators:
 - `spike` [riscv-isa-sim GitHub](https://github.com/riscv-software-src/riscv-isa-sim)
   - `spike` is installed normally in the container flow.
   - External spike binaries can be passed in using the environment variable `SPIKE_PATH` or the command line switch `--spike_path`
+
 Like toolchains, simulators can be set with a command line switch, environment variable, or added to the `PATH`.
 
 
 ## Getting Started
-Check out the [RiescueD Tutorial](https://docs.tenstorrent.com/riescue/user_guides/riescued_tutorial.html) for more info on getting started.
+[RiescueD Tutorial](https://docs.tenstorrent.com/riescue/user_guides/riescued_tutorial.html)
 
 # Developing and Contributing
-The main dependency needed for developing is singularity or apptainer. See the [Contributing page](.github/CONTRIBUTING.md) for information on setting up a developer environment.
+To develop or contribute, you need [Apptainer (formerly Singularity)](https://apptainer.org/).
+
+See the [Contributing page](.github/CONTRIBUTING.md) for information on setting up a developer environment.

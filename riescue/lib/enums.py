@@ -156,7 +156,7 @@ class RiscvPageSizes(MyEnum):
         elif pagesize == cls.S2MB:
             return 200
         elif pagesize == cls.S1GB:
-            return 50
+            return 100
         elif pagesize == cls.S512GB:
             return 0
         elif pagesize == cls.S256TB:

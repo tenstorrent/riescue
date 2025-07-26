@@ -1,8 +1,8 @@
-import riescue.lib.common as common
-import riescue.lib.register_format as RF
-
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
+
+import riescue.lib.common as common
+import riescue.lib.register_format as RF
 
 
 class Register:

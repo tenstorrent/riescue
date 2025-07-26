@@ -1,10 +1,9 @@
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
 """
 Common module implements common methods used across all the Risecue code.
 This includes bit manipulation methods and other common base classes like Singleton
 """
-
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-# SPDX-License-Identifier: Apache-2.0
 
 import re
 from enum import IntEnum
