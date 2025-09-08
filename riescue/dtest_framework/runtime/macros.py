@@ -84,6 +84,7 @@ class Macros(AssemblyGenerator):
     def generate(self) -> str:
         code = ""
         self.gen_os_setup_check_excp()
+        self.gen_os_skip_check_excp()
         self.gen_os_get_hartid()
         self.gen_mutex_acquire_amo()
         self.gen_mutex_release_amo()
@@ -104,7 +105,7 @@ class Macros(AssemblyGenerator):
     def gen_os_setup_check_excp(self):
         name = "OS_SETUP_CHECK_EXCP"
         macro = Macro(name=name)
-        macro.args = ["__expected_cause", "__expected_pc", "__return_pc", "__expected_tval=0"]
+        macro.args = ["__expected_cause", "__expected_pc", "__return_pc", "__expected_tval=0", "__skip_pc_check=0"]
 
         macro.code = f"""
             {self.calculate_hartid_offset('t2') if self.mp_enabled == True else ''}
@@ -132,6 +133,36 @@ class Macros(AssemblyGenerator):
             la t3, \\__return_pc
             sd t3, 0(x1)
 
+            # Skip PC check
+            li x1, check_excp_skip_pc_check
+            {self.add_hartid_offset('x1', 't2') if self.mp_enabled == True else ''}
+            li t3, \\__skip_pc_check
+            sd t3, 0(x1)
+
+        """
+
+        self.macros.append(macro)
+
+    def gen_os_skip_check_excp(self):
+        name = "OS_SKIP_CHECK_EXCP"
+        macro = Macro(name=name)
+        macro.args = ["__return_pc"]
+
+        macro.code = f"""
+            {self.calculate_hartid_offset('t2') if self.mp_enabled == True else ''}
+
+            # Return pc
+            li x1, check_excp_return_pc
+            {self.add_hartid_offset('x1', 't2') if self.mp_enabled == True else ''}
+            la t3, \\__return_pc
+            sd t3, 0(x1)
+
+            # Skip PC check
+            li x1, check_excp_skip_pc_check
+            {self.add_hartid_offset('x1', 't2') if self.mp_enabled == True else ''}
+            li t3, 0
+            sb t3, 0(x1)
+
         """
 
         self.macros.append(macro)
@@ -142,9 +173,16 @@ class Macros(AssemblyGenerator):
     """
 
     def gen_os_get_hartid(self):
-        name = "GET_MHART_ID"
-        macro = Macro(name=name)
+        macro = Macro(name="GET_MHART_ID")
         macro.args = ["__dest_reg=s1"]
+        if self.priv_mode == RV.RiscvPrivileges.MACHINE:
+            macro.code = "\n csrr \\__dest_reg, mhartid"
+        else:
+            macro.code = """
+                li x31, 0xf0002001 # Call to enter exception handler code, get hartid for free, and skip to next pc.
+                ecall
+            mv \\__dest_reg, s1
+        """
         macro.code = """
             li x31, 0xf0002001 # Call to enter exception handler code, get hartid for free, and skip to next pc.
             ecall

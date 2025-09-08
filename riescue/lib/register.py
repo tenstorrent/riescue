@@ -37,6 +37,7 @@ class Register:
         - field of multiple bits
         - bit_high if bit_lown exists
         """
+        raise NotImplementedError("set is not implemented")  # These methods are never called and cause pyright errors
         if lsb is None:
             if not isinstance(field, int):
                 if isinstance(field, set):
@@ -65,11 +66,12 @@ class Register:
             return self.bits(msb, lsb)
 
     def set(self, field, *args):
+        raise NotImplementedError("set is not implemented")  # These methods are never called and cause pyright errors
         if len(args) == 1:
             if not isinstance(field, int):
                 if isinstance(field.value, set):
-                    msb = (field.value)[0]
-                    lsb = (field.value)[1]
+                    msb = (field.value)[0]  # type: ignore
+                    lsb = (field.value)[1]  # type: ignore
                     value = args[0]
 
                     self.set_bits(msb, lsb, value)

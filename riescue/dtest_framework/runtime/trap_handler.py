@@ -262,7 +262,7 @@ class TrapHandler(AssemblyGenerator):
         self.xepc = "sepc"
         self.xret = "sret"
         self.xip = "sip"
-        if self.featmgr.deleg_excp_to == "machine":
+        if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.MACHINE:
             self.xcause = "mcause"
             self.xepc = "mepc"
             self.xret = "mret"

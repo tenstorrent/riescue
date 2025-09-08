@@ -55,9 +55,9 @@ class Hypervisor(AssemblyGenerator):
         """
         Setup hypervisor CSRs
         """
-        hedelg_val = self.featmgr.cmdline.hedeleg
-        hidelg_val = self.featmgr.cmdline.hideleg
-        henvcfg_val = self.featmgr.cmdline.henvcfg
+        hedelg_val = self.featmgr.hedeleg
+        hidelg_val = self.featmgr.hideleg
+        henvcfg_val = self.featmgr.henvcfg
 
         # Handle pbmt randomization
         if self.featmgr.pbmt_ncio:
@@ -190,7 +190,7 @@ class Hypervisor(AssemblyGenerator):
                 nop
 
         """
-        if self.featmgr.cmdline.vmm_hooks:
+        if self.featmgr.vmm_hooks:
             code += """
                 run_user_code_pre_launch:
                     li t0, vmm_handler_pre_addr
@@ -346,14 +346,14 @@ class Hypervisor(AssemblyGenerator):
         self.xepc = "sepc"
         self.xtval = "stval"
         self.xret = "sret"
-        if self.featmgr.deleg_excp_to == "machine":
+        if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.MACHINE:
             self.xcause = "mcause"
             self.xepc = "mepc"
             self.xtval = "mtval"
             self.xret = "mret"
 
         code = ""
-        if self.featmgr.cmdline.vmm_hooks:
+        if self.featmgr.vmm_hooks:
             code += """
                 run_user_code_post:
                     li t0, vmm_handler_post_addr
@@ -468,7 +468,7 @@ class Hypervisor(AssemblyGenerator):
                 csrw {self.xepc}, t0
         """
 
-        if self.featmgr.cmdline.vmm_hooks:
+        if self.featmgr.vmm_hooks:
             code += """
                 run_user_code_pre:
                 li t0, vmm_handler_pre_addr

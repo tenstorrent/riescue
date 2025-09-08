@@ -21,10 +21,8 @@ class CpuconfigTests(BaseRiescuedTest):
         args = [
             "--run_iss",
             "--cpuconfig",
+            "dtest_framework/lib/basic_config.json",
+            "--whisper_config",
+            "dtest_framework/lib/whisper_basic_config.json",
         ]
-        ram_zero_memamp = {"mmap": {"ram": {"start": "0x0000000", "size": "0x400000"}, "io": {"start": "0x80000", "size": "0x1FFFFFF80000"}}}
-        with tempfile.NamedTemporaryFile() as f:
-            with open(f.name, "w") as f:
-                json.dump(ram_zero_memamp, f)
-            args.append(f.name)
-            self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
+        self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)

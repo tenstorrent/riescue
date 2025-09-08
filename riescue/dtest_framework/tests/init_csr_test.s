@@ -29,14 +29,16 @@ test01:
 
     j passed
 
-failed:
-    li x1, 1
-    j end
+
 
 passed:
     li x1, 0
+    li x31, 0xc001c0de
     j end
 
+failed:
+    li x1, 1
+    j end
 end:
     la x2, tohost
     sw x1, 0(x2)

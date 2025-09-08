@@ -35,8 +35,8 @@ class MaxSizeHandler(logging.Handler):
         self._open_stream()
 
     def _open_stream(self):
-        if self.filename.exists():
-            print("log file already exists, deleting it")
+        # if self.filename.exists():
+        #     print("log file already exists, deleting it")
         self.stream = open(self.filename, self.mode)
 
     def emit(self, record):
@@ -79,7 +79,7 @@ def add_args(parser: argparse.ArgumentParser):
     :type parser: argparse.ArgumentParser
     """
     logger_parser = parser.add_argument_group("Logger", description="Arguments that affect Logger behavior")
-    logger_parser.add_argument("--logger_level", type=str.upper, default="WARNING", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Logger level")
+    logger_parser.add_argument("--logger_level", type=str.upper, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Logger level")
     logger_parser.add_argument("--logger_file", type=Path, default=None, help="Logger file path")
     logger_parser.add_argument("--logger_no_tee", dest="logger_tee", action="store_false", default=True, help="Do not tee log output. Default command line behavior is to tee to stderr")
     logger_parser.add_argument("--logger_no_timestamp", dest="logger_timestamp", action="store_false", default=True, help="Do not include timestamp in log messages")

@@ -77,6 +77,10 @@ class FP:
         self.rnd_gen = rnd_gen
 
     def set_exponent(self, exponent):
+        if self.widths.exponent is None:
+            raise ValueError("Exponent width is not defined for this data type.")
+        if self.offsets.exponent is None:
+            raise ValueError("offset exponent is not defined for this data type.")
         if exponent > (1 << self.widths.exponent):
             raise ValueError(f"Invalid exponent value: {exponent}. Should be less than {1 << self.widths.exponent}.")
         self.val = common.set_bits(
@@ -88,6 +92,10 @@ class FP:
         return
 
     def set_mantissa(self, mantissa):
+        if self.widths.mantissa is None:
+            raise ValueError("Mantissa width is not defined for this data type.")
+        if self.offsets.mantissa is None:
+            raise ValueError("offset mantissa is not defined for this data type.")
         if mantissa > (1 << self.widths.mantissa):
             raise ValueError(f"Invalid mantissa value: {mantissa}. Should be less than {1 << self.widths.mantissa}.")
         self.val = common.set_bits(
@@ -99,11 +107,19 @@ class FP:
         return
 
     def set_sign(self, sign):
+        if self.widths.sign is None:
+            raise ValueError("Sign width is not defined for this data type.")
+        if self.offsets.sign is None:
+            raise ValueError("offset sign is not defined for this data type.")
         if sign != 0 and sign != 1:
             raise ValueError(f"Invalid sign value: {sign}. Should be 0 or 1.")
         self.val = common.set_bitn(self.val, self.offsets.sign + self.widths.sign - 1, sign)
 
     def randomize(self, subnormal, fractional):
+        if self.widths.mantissa is None:
+            raise ValueError("Mantissa width is not defined for this data type.")
+        if self.widths.exponent is None:
+            raise ValueError("Exponent width is not defined for this data type.")
         self.val = 0
         self.set_sign(self.rnd_gen.get_rand_bits(self.widths.sign))
         self.set_mantissa(int(self.rnd_gen.random_in_range(0, 2**self.widths.mantissa)))
@@ -125,6 +141,8 @@ class INT:
         self.val = val
 
     def randomize(self):
+        if self.widths.payload is None:
+            raise ValueError("Payload width is not defined for this data type.")
         self.val = 0
         self.set_val(int(self.rnd_gen.random_in_range(0, 2**self.widths.payload)))
 

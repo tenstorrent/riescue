@@ -1,9 +1,17 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import logging
+from typing import Optional, TYPE_CHECKING
 
 import riescue.lib.enums as RV
+
+from riescue.dtest_framework.lib.pmp import PmpRegion
+
+if TYPE_CHECKING:
+    from riescue.dtest_framework.parser import PmaInfo, ParsedTestHeader
 
 log = logging.getLogger(__name__)
 
@@ -27,7 +35,7 @@ class Pool:
         self.parsed_random_addrs = dict()
         self.parsed_page_mappings = dict()
         self.parsed_page_maps = dict()
-        self.parsed_test_header = None
+        self.parsed_test_header: Optional["ParsedTestHeader"] = None
         self.parsed_discrete_tests = dict()
         self.parsed_init_mem_addrs = []
         self.parsed_vectored_interrupts = []
@@ -40,10 +48,10 @@ class Pool:
         self.page_mappings = dict()
         self.page_maps = dict()
         self.sections = dict()
-        self.pma_dram_default = None
+        self.pma_dram_default: Optional[PmaInfo] = None
         self.pma_io_default = None
         self.pma_regions = dict()  # name -> PmaInfo
-        self.pmp_regions = []
+        self.pmp_regions: PmpRegion = PmpRegion()
 
         # os include files
         self.runtime_files = ["loader", "os", "exception"]
@@ -123,7 +131,7 @@ class Pool:
         return self.parsed_page_maps[key]
 
     # test_header setters and getters
-    def add_test_header(self, parsed_test_header):
+    def add_test_header(self, parsed_test_header: "ParsedTestHeader"):
         self.parsed_test_header = parsed_test_header
 
     def get_test_header(self):

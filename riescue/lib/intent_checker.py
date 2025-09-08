@@ -60,7 +60,7 @@ class Rule:
     # If the section labels appear only incidentally, we can still proceed with the checks since a given test label
     # will not refer to multiple addresses. Therefor if it appears at all it has the potential to appear the correct
     # number of times.
-    def conditionally_validate_log_file(self, log_filepath: str, label_appearances: dict) -> bool:
+    def conditionally_validate_log_file(self, log_filepath: str, label_appearances: dict) -> tuple[bool, str]:
         for test_label in label_appearances:
             for hartid in label_appearances[test_label]:
                 if label_appearances[test_label][hartid] == 0:
@@ -284,9 +284,9 @@ class IntentChecker:
 
         # Determine appropriate ruleset based on the active features in the test
         if features.get("endless", False):
-            self.rules = [ProportionalTestSelectionRule()]
+            self.rules: list[Rule] = [ProportionalTestSelectionRule()]
         else:
-            self.rules = [MPRule(), ProportionalTestSelectionRule()]
+            self.rules: list[Rule] = [MPRule(), ProportionalTestSelectionRule()]
 
         if not features.get("page_faults_intentional", False):
             self.rules.append(NoFaultsRule())

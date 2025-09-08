@@ -101,7 +101,7 @@ class AddressCluster:
         log.debug(f"qualifiers: {qualifiers}, super_clusters inside this cluster: {str(cluster_range)}")
         qualifiers.pop(0)
         for q in qualifiers:
-            log.info(f"Calling get_intersection for {cluster_range} and {self.super_cluster[q]}")
+            log.debug(f"Calling get_intersection for {cluster_range} and {self.super_cluster[q]}")
             cluster_range = self._get_intersection(cluster_range, self.super_cluster[q])
         log.debug(f"common overlapping addresses: {common.format_hex_list(cluster_range)}")  # Should this be str()?
 

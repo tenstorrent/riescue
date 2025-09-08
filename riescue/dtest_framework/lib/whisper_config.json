@@ -165,7 +165,9 @@
 	    "time" : {
 	        "exists" : "true"
 	    },
-
+		"pmpcfg0" : { "exists" : "false" },
+        "pmpcfg1" : { "exists" : "false" },
+        "pmpcfg2" : { "exists" : "false" },
         "pmpaddr0" : { "exists" : "false" },
         "pmpaddr1" : { "exists" : "false" },
         "pmpaddr2" : { "exists" : "false" },

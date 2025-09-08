@@ -1,8 +1,8 @@
-Getting Started
+Install and Setup
 ===================================================
 
 This page contains information for dependencies and installing RiESCUE.
-If you are looking for more information on running RiESCUE, see :doc:`/user_guides/riescued_tutorial` page for information on getting started with RiESCUE.
+If you are looking for more information on running RiESCUE, see :doc:`/user_guides/riescued_user_guide` page for information on getting started with RiESCUE.
 
 
 Requirements
@@ -27,15 +27,15 @@ If you don't have ``python3.9`` you can source it by
 
 To install the RISC-V toolchain
 
-- Download and unpack a packaged version from `riscv-gnu-toolchain releases <https://github.com/riscv-collab/riscv-gnu-toolchain/releases>`_`
+- Download and unpack a packaged version from `riscv-gnu-toolchain releases <https://github.com/riscv-collab/riscv-gnu-toolchain/releases>`_
 - Build it from source from the `riscv-gnu-toolchain repo <https://github.com/riscv-collab/riscv-gnu-toolchain>`_
 
 To point RiESCUE to the toolchain, see the :ref:`simulators-and-toolchains`.
 
-ISS
-~~~~~
-To run your tests on ISS while generating them, you'll need an ISS. More infomration about installing and configuring the ISS is covered in :ref:`simulators-and-toolchains`.
+Instruction Set Simulators (ISS)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+To run your tests on ISS while generating them, you'll need an ISS. More infomration about installing and configuring the ISS is covered in :ref:`simulators-and-toolchains`.
 
 
 Installing RiESCUE
@@ -63,7 +63,7 @@ Or you can clone the repo and install the package locally:
 
 .. note::
 
-    Installing with pip will not working if `python3.9` or greater is not installed
+    Installing with pip will not work if `python3.9` or greater is not installed
 
 
 .. _simulators-and-toolchains:
@@ -73,7 +73,7 @@ Simulators and Toolchains
 
 .. rubric:: Installing and Configuring Simulators
 
-RiESCUE uses Whisper and Spike as optional Instruction Set Simulators.
+RiESCUE uses Whisper and Spike as optional Simulators
 
 Whisper
 ~~~~~~~~
@@ -124,7 +124,7 @@ Like simulators, toolchains can be set with a command line switch, environment v
 With all dependencies sourced, users should be able to run the ``python3 -m riescued`` to build RiescueD tests.
 
 
-**What next?** See the :doc:`/user_guides/riescued_tutorial` page for information on getting started with RiESCUE.
+**What next?** See the :doc:`/user_guides/riescued_user_guide` page for information on getting started with RiESCUE.
 
 
 Developing
