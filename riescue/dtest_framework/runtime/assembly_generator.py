@@ -3,13 +3,14 @@
 
 
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, Optional
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.pool import Pool
-from riescue.dtest_framework.featmanager import FeatMgr
+from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.lib.routines import Routines
 from riescue.lib.rand import RandNum
+from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
 
 
 class AssemblyGenerator(ABC):
@@ -42,6 +43,7 @@ class AssemblyGenerator(ABC):
         self.pool = pool
         self.featmgr = featmgr
         self.hartid_reg = "s1"
+        self.csr_manager: Optional[CsrManagerInterface] = None
 
         self.priv_mode = self.featmgr.priv_mode
         self.handler_priv_mode = "M" if self.priv_mode == RV.RiscvPrivileges.MACHINE else "S"
@@ -109,6 +111,7 @@ class AssemblyGenerator(ABC):
         else:
             raise ValueError(f"Privilege {from_priv} not yet supported for switching privilege")
 
+        return_instr = pre_xret + "\n\t" + xret_instr
         if from_priv == RV.RiscvPrivileges.MACHINE:
             if to_priv == RV.RiscvPrivileges.SUPER:
                 xstatus_mpp_clear = "0x00001800"  # mstatus[12:11] = 01
@@ -192,8 +195,14 @@ class AssemblyGenerator(ABC):
             add t3, t3, {self.hartid_reg} # Add offset for this harts check_excp element
             srli {self.hartid_reg}, {self.hartid_reg}, 3 # Restore saved hartid rather than offset
             lb t0, 0(t3)
-            beq t0, x0, {return_label}
+            bne t0, x0, do_check_excp
 
+            # restore check_excp, return to return_label
+            addi t0, t0, 1
+            sb t0, 0(t3)
+            j {return_label}
+
+        do_check_excp:
             # Check for correct exception code
             li t3, check_excp_expected_cause
             slli {self.hartid_reg}, {self.hartid_reg}, 3 # Multiply saved hartid by 8 to get offset
@@ -204,6 +213,14 @@ class AssemblyGenerator(ABC):
             {"bne t1, t0, count_ignored_excp" if self.featmgr.skip_instruction_for_unexpected == True else "bne t1, t0, test_failed"}
 
             # TODO: Check for the correct pc value check_excp_expected_pc
+            li t3, check_excp_skip_pc_check
+            slli {self.hartid_reg}, {self.hartid_reg}, 3 # Multiply saved hartid by 8 to get offset
+            add t3, t3, {self.hartid_reg} # Add offset for this harts check_excp_skip_pc_check element
+            srli {self.hartid_reg}, {self.hartid_reg}, 3 # Restore saved hartid rather than offset
+            ld t0, 0(t3)
+            sd x0, 0(t3)
+            bne t0, x0, skip_pc_check
+
             li t3, check_excp_expected_pc
             slli {self.hartid_reg}, {self.hartid_reg}, 3 # Multiply saved hartid by 8 to get offset
             add t3, t3, {self.hartid_reg} # Add offset for this harts check_excp_expected_pc element
@@ -215,6 +232,8 @@ class AssemblyGenerator(ABC):
             ld t0, 0(t3)
             sd x0, 0(t3)
             {"bne t1, t0, count_ignored_excp" if self.featmgr.skip_instruction_for_unexpected == True else "bne t1, t0, test_failed"}
+
+        skip_pc_check:
             j {return_label}
         """
 
@@ -271,3 +290,58 @@ class AssemblyGenerator(ABC):
             j {return_label}"""
 
         return code
+
+    def csr_read_randomization(self):
+        """
+        This function is responsible for generating random CSR reads based on the current OS mode.
+        Some testbenches may only have a CSR value comparison check triggered on a CSR read and this
+        randomization helps with triggering those checks.
+        Here's how it would work:
+        1. Determine current privilege mode for OS
+        2. Get one or more random CSR to read using the lib/csr_manager
+        3. Do the CSR read
+
+        These CSR reads can be disabled with commandline switch --no_random_csr_reads
+        """
+
+        # delay initializing until it's needed
+        if self.featmgr.no_random_csr_reads:
+            return ""
+        elif self.csr_manager is None:
+            self.csr_manager = CsrManagerInterface(self.rng)
+
+        # Find the current privilege mode of OS
+        # Machine mode is default
+        instrs = ""
+        priv_mode = RV.RiscvPrivileges.MACHINE
+        csr_list = []
+        # If test mode is in supervisor or user, the OS is in Supervisor always
+        if self.featmgr.priv_mode == RV.RiscvPrivileges.SUPER or self.featmgr.priv_mode == RV.RiscvPrivileges.USER:
+            priv_mode = "Supervisor"
+            # Also, we need to include supervisor and user CSR list provided in the commandline
+            if self.featmgr.random_supervisor_csr_list:
+                csr_list += self.featmgr.random_supervisor_csr_list.split(",")
+            if self.featmgr.random_user_csr_list:
+                csr_list += self.featmgr.random_user_csr_list.split(",")
+        if self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
+            # Also, we need to include machine, supervisor and user CSR list provided in the commandline
+            if self.featmgr.random_machine_csr_list:
+                csr_list += self.featmgr.random_machine_csr_list.split(",")
+            if self.featmgr.random_supervisor_csr_list:
+                csr_list += self.featmgr.random_supervisor_csr_list.split(",")
+            if self.featmgr.random_user_csr_list:
+                csr_list += self.featmgr.random_user_csr_list.split(",")
+
+        # Get up to max_random_csr_reads random CSR to read
+        for i in range(self.rng.randint(3, self.featmgr.max_random_csr_reads)):
+            if self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
+                priv_mode = self.rng.choice(["Machine", "Supervisor"])
+            csr_config = self.csr_manager.get_random_csr(match={"Accessibility": priv_mode, "ISS_Support": "Yes"})
+            csr_name = list(csr_config.keys())[0]
+
+            instrs += f"csrr t0, {csr_name}\n"
+
+        for csr in csr_list:
+            instrs += f"csrr t0, {csr}\n"
+
+        return instrs

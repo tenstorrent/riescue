@@ -519,14 +519,17 @@ Create a ``cpu_config.json`` file to specify your target system:
 .. code-block:: json
 
     {
+        "reset_pc": "0x8000_0000",
         "mmap": {
-            "dram": {"address": "0x8000_0000", "size": "0x10_0000_0000_0000"},
-            "reset_pc": "0x8000_0000",
+            "dram": {
+                "region0": {"address": "0x8000_0000", "size": "0x10_0000_0000_0000"}
+            },
             "io": {
                 "address": "0",
                 "size": "0x8000_0000",
                 "items": {
                     "io0": {"address": "0x0", "size": "0x1_0000"},
+                    "io1": {"address": "0x200_c000", "size": "0x5ff_4000", "test_access": "available"},
                     "htif": {"address": "0x7000_0000", "size": "0x10"}
                 }
             }
@@ -553,11 +556,17 @@ Create a ``cpu_config.json`` file to specify your target system:
     }
 
 * The ``mmap`` section sepcifies the memory map for the target system
-   * ``dram``: The main memory region, with ``"address"`` and ``"size"`` detailing the address and size of the DRAM region
-   * ``reset_pc``: The address of the reset vector
+   * ``dram``: DRAM memory region where code and variables can be allocated. The ``"address"`` and ``"size"`` detailing the address and size of the DRAM region
    * ``io``: The I/O region, with ``"address"`` and ``"size"`` detailing the address and size of the I/O region
       * ``items``: A list of I/O devices, with ``"address"`` and ``"size"`` detailing the address and size of the I/O device
       * ``htif``: The HTIF device, with ``"address"`` and ``"size"`` detailing the address and size of the HTIF device
+
+* The ``reset_pc`` key supports hex strings and integers for the reset PC address.
+* ``test_generation`` contains the test generation parameters.
+* ``features`` contains the feature configuration.
+
+
+More documentation on cpu_config and features configuration will be coming in the future.
 
 
 ``htif`` specifices the default end of test address. i.e. ``0x7000_0000`` would be the ``tohost`` address that gets written to by the test.
@@ -576,8 +585,8 @@ RiescueD works with popular RISC-V simulators:
 Further Resources
 -----------------
 
-- :doc:`Getting Started </user_guides/getting_started>` - Installation and setup
-- :doc:`API Reference </api/RiescueD>` - Complete API documentation
+- :doc:`Getting Started </tutorials/index>` - Installation and setup
+- :doc:`API Reference </api/public/RiescueD>` - Complete API documentation
 - `GitHub Repository <https://github.com/tenstorrent/riescue>`_ - Source code and examples
 - `Example Tests <https://github.com/tenstorrent/riescue/tree/main/riescue/dtest_framework/tests>`_ - Sample test cases
 
@@ -586,6 +595,6 @@ Need Help?
 
 - Check the `GitHub Issues <https://github.com/tenstorrent/riescue/issues>`_ for known problems
 - Browse `GitHub Discussions <https://github.com/tenstorrent/riescue/discussions>`_ for community support
-- Refer to the :doc:`Internal API </internal/internal_api>` for advanced usage
+- Refer to the :doc:`Internal API </api/internal/internal_api>` for advanced usage
 
 Happy testing with RiescueD! 🚀

@@ -46,8 +46,34 @@ class DefaultTest(BaseRiescuedTest):
         self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=self.iterations)
 
     def test_long_spike(self):
-        args = ["--run_iss", "--iss", "spike", "--tohost", "auto", "--cpuconfig", "dtest_framework/lib/twogb_dram_config.json"]
+        args = ["--run_iss", "--iss", "spike", "--tohost", "auto", "--cpuconfig", "dtest_framework/lib/twogb_dram_config.json", "--all_4kb_pages"]
         testname = "dtest_framework/tests/test_long.s"
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+
+class TutorialTest(BaseRiescuedTest):
+    def test_example_test(self):
+        "Example test used in tutorial, should always pass"
+        args = ["--run_iss", "--iss", "whisper"]
+        testname = "dtest_framework/tests/tutorials/example_test.s"
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+    def test_randomization_test(self):
+        "Example test used in tutorial, should always pass"
+        args = ["--run_iss", "--iss", "whisper"]
+        testname = "riescue/dtest_framework/tests/tutorials/randomization_test.s"
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+    def test_virtual_memory_test(self):
+        "Example test used in tutorial, should always pass"
+        args = ["--run_iss", "--iss", "whisper"]
+        testname = "riescue/dtest_framework/tests/tutorials/virtual_memory.s"
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+    def test_tutorial_cpu_configuration(self):
+        "Example test used in tutorial, should always pass"
+        args = ["--run_iss", "--cpuconfig", "riescue/dtest_framework/tests/tutorials/cpu_config.json"]
+        testname = "riescue/dtest_framework/tests/tutorials/virtual_memory.s"
         self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
 
 

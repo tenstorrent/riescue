@@ -22,8 +22,6 @@ class AddressSpaceTest(unittest.TestCase):
     def test_address_space(self, mock_log):
         address_space = AddressSpace(self.rng, RV.AddressType.PHYSICAL)
         self.assertEqual(len(address_space.clusters), 64)
-        mock_log.debug.side_effect = print
-        mock_log.info.side_effect = print
 
         # Allocate 2GiB of RAM
         address_space.define_segment(RV.AddressQualifiers.ADDRESS_DRAM, start=0x8000_0000, end=0x8000_0000)

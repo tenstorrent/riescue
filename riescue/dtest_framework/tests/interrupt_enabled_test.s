@@ -4,9 +4,9 @@
 ;#test.priv       machine
 ;#test.env        virtualized bare_metal
 ;#test.cpus       1
-;#test.paging     sv39 sv48 sv57 disable any
+;#test.paging     disable
 ;#test.category   arch
-;#test.class      vector
+;#test.class      interrupts
 ;#test.features   interrupts
 ;#test.tags       interrupts
 ;#test.summary

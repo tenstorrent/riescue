@@ -10,7 +10,7 @@ from riescue.lib.rand import RandNum
 from riescue.dtest_framework.lib.addrgen.exceptions import AddrGenError
 from riescue.dtest_framework.lib.addrgen.address_space import AddressSpace
 from riescue.dtest_framework.lib.addrgen.types import AddressConstraint
-from riescue.dtest_framework.lib.memory import Memory
+from riescue.dtest_framework.config import Memory
 
 log = logging.getLogger(__name__)
 
@@ -41,22 +41,15 @@ class AddrGen:
 
         # Setting up DRAM, IO, Secure, and Reserved ranges
         for range in self._mem.dram_ranges:
-            # FIXME: Is this check needed?
-            # Needed until PMA and PMP config are fixed to support non-zero DRAM start
-            # PMP should be fixed
-            if range.start == 0:
-                start = 0x80000000
-            else:
-                start = range.start
-            log.info(f"Adding DRAM range: 0x{start:016x} - 0x{range.end:016x}")
-            self._physical_addr_space.define_segment(RV.AddressQualifiers.ADDRESS_DRAM, start, range.end)
+            log.debug(f"Adding DRAM range: 0x{range.start:016x} - 0x{range.end:016x}")
+            self._physical_addr_space.define_segment(RV.AddressQualifiers.ADDRESS_DRAM, range.start, range.end)
 
         for range in self._mem.io_ranges:
-            log.info(f"Adding IO range: 0x{range.start:016x} - 0x{range.end:016x}")
+            log.debug(f"Adding IO range: 0x{range.start:016x} - 0x{range.end:016x}")
             self._physical_addr_space.define_segment(RV.AddressQualifiers.ADDRESS_MMIO, range.start, range.end)
 
         for range in self._mem.secure_ranges:
-            log.info(f"Adding Secure range: 0x{range.start:016x} - 0x{range.end:016x}")
+            log.debug(f"Adding Secure range: 0x{range.start:016x} - 0x{range.end:016x}")
             self._physical_addr_space.define_segment(RV.AddressQualifiers.ADDRESS_SECURE, range.start, range.end)
 
         for range in self._mem.reserved_ranges:

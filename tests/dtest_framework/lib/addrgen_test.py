@@ -6,7 +6,7 @@ from pathlib import Path
 
 import riescue.dtest_framework.lib.addrgen as addrgen
 import riescue.lib.enums as RV
-from riescue.dtest_framework.lib.memory import Memory
+from riescue.dtest_framework.config import Memory
 from riescue.lib.rand import RandNum
 
 

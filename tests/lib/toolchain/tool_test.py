@@ -3,6 +3,8 @@
 
 import unittest
 import tempfile
+import shutil
+import os
 from typing import Optional
 from pathlib import Path
 
@@ -35,7 +37,7 @@ class ToolTests(unittest.TestCase):
         linker_script = self.toolchain_dir / "simple_loader.ld"
         test_assembly = self.toolchain_dir / "simple_test.S"
 
-        compiler = Compiler(compiler_path=None, compiler_opts=opts, compiler_march="rv64i", test_equates=test_equates, abi="lp64")
+        compiler = Compiler(compiler_path=None, compiler_opts=opts, compiler_march="rv64i", test_equates=test_equates or [], abi="lp64")
         output_elf = self.temp_out_path
         compiler.args += [
             "-T",
@@ -55,7 +57,7 @@ class ToolTests(unittest.TestCase):
     def test_whsiper(self):
         "Tests compiler + Whisper works"
         elf = self.compile_elf()
-        Whisper(Path("whisper/whisper"), [elf], self.whisper_config, 1000, "0x10000000000000000").run(elf_file=elf, output_file=Path("logfile.txt"))
+        Whisper(Path("whisper/whisper"), [elf], self.whisper_config, 1000, "0x10000000000000000").run_iss(elf_file=elf, output_file=Path("logfile.txt"))
 
     def test_whisper_missing_elf(self):
         "Tests that Whisper raises ELF_FAILURE when given a fake ELF path"
@@ -64,19 +66,18 @@ class ToolTests(unittest.TestCase):
 
         whisper = Whisper(Path("whisper/whisper"), args, self.whisper_config, 1000, "0x10000000000000000")
         with self.assertRaises(ToolchainError) as excp:
-            whisper.run(elf_file=self.madeupfile, output_file=self.temp_log_path)
+            whisper.run_iss(elf_file=self.madeupfile, output_file=self.temp_log_path)
         self.assertEqual(excp.exception.kind, ToolFailureType.ELF_FAILURE)
-        if excp.exception.error_text is not None:
-            self.assertIn("Failed to load ELF", excp.exception.error_text)
-            self.assertIn("ran: ", str(excp.exception))
-        else:
-            self.assertIsNotNone(excp.exception.error_text, f"Error text should not be None: {excp.exception.error_text}")
+        self.assertIsNotNone(excp.exception.error_text, f"Error text should not be None: {excp.exception.error_text}")
+        assert excp.exception.error_text is not None
+        self.assertIn("Failed to load ELF", excp.exception.error_text)
+        self.assertIn("ran: ", str(excp.exception))
 
     def test_whisper_no_elf(self):
         "Tests that Whisper raises ELF_FAILURE when no ELF is passed"
         whisper = Whisper(Path("whisper/whisper"), [], self.whisper_config, 1000, "0x10000000000000000")
         with self.assertRaises(ToolchainError) as excp:
-            whisper.run(elf_file=None, output_file=self.temp_log_path)
+            whisper.run_iss(elf_file=Path(""), output_file=self.temp_log_path)
         self.assertEqual(excp.exception.kind, ToolFailureType.ELF_FAILURE)
 
     def test_invalid_whisper_config(self):
@@ -85,14 +86,14 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(invalid_whisper_config.exists(), f"Invalid whisper config should exist: {invalid_whisper_config}")
         whisper = Whisper(Path("whisper/whisper"), [self.madeupfile], invalid_whisper_config, 1000, "0x10000000000000000")
         with self.assertRaises(ToolchainError) as excp:
-            whisper.run(elf_file=self.madeupfile, output_file=self.temp_log_path)
+            whisper.run_iss(elf_file=self.madeupfile, output_file=self.temp_log_path)
         self.assertEqual(excp.exception.kind, ToolFailureType.BAD_CONFIG)
 
     def test_max_instruction_test(self):
         max_instruction_test = self.compile_elf(test_equates=["INFINITE_LOOP=1"])
         whisper = Whisper(Path("whisper/whisper"), [max_instruction_test], self.whisper_config, 10, "0x10000000000000000")
         with self.assertRaises(ToolchainError) as excp:
-            whisper.run(elf_file=max_instruction_test, output_file=self.temp_log_path)
+            whisper.run_iss(elf_file=max_instruction_test, output_file=self.temp_log_path)
         self.assertEqual(excp.exception.kind, ToolFailureType.MAX_INSTRUCTION_LIMIT)
 
     def test_tohost_fail(self):
@@ -100,7 +101,7 @@ class ToolTests(unittest.TestCase):
         fail_test = self.compile_elf(test_equates=["TEST_FAIL=1"])
         whisper = Whisper(Path("whisper/whisper"), [fail_test], self.whisper_config, 100, "0x10000000000000000")
         with self.assertRaises(ToolchainError) as excp:
-            whisper.run(elf_file=fail_test, output_file=self.temp_log_path)
+            whisper.run_iss(elf_file=fail_test, output_file=self.temp_log_path)
         self.assertEqual(excp.exception.kind, ToolFailureType.TOHOST_FAIL)
         self.assertIn("write to tohost failure", str(excp.exception))
         self.assertIn("3", str(excp.exception))
@@ -119,7 +120,9 @@ class ObjcopyTests(ToolTests):
         self.temp_bin.close()
 
     def test_objcopy(self):
-        "Test that objcopy works; just copies elf to temp_bin_path"
+        """
+        Test that objcopy works; just copies elf to temp_bin_path.
+        """
         elf = self.compile_elf()
         objcopy = Objcopy(Path("objcopy/objcopy"), [elf, "-O", "binary", self.temp_bin_path])
         objcopy.run()

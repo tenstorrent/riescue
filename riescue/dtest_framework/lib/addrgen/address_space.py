@@ -31,7 +31,7 @@ class AddressSpace:
         for i in range(64):
             cluster_instance = AddressCluster(self.rng, i)
             if cluster_instance.start_address == cluster_instance.end_address:
-                log.info(f"Cluster {i} has no address range (start==end)")
+                log.debug(f"Cluster {i} has no address range (start==end)")
             self.clusters[i] = cluster_instance
 
     def define_segment(self, qualifier: RV.AddressQualifiers, start: int, end: int) -> None:
@@ -40,6 +40,8 @@ class AddressSpace:
         cluster(s)
         """
         log.debug(f"{self.address_type}: Setting {qualifier} range: " f"0x{start:016x} - 0x{end:016x}")
+        if start > end:
+            log.error(f"Cannot define a segment with start address after end address: start=0x{start:x} > end=0x{end:x}")
 
         start_cluster, end_cluster = self._address_to_cluster(start, end)
         for i in range(start_cluster, end_cluster + 1):
@@ -102,7 +104,7 @@ class AddressSpace:
                 cluster.interesting_addresses.add((start_addr, end_addr))
             log.debug(f"reserving memory: {start_addr:x} - {end_addr:x} in cluster {i}, size: {size:x}, available: {cluster.available_memory:x}")
             cluster.available_memory -= size
-            log.info(f"available memory after: {cluster.available_memory:x}")
+            log.debug(f"available memory after: {cluster.available_memory:x}")
             self.total_allocated_address += 1
 
     def generate_address(self, constraint: AddressConstraint) -> int:
@@ -118,6 +120,9 @@ class AddressSpace:
         # 1. Step 1
         _list = self.find_clusters(constraint)
         log.debug(f"clusters: {_list}")
+        if not _list:
+            # FIXME: This needs better debug and error messages. Should be able to point to exact problem
+            raise AddrGenError(f"No matching clusters found for {constraint}. Likely out of memory ")
 
         self.rng.shuffle(_list)
         for i in _list:
@@ -132,11 +137,11 @@ class AddressSpace:
             if len(uclusters) != 0:
                 # 2a. Allocate address
                 addr = cluster.allocate_address(constraint, uclusters)
-                # log.info(f'addrgen: addr: {addr:x}')
+                # log.debug(f'addrgen: addr: {addr:x}')
                 if addr is None:
-                    log.info(f"Address generation failed for cluster {i}")
+                    log.debug(f"Address generation failed for cluster {i}")
                     continue
-                log.info(f"allocated: 0x{addr:016x} - " f"0x{addr+constraint.size-1:016x} " f"in cluster {cluster.cluster_id}")
+                log.debug(f"allocated: 0x{addr:016x} - " f"0x{addr+constraint.size-1:016x} " f"in cluster {cluster.cluster_id}")
                 self.total_allocated_address += 1
                 log.debug(f"Post allocation cluster details:\n {cluster}")
                 log.debug(f"Post allocation cluster details:\n {cluster}")
@@ -187,12 +192,13 @@ class AddressSpace:
             msg = "Below sub_clusters are not setup yet:\n"
             for i in q:
                 msg += f"{i}, "
+            msg += f"qualifiers: {qualifiers=} sub_clusters: {sub_clusters=}"
             raise AddrGenError(msg)
 
         for q in qualifiers:
             clusters = clusters.intersection(self.sub_clusters[q])
             if len(clusters) == 0:
-                raise AddrGenError("No compatible clusters found")
+                raise AddrGenError(f"No compatible clusters found for {constraint}")
 
         cluster_list2 = []
         log.debug(f"clusters: {clusters}")

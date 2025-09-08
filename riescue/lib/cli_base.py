@@ -5,6 +5,7 @@
 import argparse
 import abc
 from pathlib import Path
+from typing import Any
 
 """
 Base CLI script
@@ -41,10 +42,6 @@ class CliBase(abc.ABC):
     prog = "SomeCliScript"
     description = "aaaa"
 
-    @abc.abstractmethod
-    def run(self):
-        pass
-
     @staticmethod
     @abc.abstractmethod
     def add_arguments(parser):
@@ -58,23 +55,13 @@ class CliBase(abc.ABC):
         return cls(**vars(args))
 
     @classmethod
-    def run_cli(cls, **kwargs):
-        c = cls.commandline(**kwargs)
-        c.run()
+    @abc.abstractmethod
+    def run_cli(cls, **kwargs) -> Any:
+        pass
 
     # common helper methods
     @staticmethod
-    def check_valid_file(file: str) -> Path:
-        if not isinstance(file, Path):
-            file = Path(file)
-        if not file.exists():
-            raise FileNotFoundError(f"No file {file.name} at path {file}")
-        return file
-
-
-class CliCmdBase(CliBase):
-    """
-    Interactive version of CliBase
-    """
-
-    pass
+    def check_valid_file(filepath: Path) -> Path:
+        if not filepath.exists():
+            raise FileNotFoundError(f"No file {filepath.name} at path {filepath}")
+        return filepath

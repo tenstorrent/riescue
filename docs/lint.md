@@ -43,8 +43,23 @@ This fails if there are changes that are needed and exits 0 if no changes are ne
 
 #### CI flow
 The CI flow can be replicated by running:
-```
+```sh
 ./infra/container-run flake8 --config .flake8 .
+```
+
+## `pyright`
+`pyright` is a static type checker for python. It's used to catch errors and edge cases in code before running. This prevents runtime errors (undefined variables, incorrect type usage) before longer unit testing. It also helps to enforce a statically-typed style to improve code readability.
+
+Theres multiple static type checkers out there, but `pyright` was selected becuase it's used by the [Pylance](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-pylance) VS Code extension. It's recommended to use to avoid type issues before running the CI flow. Having typed python code also makes it easier for IDEs to jump to object definitions and track valid/invalid variable and methods.
+
+This project has a dependency on the [pyright-python](https://github.com/RobertCraigie/pyright-python) package to call pyright using python.
+
+### Usage
+
+`pyright` reads a `pyrightconfig.json`. Since VS Code defaults to `pyrightconfig.json`, we point to the version controlled `pyproject.toml` instead. Directories that should pass static type checkers will be updated in this file.
+
+```sh
+./infra/container-run pyright -p pyproject.toml
 ```
 
 

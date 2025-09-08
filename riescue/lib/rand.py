@@ -3,7 +3,7 @@
 
 import random
 import abc
-from typing import TypeVar
+from typing import TypeVar, Optional, Sequence
 
 T = TypeVar("T")
 
@@ -116,7 +116,7 @@ class RandNum:
             raise ValueError("Cannot select random index from empty list")
         return self.random_in_range(0, len(x))
 
-    def random_entry_in(self, x: list):
+    def random_entry_in(self, x: list[T]) -> T:
         """Return a random entry from the given list.
 
         :param x: List from which to select an element
@@ -295,7 +295,7 @@ class RandNum:
         """
         self.rand.shuffle(lst)
 
-    def choice(self, x: list[T]) -> T:
+    def choice(self, x: Sequence[T]) -> T:
         """
         Return a random element from the list x. Uses random.Random.choice()
 
@@ -332,7 +332,7 @@ class RandNum:
         """
         return self.rand.choices(x, weights=weights, k=k)
 
-    def randrange(self, start: int, stop: int = None, step: int = 1) -> int:
+    def randrange(self, start: int, stop: Optional[int] = None, step: int = 1) -> int:
         """
         Return a random integer between start and stop, inclusive.
 

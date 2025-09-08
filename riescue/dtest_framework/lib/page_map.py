@@ -14,7 +14,8 @@ import riescue.lib.enums as RV
 import riescue.dtest_framework.lib.pagetables as pagetables
 from riescue.lib.address import Address
 from riescue.dtest_framework.pool import Pool
-from riescue.dtest_framework.featmanager import FeatMgr
+from riescue.dtest_framework.config import FeatMgr
+from riescue.dtest_framework.lib.addrgen import AddrGen
 
 log = logging.getLogger(__name__)
 
@@ -25,9 +26,10 @@ class Page:
     Also, a page belongs to one or more PagingMap
     """
 
-    def __init__(self, name, phys_name, pool: Pool, featmgr: FeatMgr, maps=[], pagesize=RV.RiscvPageSizes.S4KB, gstage_pagesize=RV.RiscvPageSizes.S4KB, alias=False, no_pbmt_ncio=0):
+    def __init__(self, name, phys_name, pool: Pool, featmgr: FeatMgr, addrgen: AddrGen, maps=[], pagesize=RV.RiscvPageSizes.S4KB, gstage_pagesize=RV.RiscvPageSizes.S4KB, alias=False, no_pbmt_ncio=0):
         self.pool = pool
         self.featmgr = featmgr
+        self.addrgen = addrgen
         # Determine u-bit value based on the privilege mode
         ubit = self.featmgr.priv_mode == RV.RiscvPrivileges.USER
         # If 2-stage paging is enabled and vs-stage is disabled, we are only dealing with g-stage
@@ -378,7 +380,7 @@ class Page:
         """
         self.set_pagetable_levels(page_map=page_map)
 
-        pt = pagetables.Pagetables(page=self, page_map=page_map, pool=self.pool, featmgr=self.featmgr)
+        pt = pagetables.Pagetables(page=self, page_map=page_map, pool=self.pool, featmgr=self.featmgr, addrgen=self.addrgen)
         pt.create_pagetables(rng=rng)
 
     def insert_pt(self, pt_entry):
@@ -386,14 +388,14 @@ class Page:
 
 
 class PageMap:
-    def __init__(self, name, paging_mode, pool: Pool, featmgr: FeatMgr, g_map=False):
+    def __init__(self, name, paging_mode, pool: Pool, featmgr: FeatMgr, addrgen: AddrGen, g_map=False):
         self.name = name
         self.paging_mode = paging_mode
         self.g_map = g_map
 
         self.pool = pool
         self.featmgr = featmgr
-        self.addrgen = self.featmgr.addrgen
+        self.addrgen = addrgen
 
         # Set the pagetable levels based on the paging_mode
         self.max_levels = RV.RiscvPagingModes.max_levels(self.paging_mode)
@@ -436,12 +438,13 @@ class PageMap:
         pagesize=RV.RiscvPageSizes.S4KB,
     ):
 
-        log.info(f"Adding raw page: {linear_name} -> {physical_name}, linear_addr: {linear_addr:x}, physical_addr: {physical_addr:x}, map: {self.name}")
+        log.debug(f"Adding raw page: {linear_name} -> {physical_name}, linear_addr: {linear_addr:x}, physical_addr: {physical_addr:x}, map: {self.name}")
         page = Page(
             name=linear_name,
             phys_name=physical_name,
             pool=self.pool,
             featmgr=self.featmgr,
+            addrgen=self.addrgen,
             maps=["map_os"],
             pagesize=pagesize,
         )
@@ -517,7 +520,14 @@ class PageMap:
         maps_to_add = ["map_os"]
         # if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
         #     maps_to_add.append('map_hyp')
-        sptbr_page = Page(name=linear_name, phys_name=physical_name, pool=self.pool, featmgr=self.featmgr, maps=maps_to_add)
+        sptbr_page = Page(
+            name=linear_name,
+            phys_name=physical_name,
+            pool=self.pool,
+            featmgr=self.featmgr,
+            addrgen=self.addrgen,
+            maps=maps_to_add,
+        )
         # sptbr_page.lin_addr = lin_addr
         sptbr_page.lin_addr = self.sptbr
         sptbr_page.phys_addr = self.sptbr

@@ -199,31 +199,19 @@
           "mask"            : "0xffffffffffffffff",
           "poke_mask"       : "0xffffffffffffffff"
         },
+		"pmpaddr1" : { "exists" : "true" },
+		"pmpaddr2" : { "exists" : "true" },
         "pmpcfg0": {
           "exists"          : "true",
           "reset"           : "0x1f"
         },
-        "pmpaddr1" : { "exists" : "true" },
-        "pmpcfg1": {
-          "exists"          : "true"
-		},
-        "pmpaddr2" : { "exists" : "true" },
-        "pmpcfg2": {
-          "exists"          : "true"
-		},
-		"pmpcfg3": { "exists": "true" },
+        "pmpcfg2": { "exists": "true"},
 		"pmpcfg4": { "exists": "true" },
-		"pmpcfg5": { "exists": "true" },
 		"pmpcfg6": { "exists": "true" },
-		"pmpcfg7": { "exists": "true" },
 		"pmpcfg8": { "exists": "true" },
-		"pmpcfg9": { "exists": "true" },
 		"pmpcfg10": { "exists": "true" },
-		"pmpcfg11": { "exists": "true" },
 		"pmpcfg12": { "exists": "true" },
-		"pmpcfg13": { "exists": "true" },
 		"pmpcfg14": { "exists": "true" },
-		"pmpcfg15": { "exists": "true" },
         "pmpaddr3" : { "exists" : "true" },
         "pmpaddr4" : { "exists" : "true" },
         "pmpaddr5" : { "exists" : "true" },
