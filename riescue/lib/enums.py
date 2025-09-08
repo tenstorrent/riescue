@@ -1,7 +1,8 @@
-from enum import Enum, auto
-
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+from enum import Enum, auto, IntEnum
 
 import riescue.lib.common as common
 
@@ -10,6 +11,35 @@ class MyEnum(Enum):
 
     def __str__(self):
         return f"{self.name}"
+
+
+class Xlen(IntEnum):
+    XLEN32 = 32
+    XLEN64 = 64
+
+
+class RiscvPmpAddressMatchingModes(MyEnum):
+    OFF = 0
+    TOR = 1
+    NA4 = 2
+    NAPOT = 3
+
+    @classmethod
+    def str_to_enum(cls, mode):
+        if mode == "off":
+            return cls.OFF
+        elif mode == "tor":
+            return cls.TOR
+        elif mode == "na4":
+            return cls.NA4
+        elif mode == "napot":
+            return cls.NAPOT
+        else:
+            raise ValueError(f"PMP Address Matching mode: {mode} is unrecognized")
+
+    def encode(self) -> int:
+        "returns value bit shifted to bits [4:3]"
+        return self.value << 3
 
 
 class AddressType(MyEnum):
@@ -390,6 +420,9 @@ class RiscvTestEnv(MyEnum):
 class RiscvSecureModes(MyEnum):
     SECURE = auto()
     NON_SECURE = auto()
+
+    def __bool__(self):
+        return self == self.SECURE
 
     @classmethod
     def str_to_enum(cls, secure_mode):

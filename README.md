@@ -3,6 +3,11 @@
 - [Installation and Usage](#installation-and-usage)
 - [Contributing](#developing-and-contributing)
 
+---
+
+**[Read the documentation on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/)**
+
+---
 
 # Open Source Roadmap
 We are excited to announce that we will be open-sourcing a suite of tools under the RiESCUE umbrella. Below is a list of tools that we plan to release in the coming months.

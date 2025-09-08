@@ -1,86 +1,84 @@
 {
   "mmap": {
     "dram" : {
-      "address" : "0x80000000",
-      "size" : "0x000007fffffff"
+      "dram0" : {
+        "address" : "0x8000_0000",
+        "size" : "0x8000_0000"
+      }
     },
     "io": {
-      "address": "0",
-      "size": "0x7fffffff",
-      "items": {
-        "io0": {
-          "address" : "0x00000000",
-          "size" : "0x00010000"
-        },
-        "boot": {
-          "address" : "0x00010000",
-          "size" : "0x00010000"
-        },
-        "io1": {
-          "address" : "0x00020000",
-          "size" : "0x00020000"
-        },
-        "io4": {
-          "address": "0x00082ffe",
-          "size": "0x001f7d002",
-          "test_access": "available"
-        },
-        "clint": {
-          "address": "0x2000000",
-          "size": "0xc000"
-        },
-        "io2": {
-          "address" : "0x0200c000",
-          "size" : "0x05ff4000"
-        },
-        "scratch": {
-          "address": "0x08000000",
-          "size" : "0x00100000"
-        },
-        "trickbox": {
-          "address": "0x9000000",
-          "size": "0xc0000"
-        },
-        "scratchpad_xtor": {
-          "address": "0x090c0000",
-          "size": "0x100"
-        },
-        "scratch2": {
-          "address": "0x090c0100",
-          "size": "0x38f3fef0"
-        },
-        "trace_cfg": {
-          "address": "0x42000000",
-          "size": "0x0fffff"
-        },
-        "aclint": {
-          "address": "0x042180000",
-          "size": "0x0000bfff"
-        },
-        "mmr_cbqri": {
-          "address": "0x0421a0000",
-          "size": "0x00001000"
-        },
-        "mmr_intercluster": {
-          "address": "0x042200000",
-          "size": "0x00fffff"
-        },
-        "preload": {
-          "address": "0x50000000",
-          "size": "0x20000000"
-        },
-        "htif": {
-          "address": "0x70000000",
-          "size": "0x10"
-        },
-        "io3": {
-          "address": "0x70000010",
-          "size": "0x0ffffff0"
-        },
-        "ncio": {
-          "address": "0x40000000",
-          "size": "0x8000000"
-        }
+      "io0": {
+        "address" : "0x00000000",
+        "size" : "0x00010000"
+      },
+      "boot": {
+        "address" : "0x00010000",
+        "size" : "0x00010000"
+      },
+      "io1": {
+        "address" : "0x00020000",
+        "size" : "0x00020000"
+      },
+      "io4": {
+        "address": "0x00082ffe",
+        "size": "0x001f7d002",
+        "test_access": "available"
+      },
+      "clint": {
+        "address": "0x2000000",
+        "size": "0xc000"
+      },
+      "io2": {
+        "address" : "0x0200c000",
+        "size" : "0x05ff4000"
+      },
+      "scratch": {
+        "address": "0x08000000",
+        "size" : "0x00100000"
+      },
+      "trickbox": {
+        "address": "0x9000000",
+        "size": "0xc0000"
+      },
+      "scratchpad_xtor": {
+        "address": "0x090c0000",
+        "size": "0x100"
+      },
+      "scratch2": {
+        "address": "0x090c0100",
+        "size": "0x38f3fef0"
+      },
+      "trace_cfg": {
+        "address": "0x42000000",
+        "size": "0x0fffff"
+      },
+      "aclint": {
+        "address": "0x042180000",
+        "size": "0x0000bfff"
+      },
+      "mmr_cbqri": {
+        "address": "0x0421a0000",
+        "size": "0x00001000"
+      },
+      "mmr_intercluster": {
+        "address": "0x042200000",
+        "size": "0x00fffff"
+      },
+      "preload": {
+        "address": "0x50000000",
+        "size": "0x20000000"
+      },
+      "htif": {
+        "address": "0x70000000",
+        "size": "0x10"
+      },
+      "io3": {
+        "address": "0x70000010",
+        "size": "0x0ffffff0"
+      },
+      "ncio": {
+        "address": "0x40000000",
+        "size": "0x8000000"
       }
     }
   },

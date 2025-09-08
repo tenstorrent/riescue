@@ -24,12 +24,6 @@
                 "run_iss": {"name": ["--run_iss"], "action": "store_true", "help": "Run ISS with the test. Default ISS is Whisper, but can be run with any other ISS using --iss <iss>"},
                 "iss": {"name": ["--iss"], "default": "whisper", "type": "str", "choices": ["whisper", "spike"], "help": "Specify which ISS to use."},
                 "iss_timeout": {"name": ["--iss_timeout"], "type": "int", "default": 900, "help": "Timeout value for ISS runs"},
-                "sim_max_instr": {
-                    "name": ["--sim_max_instr", "-smi"],
-                    "type": "int",
-                    "default": 50000,
-                    "help": "Overrides max number of instructions to simulate, useful when wanting to see a trace but not gigabytes worth. Legal values are positive integers"
-                },
                 "wysiwyg": {
                     "name": ["--wysiwyg"],
                     "action": "store_true",
@@ -55,7 +49,7 @@
                 "description": "Arguments that modify the generated test's structure. E.g. alignment, page size, etc",
                 "addrgen_limit_indices": {"name": ["--addrgen_limit_indices"], "action": "store_true", "help": "Limit addrgen to not generate more than 4 addresses with the same index"},
                 "more_os_pages": {"name": ["--more_os_pages"], "action": "store_true", "help": "Ask riescued to generate more code and os_stack pages for long tests"},
-                "linux_mode": {"name": ["--linux_mode"], "action": "store_true", "help": "Generate riescued OS code and prepare test to run it in the Linux environment"},
+                "linux_mode": {"name": ["--linux_mode"], "action": "store_true", "help": "Generate riescued OS code and prepare test to run it in the Linux environment. Runs endlessly"},
                 "reserve_partial_phys_memory": {
                     "name": ["--reserve_partial_phys_memory"],
                     "action": "store_true",
@@ -122,6 +116,12 @@
                     "type": "str",
                     "choices" : ["on", "off", "random"],
                     "help": "Specify secure mode for the test to be forced. e.g. \n\t--test_secure_mode random \nIf random is selected then the probability of secure mode is 20%%"
+                },
+                "enable_machine_paging": {
+                    "name": ["--enable_machine_paging"],
+                    "action": "store_true",
+                    "default": false,
+                    "help": "Enable Machine privilege + paging mode for the test. Guest paging mode disabled"
                 }
             },
             "Test Generation": {

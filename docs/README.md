@@ -1,5 +1,9 @@
 # Docs
-This is where the documentation for the project will live
+This is where the documentation for the project will live. Information about generating and viewing documentation can be found below.
+
+## Structure
+
+Information about the structure of the documentation can be found in the [Docs Architecture](ARCHITECTURE.md) guide in this directory.
 
 ## Sphinx documentation
 This repo uses [Sphinx](https://www.sphinx-doc.org/) to generate HTML docs. Info about generating and modifying the flow can be found below.

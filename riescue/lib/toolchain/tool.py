@@ -31,15 +31,15 @@ class Tool(ABC):
     def __init__(self, path, env_name, tool_name, args=None):
         self.args = args if args else []
         self.executable = self.find_executable(path, env_name, tool_name).resolve()
-        log.info(f"Built {self.__class__.__name__} with executable: {self.executable}")
+        log.debug(f"Built {self.__class__.__name__} with executable: {self.executable}")
 
-    def find_executable(self, tool_path: Path, env_name: str, tool_name: str) -> Path:
+    def find_executable(self, tool_path: Optional[Path], env_name: str, tool_name: str) -> Path:
         """
         Searches for executable. Checks for Path tool_path if provided
         if no tool_path, checks for env_name environment variable
         if no env_name, checks for tool_name in PATH
         """
-        log.info("Searching for executable")
+        log.debug("Searching for executable")
         if tool_path is not None and tool_path.exists():
             return tool_path
         if env_name:
@@ -71,7 +71,7 @@ class Tool(ABC):
             return riescue_relative
         raise FileNotFoundError(f"Couldn't find filepath {riescue_relative} Tried relative to current directory and library [{riescue_relative}]")
 
-    def run(self, output_file=None, cwd=None, timeout=90) -> subprocess.CompletedProcess:
+    def run(self, output_file=None, cwd=None, timeout=90, args: Optional[list[str]] = None) -> subprocess.CompletedProcess:
         """
         Run the executable with args, returns CompletedProcess.
         Use output_file to pipe all stdout to a file. stderr piped to terminal
@@ -82,17 +82,19 @@ class Tool(ABC):
 
         :raises ToolchainError if tool failed to run
         """
-        cmd = [self.executable] + self.args
-        run_str = f"Running {' '.join(str(c) for c in cmd)}"
-        log.info(run_str)
+        if args is None:
+            args = []
+        cmd = [self.executable] + self.args + args
+        run_str = f"Running \n\t{' '.join(str(c) for c in cmd)}"
 
         if output_file is not None:
             if not isinstance(output_file, Path):
                 raise TypeError(f"Expected output_file to be a Path, got {type(output_file)}. Cannot pipe to output file")
-            log.info(f"Piping output to {str(output_file)}")
+            log.info(f"{run_str} > {str(output_file)}")
             with output_file.open("w") as f:
                 process = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True, cwd=cwd, timeout=timeout)
         else:
+            log.info(run_str)
             process = subprocess.run(cmd, text=True, cwd=cwd, timeout=timeout, stderr=subprocess.PIPE)
 
         if process.returncode == 139:
@@ -124,13 +126,27 @@ class Tool(ABC):
 
 
 class Compiler(Tool):
-    def __init__(self, compiler_path, compiler_opts, compiler_march, test_equates, abi: Optional[str] = None, feat_mgr=None):
-        # If feat_mgr is provided and compiler_march is None, generate march from features
-        if feat_mgr is not None and compiler_march is None:
-            compiler_march = feat_mgr.get_compiler_march_string()
-        elif compiler_march is None:
-            # Fallback to default if no feat_mgr provided
-            compiler_march = "rv64imafdcvh_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zvkned_zicbom_zicbop_zicboz_zawrs_zihintpause_zvbb1_zicond_zvkg_zvkn_zvbc_zfa"
+    """
+    Default compiler march uses GCC march.
+    """
+
+    default_compiler_march = "rv64imafdcvh_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zvkned_zicbom_zicbop_zicboz_zawrs_zihintpause_zvbb1_zicond_zvkg_zvkn_zvbc_zfa"
+
+    def __init__(
+        self,
+        compiler_path: Optional[Path] = None,
+        compiler_opts: Optional[list[str]] = None,
+        compiler_march: str = "",
+        test_equates: Optional[list[str]] = None,
+        abi: Optional[str] = None,
+    ):
+        if compiler_opts is None:
+            compiler_opts = []
+        if test_equates is None:
+            test_equates = []
+
+        if not compiler_march:
+            compiler_march = self.default_compiler_march
 
         args = [
             "-static",
@@ -162,24 +178,17 @@ class Compiler(Tool):
         # fmt: on
 
     @classmethod
-    def from_args(cls, args: argparse.Namespace):
-        feat_mgr = None
+    def from_args(cls, args: argparse.Namespace, march_override: Optional[str] = None):
+        """
+        Overrides march if provided.
+        """
 
-        # If config_json is provided, create FeatMgr instance
-        if hasattr(args, "config_json") and args.config_json is not None:
-            try:
-                # Import here to avoid circular imports
-                from riescue.dtest_framework.featmanager import FeatMgr
-                from riescue.lib.rand import RandNum
-
-                # Create a minimal FeatMgr instance just for feature management
-                rng = RandNum()
-                feat_mgr = FeatMgr(rng=rng, pool=None, config_path=args.config_json, test_config=None, cmdline=args)  # Not needed for march generation  # Not needed for march generation
-            except ImportError as e:
-                log.warning(f"Could not import FeatMgr: {e}")
-                feat_mgr = None
-
-        return cls(compiler_path=args.compiler_path, compiler_opts=args.compiler_opts, compiler_march=args.compiler_march, test_equates=args.test_equates, feat_mgr=feat_mgr)
+        return cls(
+            compiler_path=args.compiler_path,
+            compiler_opts=args.compiler_opts,
+            compiler_march=march_override or args.compiler_march,
+            test_equates=args.test_equates,
+        )
 
     def _classify(self, process: subprocess.CompletedProcess, output_file: Optional[Path]):
         if process.returncode != 0:
@@ -196,7 +205,13 @@ class Compiler(Tool):
 
 
 class Disassembler(Tool):
-    def __init__(self, disassembler_path, disassembler_opts):
+    def __init__(
+        self,
+        disassembler_path: Optional[Path] = None,
+        disassembler_opts: Optional[list[str]] = None,
+    ):
+        if disassembler_opts is None:
+            disassembler_opts = []
         super().__init__(path=disassembler_path, env_name="RV_OBJDUMP", tool_name="riscv64-unknown-elf-objdump")
 
     @staticmethod
@@ -229,7 +244,13 @@ class Disassembler(Tool):
 
 
 class Objcopy(Tool):
-    def __init__(self, objcopy_path, objcopy_opts):
+    def __init__(
+        self,
+        objcopy_path: Optional[Path] = None,
+        objcopy_opts: Optional[list[str]] = None,
+    ):
+        if objcopy_opts is None:
+            objcopy_opts = []
         super().__init__(path=objcopy_path, env_name="RV_OBJCOPY", tool_name="riscv64-unknown-elf-objcopy", args=objcopy_opts)
 
     @staticmethod
@@ -251,14 +272,24 @@ class Objcopy(Tool):
 
 
 class Spike(Tool):
-    def __init__(self, spike_path, spike_args, spike_isa, third_party_spike, spike_max_instr):
+    def __init__(
+        self,
+        spike_path: Optional[Path] = None,
+        spike_args: Optional[list[str]] = None,
+        spike_isa: str = "",
+        third_party_spike: bool = False,
+        spike_max_instr: int = 2000000,
+    ):
+        if spike_args is None:
+            spike_args = []
+
         args = spike_args + ["-l", "--log-commits"]
         if third_party_spike:
-            if spike_isa is None:
+            if not spike_isa:
                 spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvl256b_zve64d_svpbmt"
             tool_name = "spike"
         else:
-            if spike_isa is None:
+            if not spike_isa:
                 spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_svpbmt_sstc_zicntr"
             tool_name = "tt_spike"
             args.append("--varch=vlen:256,elen:64")
@@ -283,6 +314,9 @@ class Spike(Tool):
         if process.returncode != 0:
             self._raise_toolchain_error(process, ToolFailureType.NONZERO_EXIT)
 
-    def run(self, elf_file: Path, output_file, cwd=None, timeout=60) -> subprocess.CompletedProcess:
+    def run(self, output_file=None, cwd=None, timeout=90, args: Optional[list[str]] = None):
+        raise NotImplementedError("Use run_iss() instead of run() for this tool.")
+
+    def run_iss(self, elf_file: Path, output_file, cwd=None, timeout=60) -> subprocess.CompletedProcess:
         self.args.extend([str(elf_file)])
         return super().run(output_file=output_file, cwd=cwd, timeout=timeout)

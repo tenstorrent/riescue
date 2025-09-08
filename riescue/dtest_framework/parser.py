@@ -29,6 +29,9 @@ class Parser:
     - ;#page_mapping()
     - ;#page_map()
     - ;#test.<headers>
+
+    FIXME: If required parameters are missing from the header, the parser will continue. There should be a validate method and/or better type checking to error handle missing parameters.
+    e.g.
     """
 
     def __init__(self, filename: Path, pool: Pool):
@@ -151,7 +154,7 @@ class Parser:
                     # val = int(val, 0)
                 rnd_inst.__setattr__(var, val)
             self.random_addrs[rnd_inst.name] = [rnd_inst]
-            log.info(f"Adding random_addr: {rnd_inst.name} to pool")
+            log.debug(f"Adding random_addr: {rnd_inst.name} to pool")
             self.pool.add_parsed_addr(rnd_inst)
 
     def parse_page_mappings(self, line):
@@ -409,7 +412,7 @@ class Parser:
                     # Check if phys_name exists in any value instance in ppm
                     exists = any(ppm.phys_name == val for ppm in self.pool.get_parsed_page_mappings().values())
                     if exists:
-                        log.info(f"phys_name {val} already exists in another page mapping, marking as alias case")
+                        log.debug(f"phys_name {val} already exists in another page mapping, marking as alias case")
                         ppm_inst.alias = True
                 ppm_inst.__setattr__(var, val)
 
@@ -947,6 +950,7 @@ class ParsedTestHeader:
     mp: str = ""
     mp_mode: str = ""
     opts: str = ""
+    parallel_scheduling_mode: str = ""
 
 
 @dataclass

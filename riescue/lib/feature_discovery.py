@@ -39,7 +39,11 @@ class Features:
     This class centralizes all RISC-V feature string constants to avoid magic strings
     and provide IDE autocomplete support across the entire codebase.
 
+    TODO: Can this be an enum?
+
     Usage:
+
+    .. code-block:: python
         from riescue.lib.feature_discovery import Features
 
         # In decorators
@@ -259,7 +263,15 @@ class FeatureDiscovery:
 
         with open(config_path, "r") as f:
             config = json.load(f)
+        return cls.from_dict(config)
 
+    @classmethod
+    def from_dict(cls, config: dict[str, Any]) -> "FeatureDiscovery":
+        """
+        Create FeatureDiscovery instance from a dictionary.
+
+        :param config: dictionary containing features
+        """
         features = {}
 
         # Load features from config.json
@@ -295,6 +307,21 @@ class FeatureDiscovery:
                 assert not fd.is_feature_enabled("f")
         """
         fd = cls.from_config(config_path)
+
+        if test_features:
+            fd._apply_test_feature_overrides(test_features)
+
+        return fd
+
+    @classmethod
+    def from_dict_with_overrides(cls, config: dict[str, Any], test_features: Optional[str] = None) -> "FeatureDiscovery":
+        """
+        Create FeatureDiscovery instance from a dictionary with test header overrides.
+
+        :param config: dictionary containing features
+        :param test_features: test header features string (e.g., "ext_v.enable ext_fp.disable")
+        """
+        fd = cls.from_dict(config)
 
         if test_features:
             fd._apply_test_feature_overrides(test_features)
