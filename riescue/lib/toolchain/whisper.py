@@ -15,12 +15,27 @@ log = logging.getLogger(__name__)
 
 
 class Whisper(Tool):
-    def __init__(self, whisper_path: Path, whisper_args: list, whisper_config_json: Path, whisper_max_instr: int, whisper_memory_size: str, whisper_dumpmem: str = None):
-        whisper_config_json = self.check_filepath(whisper_config_json)
+    default_whisper_config_json: Path = Tool.package_path / "dtest_framework/lib/whisper_config.json"
+
+    def __init__(
+        self,
+        whisper_path: Optional[Path] = None,
+        whisper_args: Optional[list[str]] = None,
+        whisper_config_json: Optional[Path] = None,
+        whisper_max_instr: int = 2000000,
+        whisper_memory_size: str = "",
+        whisper_dumpmem: Optional[str] = None,
+    ):
+        if whisper_args is None:
+            whisper_args = []
+
+        if whisper_config_json is None:
+            whisper_config_json = self.default_whisper_config_json
+
+        self.whisper_config_json = whisper_config_json  # resolve before running in case set by caller after constructor
         args = whisper_args + [
-            "--configfile",
-            str(whisper_config_json),
             "--traceptw",
+            "--loglabel",
             "--memorysize",
             whisper_memory_size,
             f"--maxinst={whisper_max_instr}",
@@ -41,9 +56,12 @@ class Whisper(Tool):
         # fmt: on
 
     @classmethod
-    def from_args(cls, args: argparse.Namespace, default_whisper_config_json: Path = Tool.package_path / "dtest_framework/lib/whisper_config.json"):
+    def from_args(cls, args: argparse.Namespace, default_whisper_config_json: Optional[Path] = None):
         if args.whisper_config_json is None:
-            whisper_config_json = default_whisper_config_json
+            if default_whisper_config_json is None:
+                whisper_config_json = cls.default_whisper_config_json
+            else:
+                whisper_config_json = default_whisper_config_json
         else:
             whisper_config_json = args.whisper_config_json
         return cls(
@@ -67,6 +85,8 @@ class Whisper(Tool):
         str: String with all @variables replaced with their nm values (hex strings).
         """
         # 1. Collect all @xxx variables in the string
+        if self.dumpmem_arg is None:
+            raise ValueError("dumpmem_arg is None, cannot process")
         varnames = set(re.findall(r"@([A-Za-z0-9_]+)", self.dumpmem_arg))
         if not varnames:
             return self.dumpmem_arg
@@ -104,7 +124,10 @@ class Whisper(Tool):
                 pass
         return ":".join(terms)
 
-    def run(self, elf_file: Path, output_file, cwd=None, timeout=60) -> subprocess.CompletedProcess:
+    def run(self, output_file=None, cwd=None, timeout=90, args: Optional[list[str]] = None):
+        raise NotImplementedError("Use run_iss() instead of run() for this tool.")
+
+    def run_iss(self, elf_file: Path, output_file, cwd=None, timeout=60) -> subprocess.CompletedProcess:
         """
         Whisper is a special run case since output file is an argument for command instead of pipe
         """
@@ -114,7 +137,8 @@ class Whisper(Tool):
         self.args.extend([str(elf_file)])
         self.log_file = output_file
         self.args.extend(["--logfile", str(self.log_file)])
-        # print(" ".join(self.args))
+        whisper_config_json_path = str(self.check_filepath(self.whisper_config_json))  # resolve relative path
+        self.args.extend(["--configfile", whisper_config_json_path])
         return super().run(output_file=None, cwd=cwd, timeout=timeout)
 
     def _classify(self, process: subprocess.CompletedProcess, output_file: Optional[Path]):

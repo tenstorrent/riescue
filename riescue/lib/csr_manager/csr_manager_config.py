@@ -3,6 +3,8 @@
 
 import json
 from pathlib import Path
+from typing import Optional
+
 from riescue.lib.rand import RandNum
 
 
@@ -64,7 +66,17 @@ class CsrManager:
         config = csr_configs[random_csr]
         return {random_csr: config}
 
-    def csr_access(self, instruction_helper, access_type, csr_config, value=None, imm=None, rs="", rd="", subfield: dict = {}):
+    def csr_access(
+        self,
+        instruction_helper,
+        access_type,
+        csr_config,
+        value: Optional[int] = None,
+        imm: Optional[int] = None,
+        rs: str = "",
+        rd: str = "",
+        subfield: dict[str, str] = {},
+    ):
         reg1 = instruction_helper.get_random_gpr_reserve("int")
         reg2 = instruction_helper.get_random_gpr_reserve("int")
 
@@ -86,12 +98,12 @@ class CsrManager:
             csr_config_ = list(csr_config.values())[0]
             csr_name = list(csr_config.keys())[0]
             subfield_name = list(subfield.keys())[0]
-            value = list(subfield.values())[0]
+            value = int(list(subfield.values())[0])
 
             if subfield_name in csr_config_.Fields:
                 field_config_ = csr_config_.Fields[subfield_name]
                 field_range = field_config_.field_config["fields-range"]
-                and_mask, or_mask = self.utils.utils_and_or_mask(field_range, int(value))
+                and_mask, or_mask = self.utils.utils_and_or_mask(field_range, value)
                 instruction = f"li  {reg1}, {and_mask}\n"
                 instruction += self.utils.utils_access_csr(inst="csrr", csr=csr_name, rd=reg2)
                 instruction += f"and {reg2}, {reg2}, {reg1}\n"
@@ -111,13 +123,13 @@ class CsrManager:
             instruction = self.utils.utils_access_csr(inst="csrrc", rs=rs, rd=rd, csr=csr_name, value=value)
 
         if access_type == "write_imm":
-            instruction = self.utils.utils_access_csr(inst="csrrwi", imm=imm, rd=rd, csr=csr_name)
+            instruction = self.utils.utils_access_csr(inst="csrrwi", imm=str(imm), rd=rd, csr=csr_name)
 
         if access_type == "clear_imm":
-            instruction = self.utils.utils_access_csr(inst="csrrci", imm=imm, rd=rd, csr=csr_name)
+            instruction = self.utils.utils_access_csr(inst="csrrci", imm=str(imm), rd=rd, csr=csr_name)
 
         if access_type == "set_imm":
-            instruction = self.utils.utils_access_csr(inst="csrrsi", imm=imm, rd=rd, csr=csr_name)
+            instruction = self.utils.utils_access_csr(inst="csrrsi", imm=str(imm), rd=rd, csr=csr_name)
 
         if access_type == "read":
             instruction = self.utils.utils_access_csr(inst="csrr", rd=rd, csr=csr_name)
@@ -160,7 +172,7 @@ class CsrManagerUtils:
         assert matching_csrs, "No CSR with given constraint found"
         return matching_csrs
 
-    def utils_access_csr(self, inst: str, rd: str, csr: str, value=None, imm="", rs=""):
+    def utils_access_csr(self, inst: str, rd: str, csr: str, value: Optional[int] = None, imm: str = "", rs: str = ""):
 
         instruction = ""
         if inst == "csrrw" or inst == "csrrs" or inst == "csrrc":

@@ -1,0 +1,12 @@
+{
+    "reset_pc": "0x8000_0000",
+    "mmap": {
+        "dram": {
+            "main_ram": {"address": "0x8000_0000", "size": "0x40_0000_0000"}
+        },
+        "io": {
+            "uart": {"address": "0x1000_0000", "size": "0x1000"},
+            "timer": {"address": "0x1001_0000", "size": "0x1000"}
+        }
+    }
+}

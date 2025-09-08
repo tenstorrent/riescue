@@ -12,7 +12,6 @@ defined in the .s file. It implements following for each test
 """
 
 import riescue.lib.enums as RV
-import riescue.dtest_framework.featmanager as featmanager
 
 
 class DiscreteTest:
@@ -43,22 +42,3 @@ class DiscreteTest:
         s += f"\tpaging mode: {self.paging_mode}\n"
 
         return s
-
-
-# FIXME: Are these classes needed?
-class App(DiscreteTest):
-    """
-    Class for discrete_tests that run on bare-metal and implements specific
-    details related to bare-metal
-    """
-
-    pass
-
-
-class Vm(DiscreteTest):
-    """
-    Class for discrete_tests that run as VM inside the virtualized enironment
-    and implements details related to running as VM
-    """
-
-    pass

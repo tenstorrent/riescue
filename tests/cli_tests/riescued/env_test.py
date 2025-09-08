@@ -39,6 +39,12 @@ class TestEnvTests(BaseRiescuedTest):
         cli_args = ["--run_iss", "--wysiwyg"]
         self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=self.iterations)
 
+    def test_csr_init_mask(self):
+        "Test that uses WYSIWYG mode"
+        testname = "dtest_framework/tests/init_csr_test.s"
+        cli_args = ["--run_iss", "--csr_init_mask", "mscratch=0xFFFFFFFF=0x12345678"]
+        self.run_riescued(testname=testname, cli_args=cli_args, iterations=self.iterations)
+
     def test_pbmt_ncio_randomization(self):
         "Test that uses PBMT_NCIo_randomization"
         cli_args = ["--run_iss", "--pbmt_ncio_randomization", "100"]
@@ -54,6 +60,12 @@ class TestEnvTests(BaseRiescuedTest):
         testname = "dtest_framework/tests/riescued_ld_test.s"
         self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
 
+    def test_paging_machine_mode(self):
+        "test test_m_paging.s in machine mode"
+        cli_args = ["--run_iss", "--enable_machine_paging"]
+        testname = "dtest_framework/tests/test_m_paging.s"
+        self.run_riescued(testname=testname, cli_args=cli_args, iterations=self.iterations)
+
     def test_paging_mode_any(self):
         "Default test with paging mode any"
         cli_args = ["--run_iss", "--test_paging_mode", "any"]
@@ -62,6 +74,11 @@ class TestEnvTests(BaseRiescuedTest):
     def test_paging_g_mode_any(self):
         "Default test with paging g mode any"
         cli_args = ["--run_iss", "--test_paging_g_mode", "any"]
+        self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=self.iterations)
+
+    def test_csr_init(self):
+        "Default test with csr init"
+        cli_args = ["--run_iss", "--csr_init", "mstatus=0x8000000A00046800", "--test_priv", "super", "--test_env", "virtualized", "--deleg_excp_to", "machine"]
         self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=self.iterations)
 
     def test_secure_mode_on(self):

@@ -72,6 +72,7 @@ class Loader(AssemblyGenerator):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.priv_mode = self.featmgr.priv_mode
+        self.paging_mode = self.featmgr.paging_mode
         self.counters = Counters(rng=self.rng)
 
     def generate(self) -> str:
@@ -185,12 +186,12 @@ class Loader(AssemblyGenerator):
 
         """
         # Setup pmacfg* if requested
-        if self.featmgr.cmdline.needs_pma:
+        if self.featmgr.needs_pma:
             code += self.setup_pma()
         # Setup pmpaddr*/cfg* if requested
-        if self.featmgr.cmdline.setup_pmp:
+        if self.featmgr.setup_pmp:
             code += self.setup_pmp()
-        # if self.featmgr.cmdline.enable_secure_mode:
+        # if self.featmgr.enable_secure_mode:
         if self.featmgr.secure_mode:
             code += """
               # .equ BIT_SWID, 0
@@ -207,11 +208,11 @@ class Loader(AssemblyGenerator):
             # OS is in supervisor page
 
             medeleg_val = 0
-            if self.featmgr.deleg_excp_to == "super":
+            if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
                 medeleg_val = 0xFFFFFFFFFFFFFFFF
 
-            if self.featmgr.cmdline.medeleg != 0xFFFFFFFFFFFFFFFF:
-                medeleg_val = self.featmgr.cmdline.medeleg
+            if self.featmgr.medeleg != 0xFFFFFFFFFFFFFFFF:
+                medeleg_val = self.featmgr.medeleg
 
             # if self.featmgr.deleg_excp_to == 'super':
             code += f"""
@@ -230,13 +231,13 @@ class Loader(AssemblyGenerator):
             if self.featmgr.interrupts_enabled:
                 mode_enabled_interrupts = "ENABLE_MIE"
 
-            if self.featmgr.deleg_excp_to == "super":
+            if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
                 mideleg_val = (1 << 9) | (1 << 5) | (1 << 1) | (1 << 11) | (1 << 7) | (1 << 3)  # Enables SEI, STI, SSI and MEI, MTI, MSI
                 if self.featmgr.interrupts_enabled:
                     mode_enabled_interrupts = "ENABLE_SIE # Delegating to supervisor mode, enabling interrupts to supervisor mode by defualt"
 
-            if self.featmgr.cmdline.mideleg != 0xFFFFFFFFFFFFFFFF:
-                hideleg_val = self.featmgr.cmdline.mideleg
+            if self.featmgr.mideleg != 0xFFFFFFFFFFFFFFFF:
+                hideleg_val = self.featmgr.mideleg
 
             code += f"""
                 setup_mideleg:
@@ -262,8 +263,8 @@ class Loader(AssemblyGenerator):
                         csrs menvcfg, t0
                         """
 
-            if self.featmgr.cmdline.menvcfg != 0:
-                menvcfg_val |= self.featmgr.cmdline.menvcfg
+            if self.featmgr.menvcfg != 0:
+                menvcfg_val |= self.featmgr.menvcfg
 
                 code += f"""
                     setup_menvcfg:
@@ -284,12 +285,6 @@ class Loader(AssemblyGenerator):
                         li t0, 1<<63 | 1<<62
                         csrw mstateen0, t0
                     """
-            # Initialize CSRs based on command line arguments
-            code += f"""
-                # Initialize CSRs based on command line arguments
-                init_cmdline_csrs:
-                    {self.generate_csr_init_code()}
-            """
 
             # Clear satp before switching to supervisor mode
             code += "csrw satp, x0\n"
@@ -342,8 +337,8 @@ class Loader(AssemblyGenerator):
 
         # Handle menvcfg
         senvcfg_val = 0
-        if self.featmgr.cmdline.senvcfg != 0:
-            senvcfg_val = self.featmgr.cmdline.senvcfg
+        if self.featmgr.senvcfg != 0:
+            senvcfg_val = self.featmgr.senvcfg
 
             code += f"""
                 setup_senvcfg:
@@ -353,7 +348,7 @@ class Loader(AssemblyGenerator):
                     """
 
         # If paging is enabled, switch to supervisor and enable paging
-        if self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE:
+        if self.paging_mode != RV.RiscvPagingModes.DISABLE:
             code += self.enable_paging()
 
         # Jump to schedule the tests in opsys
@@ -374,53 +369,23 @@ class Loader(AssemblyGenerator):
     def setup_pmp(self) -> str:
         "Generate code to setup PMP registers"
         # Implement a queue to keep track of pmp numbers from 0-63
-        pmpaddr_start_addr = 0x3B0
-        pmpcfg_start_addr = 0x3A0
-        pmp_q = deque(range(64))
+        log.info(f"Setting up PMPs: {self.pool.pmp_regions}")
+
         code = ""
+        for pmp in self.pool.pmp_regions.encode():
+            for addr in pmp.addr:
+                addr_start, addr_size = addr.range()
 
-        # Current pmpcfg value being built
-        current_pmpcfg = 0
-        # Track which pmpcfg* CSR we're writing to
-        cfg_index = 0
-        # Value for each pmp*cfg: NAPOT (A=11), R/W/X=111, L=0
-        pmpcfg_val = 0x1F
-
-        # Setup pmpcfg* if requested
-        for i, pmp_region in enumerate(self.pool.pmp_regions):
-            pmp_size = pmp_region.size
-            pmp_start = pmp_region.start_addr
-
-            # # Calculate the PMP address
-            # pmp_addr = (pmp_region.start_addr >> 2) | (napot_mask >> 3)
-            pmpaddr_val = (pmp_start >> 2) | ((pmp_size >> 3) - 1)
-
-            # TODO: For now no configuration for pmpcfg, just set it to 0x1f
-            pmpcfg_val = 0x1F
-
-            # Find the pmp_number
-            pmp_num = pmp_q.popleft()
-
-            # Add this region's pmp*cfg to current_pmpcfg
-            cfg_offset = (i % 8) * 8  # 0, 8, 16, ..., 56
-            current_pmpcfg |= pmpcfg_val << cfg_offset
-
-            # Setup pmpaddr and pmpcfg
-            code += f"""
-            # Setup pmpaddr{pmp_num} with start_addr: 0x{pmp_region.start_addr:x} and size: 0x{pmp_region.size:x}
-            li t0, 0x{pmpaddr_val:x}
-            csrw 0x{pmpaddr_start_addr + pmp_num:x}, t0
-            """
-
-            # Write pmpcfg* CSR if we've filled 8 entries or reached the end
-            if (i % 8 == 7) or (i == len(self.pool.pmp_regions) - 1):
                 code += f"""
-                # Setup pmpcfg{cfg_index} for pmpaddr{cfg_index*8} to pmpaddr{min(cfg_index*8 + 7, i)}
-                li t0, 0x{current_pmpcfg:x}
-                csrw 0x{pmpcfg_start_addr + cfg_index:x}, t0
+                # Setup {addr.name} covering [0x{addr_start:x}, 0x{addr_start + addr_size:x}] A={addr.addr_matching.name}
+                li t0, 0x{addr.address:x}
+                csrw {addr.name}, t0
                 """
-                cfg_index += 1
-                current_pmpcfg = 0  # Reset for next pmpcfg*
+            code += f"""
+            # Setup {pmp.cfg.name} for {pmp.addr[0].name} to {pmp.addr[-1].name}
+            li t0, 0x{pmp.cfg.value:x}
+            csrw {pmp.cfg.name}, t0
+            """
         return code
 
     def setup_pma(self) -> str:
@@ -430,7 +395,7 @@ class Loader(AssemblyGenerator):
         # Setup default pmas for dram
         if self.pool.pma_dram_default:
             pma_dram = self.pool.pma_dram_default
-            pma_addr = 0x7E0 + (self.featmgr.cmdline.num_pmas - 1)
+            pma_addr = 0x7E0 + (self.featmgr.num_pmas - 1)
             code += f"""
             setup_pma_dram:
                 # Setting up dram pma with {pma_dram}
@@ -441,7 +406,7 @@ class Loader(AssemblyGenerator):
         # Setup pmas for io
         if self.pool.pma_io_default:
             pma_io = self.pool.pma_io_default
-            pma_addr = 0x7E0 + (self.featmgr.cmdline.num_pmas - 2)
+            pma_addr = 0x7E0 + (self.featmgr.num_pmas - 2)
             code += f"""
             setup_pma_io:
                 # Setting up io pma with {pma_io}
@@ -519,43 +484,64 @@ _start:
                 li t0, {mstatus_big_endian_set}
                 csrrs t0, mstatus, t0
             """
+
+        # Initialize CSRs based on command line arguments
+        if self.featmgr.csr_init or self.featmgr.csr_init_mask:
+            code += self.generate_csr_init_code()
         return code
 
     def enable_paging(self):
-        s = ""
+        enable_paging_code = ""
         os_map = self.pool.get_page_map("map_os")
         os_sptbr = os_map.sptbr
-
-        paging_mode = self.featmgr.paging_mode
 
         # satp value = [31]:mode, [30:22]: asid, [21:0]: sptbr[31:10]
         asid_val = self.rng.random_in_range(0, 2**9)
         mode_val = 0
-        if paging_mode == RV.RiscvPagingModes.SV39:
+        mode_name = None
+        if self.paging_mode == RV.RiscvPagingModes.SV39:
             mode_val = 0x8
-        elif paging_mode == RV.RiscvPagingModes.SV48:
+            mode_name = "Sv39"
+        elif self.paging_mode == RV.RiscvPagingModes.SV48:
             mode_val = 0x9
-        elif paging_mode == RV.RiscvPagingModes.SV57:
+            mode_name = "Sv48"
+        elif self.paging_mode == RV.RiscvPagingModes.SV57:
             mode_val = 0xA
+            mode_name = "Sv57"
         else:
-            raise ValueError(f"OS does not support paging mode {paging_mode} yet")
+            raise ValueError(f"OS does not support paging mode {self.paging_mode} yet")
 
         # Set sptbr, asid and mode field values in the satp csr
         satp_val = os_sptbr >> 12
         satp_val |= common.set_bits(original_value=satp_val, bit_hi=59, bit_lo=44, value=asid_val)
         satp_val |= common.set_bits(original_value=satp_val, bit_hi=63, bit_lo=60, value=mode_val)
 
-        s += f"""
+        enable_paging_code += f"""
+        # PAGING_SETUP_START
         enable_paging:
-            # Enable paging by writing CSR SATP.MODE = Sv32 (1)
+            # Enable paging by writing CSR SATP.MODE = {mode_name} (1)
             ;os_sptbr = 0x{os_sptbr:x}
             li x1, 0x{satp_val:x}
-            csrw satp, x1
-        paging_enabled:  # Adding this label for LS testbench to jump to
+            csrw satp, x1"""
+
+        # enable paging in machine mode using mstatus.MPRV (bit 17)
+        # note: If y≠M, xRET also sets MPRV=0
+        # When MPRV=1, load and store memory addresses are translated and protected, and endianness is applied, as though the current privilege mode were set to MPP.
+        # Need to also set MPP to S
+        # This gets reset when mRET is executed
+        if self.priv_mode == RV.RiscvPrivileges.MACHINE:
+            enable_paging_code += """
+                li t0, ((1 << 17) | (1 << 11))    # Set MPRV=1 and MPP=01 (supervisor)
+                csrrs x0, mstatus, t0
+                li t0, (1<<12) # Clear mstatus[12]
+                csrrc x0, mstatus, t0
+            """
+        enable_paging_code += """\npaging_enabled:  # Adding this label for LS testbench to jump to
             nop
+        # PAGING_SETUP_END
         """
 
-        return s
+        return enable_paging_code
 
     def switch_to_super(self, label_to_jump):
         """Assume you are in machine mode and you are switching to supervisor mode.
@@ -607,14 +593,14 @@ _start:
 
     def generate_csr_init_code(self):
         """Generate code to initialize CSRs based on command line arguments."""
-        if not hasattr(self.featmgr.cmdline, "csr_init") and not hasattr(self.featmgr.cmdline, "csr_init_mask"):
+        if not self.featmgr.csr_init and not self.featmgr.csr_init_mask:
             return ""
-
-        code = "\n        # CSR Initialization\n"
+        code = "\n# Initialize CSRs based on command line arguments"
+        code += "\n\tinit_cmdline_csrs:"
 
         # Handle direct CSR writes
-        if self.featmgr.cmdline.csr_init:
-            for csr_init in self.featmgr.cmdline.csr_init:
+        if self.featmgr.csr_init:
+            for csr_init in self.featmgr.csr_init:
                 try:
                     csr, value = csr_init.split("=")
                     # Convert value to hex if it's not already
@@ -630,8 +616,8 @@ _start:
                     continue
 
         # Handle masked CSR writes
-        if self.featmgr.cmdline.csr_init_mask:
-            for csr_init in self.featmgr.cmdline.csr_init_mask:
+        if self.featmgr.csr_init_mask:
+            for csr_init in self.featmgr.csr_init_mask:
                 try:
                     csr, mask, value = csr_init.split("=")
                     # Convert values to hex if they're not already

@@ -29,6 +29,7 @@ dependencies = [
     "intervaltree",
     "coverage",
     "tabulate",
+    "pyright",
 ]
 
 [tool.setuptools.package-dir]
@@ -36,3 +37,22 @@ riescue = "riescue/"
 
 [project.scripts]
 riescued = "riescue.riescued:main"
+
+[tool.pyright]
+include = [
+    "riescue/lib",
+    "riescue/riescued.py",
+    #"riescue/*.py",
+    #"riescue/dtest_framework",
+    "riescue/dtest_framework/config",
+    "tests/dtest_framework",
+
+]
+extraPaths = ["riescue",]
+exclude = [
+    "tests/compliance",
+    "riescue/lib/csr_manager",
+    "riescue/lib/instr_info",
+]
+pythonVersion = "3.9"
+pythonPlatform = "Linux"

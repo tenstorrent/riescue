@@ -58,7 +58,7 @@ Please follow the [Sphinx Docstring Format](https://sphinx-rtd-tutorial.readthed
 - Handle errors gracefully with appropriate exceptions
 
 ## Lint, Format, and Coding Style
-This repo uses `flake8` and `black` to enforce a uniform code style. This makes the code easier to read and makes pull requests easier to manage.
+This repo uses `flake8`, `pyright`, and `black` to enforce a uniform code style. This makes the code easier to read and makes pull requests easier to manage.
 
 Contributions must pass a CI flow of lint and unit tests to be merged. Information about installing/running lint locally and the automated lint flow can be found in the [Lint Docs](../docs/lint.md).
 

@@ -10,11 +10,12 @@ from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 from riescue.dtest_framework.runtime.loader import Loader
 from riescue.dtest_framework.runtime.opsys import OpSys
+from riescue.dtest_framework.runtime.test_scheduler import TestScheduler
 from riescue.dtest_framework.runtime.syscalls import SysCalls
 from riescue.dtest_framework.runtime.trap_handler import TrapHandler
 from riescue.dtest_framework.runtime.hypervisor import Hypervisor
 from riescue.dtest_framework.runtime.macros import Macros
-from riescue.dtest_framework.featmanager import FeatMgr
+from riescue.dtest_framework.config import FeatMgr
 
 
 class Runtime:
@@ -38,6 +39,7 @@ class Runtime:
         self.modules: Dict[str, AssemblyGenerator] = dict()  # name -> module_instant
         self.modules["loader"] = Loader(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
         self.modules["os"] = OpSys(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
+        self.modules["scheduler"] = TestScheduler(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
         self.modules["syscalls"] = SysCalls(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
         generate_trap_handler = True
         if not self.featmgr.linux_mode:

@@ -13,6 +13,8 @@ import argparse
 import os
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 
@@ -24,7 +26,17 @@ class DocBuilder:
         defualt_src = docs_dir / "source"
     repo_dir = docs_dir.parent
 
-    def __init__(self, clean: bool, source_dir: Path, build_dir: Path, check: bool, local_host: bool, port: int, host: str):
+    def __init__(
+        self,
+        clean: bool,
+        source_dir: Path,
+        build_dir: Path,
+        check: bool,
+        local_host: bool,
+        port: int,
+        host: str,
+        interactive: bool,
+    ):
         self.check = check
         self.clean = clean
 
@@ -34,7 +46,7 @@ class DocBuilder:
         self.local_host = local_host
         self.port = port
         self.host = host
-
+        self.interactive = interactive
         # Building locally will remove the build directory if it exists before building
         if self.local_host:
             self.clean = True
@@ -56,6 +68,7 @@ class DocBuilder:
             ),
         )
         local_host_opts.add_argument("--local_host", action="store_true", help="Launch local host server to view generated docs.")
+        local_host_opts.add_argument("--interactive", "-i", action="store_true", help="Launch local host server to view generated docs in interactive mode. STOP and RELOAD commands are available.")
         local_host_opts.add_argument("--port", type=int, default=8888, help="Port to run the local host server on. Default: %(default)s")
         local_host_opts.add_argument("--host", type=str, default="0.0.0.0", help="Host to run the local host server on. Default: %(default)s")
 
@@ -74,7 +87,10 @@ class DocBuilder:
         self.build_docs()
 
         if self.local_host:
-            self.start_local_host()
+            if self.interactive:
+                self.start_interactive_host()
+            else:
+                self.start_local_host()
 
     def clean_build_dir(self, build_dir: Path):
         """Clean the build directory."""
@@ -105,21 +121,99 @@ class DocBuilder:
 
         subprocess.run(sphinx_cmd, check=True, env=env)
 
-    def start_local_host(self):
+    def start_interactive_host(self):
+        """Start interactive host server with STOP/RELOAD commands."""
+        host = self.host
+        if host == "0.0.0.0":
+            host = "localhost"
+
+        while True:
+            print(f"Starting local host server on:\n\thttp://{host}:{self.port}")
+            print("Type 's / stop' to quit or 'r / reload' to rebuild and restart, or CTRL+C to stop")
+
+            server_thread = None
+            httpd = None
+            stop_event = threading.Event()
+
+            try:
+                # Start server in thread
+                server_thread = threading.Thread(target=self.start_local_host, args=(stop_event,), daemon=True)
+                server_thread.start()
+
+                # Handle user input
+                while not stop_event.is_set():
+                    try:
+                        cmd = input().strip().lower()
+                        if cmd == "stop" or cmd == "s":
+                            print("Stopping server...")
+                            stop_event.set()
+                            return
+                        elif cmd == "reload" or cmd == "r":
+                            print("Reloading documentation...")
+                            stop_event.set()
+                            break
+                        else:
+                            print("Commands: STOP, RELOAD")
+                    except (EOFError, KeyboardInterrupt):
+                        print("\nStopping server...")
+                        stop_event.set()
+                        return
+
+                # Wait for server thread to finish
+                if server_thread:
+                    server_thread.join(timeout=2)
+
+                # If we broke out of the loop, rebuild and restart
+                if not stop_event.is_set():
+                    continue
+
+                print("Rebuilding documentation...")
+                self.build_docs()
+                time.sleep(1)  # Brief pause before restart
+
+            except Exception as e:
+                print(f"Error: {e}")
+                stop_event.set()
+                return
+
+    def start_local_host(self, interactive=False, stop_event=None):
         """Start the local host server."""
         host = self.host
         if host == "0.0.0.0":
             host = "localhost"
-        print(f"Starting local host server on:\n\thttp://{host}:{self.port}\nCTRL+C to stop")
+
+        if not interactive:
+            print(f"Starting local host server on:\n\thttp://{host}:{self.port}\nCTRL+C to stop")
 
         start_dir = Path.cwd()
         try:
             os.chdir(self.build_dir)
-            with socketserver.TCPServer((self.host, self.port), http.server.SimpleHTTPRequestHandler) as httpd:
+
+            # https://stackoverflow.com/a/25529620 - allows reusing address
+            class ReusableTCPServer(socketserver.TCPServer):
+                allow_reuse_address = True
+
+                def serve_forever(self, poll_interval=0.5):
+                    """Override to check stop_event in interactive mode."""
+                    if interactive and stop_event:
+                        while not stop_event.is_set():
+                            self.handle_request()
+                    else:
+                        super().serve_forever(poll_interval)
+
+            with ReusableTCPServer((self.host, self.port), http.server.SimpleHTTPRequestHandler) as httpd:
+                if interactive and stop_event:
+                    httpd.timeout = 1  # Set timeout for handle_request
                 httpd.serve_forever()
+
         except KeyboardInterrupt as e:
-            print("Local host server stopped")
-            # raise e
+            if not interactive:
+                print("Local host server stopped")
+        except Exception as e:
+            if interactive and stop_event and not stop_event.is_set():
+                print(f"Server error: {e}")
+            elif not interactive:
+                raise
         finally:
             os.chdir(start_dir)
 

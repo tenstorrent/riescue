@@ -24,7 +24,8 @@ import riescue.lib.enums as RV
 import riescue.lib.raw_attributes as raw_attributes
 from riescue.lib.rand import RandNum
 from riescue.dtest_framework.pool import Pool
-from riescue.dtest_framework.featmanager import FeatMgr
+from riescue.dtest_framework.config import FeatMgr
+from riescue.dtest_framework.lib.addrgen import AddrGen
 
 log = logging.getLogger(__name__)
 
@@ -424,14 +425,14 @@ class PTEntry:
 
     def get_value(self):
         # FIXME: this is not good. we need to apply a real mask on top bits
-        log.info(f"PTEntry: get_value: {self.basetable.base_addr:x}, {self.pt_attr.get_value():x}")
+        log.debug(f"PTEntry: get_value: {self.basetable.base_addr:x}, {self.pt_attr.get_value():x}")
         val = ((self.basetable.base_addr >> 12) << 10) | self.pt_attr.get_value()
 
         return val
 
 
 class Pagetables:
-    def __init__(self, page, page_map, pool: Pool, featmgr: FeatMgr):
+    def __init__(self, page, page_map, pool: Pool, featmgr: FeatMgr, addrgen: AddrGen):
         """
         Create pagetables for "page" in given "page_map"
           - return a list of PTEntry(s) with entires at each level
@@ -442,7 +443,7 @@ class Pagetables:
 
         self.pool = pool
         self.featmgr = featmgr
-        self.addrgen = self.featmgr.addrgen
+        self.addrgen = addrgen
 
         self.set_level()
 
@@ -528,7 +529,7 @@ class Pagetables:
             secure_access_generated = False
             qualifiers = [RV.AddressQualifiers.ADDRESS_DRAM]
             # Randomize pagetables to be secure with probability
-            if self.featmgr.secure_mode and rng.with_probability_of(self.featmgr.cmdline.secure_pt_probability):
+            if self.featmgr.secure_mode and rng.with_probability_of(self.featmgr.secure_pt_probability):
                 qualifiers = [RV.AddressQualifiers.ADDRESS_SECURE]
                 secure_access_generated = True
 
@@ -669,7 +670,7 @@ class Pagetables:
         # Also mark the pt_entry as leaf, so we can error out if any other address tried to use this as non-leaf
         pt_entry.leaf = True
         base_table.insert_entry(entry=pt_entry, index=index)
-        log.info(
+        log.debug(
             f"insert leaf entry {pt_entry.get_base_addr():x} for page {self.page.name} {self.page.lin_addr:x} at index {index*8:x} \
             at level {pt_level} into {base_table.base_addr:x} with map {self.page_map.name}, {self.page}",
         )

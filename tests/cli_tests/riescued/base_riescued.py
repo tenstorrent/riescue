@@ -71,7 +71,7 @@ class BaseRiescuedTest(unittest.TestCase):
         else:
             return self.default_iterations
 
-    def run_riescued(self, testname: str, cli_args: list, iterations: int = 5) -> list[Any]:
+    def run_riescued(self, testname: str, cli_args: list, iterations: int = 5, starting_seed: int = 0) -> list[Any]:
         """
         Runs test with arguments for iteration number of times. Uses seed=iteration.
         Optionally collects the results of each test for additional checking.
@@ -85,17 +85,17 @@ class BaseRiescuedTest(unittest.TestCase):
         """
 
         results = []
-        for i in self.run_riescued_generator(testname, cli_args, iterations):
+        for i in self.run_riescued_generator(testname, cli_args, iterations, starting_seed=starting_seed):
             results.append(i)
         return results
 
-    def run_riescued_generator(self, testname: str, cli_args: list, iterations: int = 5) -> Generator[Any, Any, Any]:
+    def run_riescued_generator(self, testname: str, cli_args: list, iterations: int = 5, starting_seed: int = 0) -> Generator[Any, Any, Any]:
         """
         Generator for `run_riescued`. Consume results if using otherwise tests will not run. I.e. run `for i in self.run_riescued_generator(...)` not `self.run_riescued(...)`
         """
         for i in range(iterations):
             with self.subTest(seed=i):
-                seed = str(i)
+                seed = str(i + starting_seed)
                 command = ["--testname", testname, "--run_dir", str(self.test_dir)] + cli_args + ["--seed", seed]
                 msg = f"test \n\t./riescued.py {' '.join(str(c) for c in command)}"
                 print("Running " + msg)
@@ -128,16 +128,20 @@ class BaseRiescuedTest(unittest.TestCase):
             results.append(i)
         return results
 
-    def expect_toolchain_failure_generator(self, testname: str, cli_args: list, failure_kind: ToolFailureType, iterations: int = 5) -> Generator[ToolchainError, Any, Any]:
+    def expect_toolchain_failure_generator(self, testname: str, cli_args: list, failure_kind: ToolFailureType, iterations: int = 5, starting_seed: int = 0) -> Generator[ToolchainError, Any, Any]:
         for i in range(iterations):
             with self.subTest(seed=i):
-                seed = str(i)
+                seed = str(i + starting_seed)
                 command = ["--testname", testname, "--run_dir", str(self.test_dir)] + cli_args + ["--seed", seed]
                 msg = f"test \n\t./riescued.py {' '.join(str(c) for c in command)}\nExpecting failure"
                 print("Running " + msg)
                 with self.assertRaises(ToolchainError, msg=msg) as runtime_error:
                     RiescueD.run_cli(args=command)
-                self.assertEqual(runtime_error.exception.kind, failure_kind)
+                self.assertEqual(
+                    runtime_error.exception.kind,
+                    failure_kind,
+                    f"Expected failure kind {failure_kind} but got {runtime_error.exception.kind}. Error text: \n{runtime_error.exception.error_text}",
+                )
                 yield runtime_error.exception
 
     def enable_logging(self, level: int = logging.DEBUG):
