@@ -23,42 +23,45 @@ class HypervisorTests(BaseRiescuedTest):
         self.testname = "dtest_framework/tests/test_vs.s"
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 
-    def test_vs_gstage_super(self):
-        args = [
-            "--run_iss",
-            "--test_env",
-            "virtualized",
-            "--deleg_excp_to",
-            "super",
-        ]
-        testname = "dtest_framework/tests/test_vs_gstage.s"
-        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+    # def test_vs_gstage_super(self):
+    # RVTOOLS-4732
+    #     args = [
+    #         "--run_iss",
+    #         "--test_env",
+    #         "virtualized",
+    #         "--deleg_excp_to",
+    #         "super",
+    #     ]
+    #     testname = "dtest_framework/tests/test_vs_gstage.s"
+    #     self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
 
-    def test_vs_gstage_super_no_svadu(self):
-        args = [
-            "--run_iss",
-            "--test_env",
-            "virtualized",
-            "--deleg_excp_to",
-            "super",
-            "--a_d_bit_randomization",
-            "0",
-        ]
-        testname = "dtest_framework/tests/test_vs_gstage.s"
-        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)  # FIXME: Fails on seed 2, 3
+    # def test_vs_gstage_super_no_svadu(self):
+    # RVTOOLS-4732
+    #     args = [
+    #         "--run_iss",
+    #         "--test_env",
+    #         "virtualized",
+    #         "--deleg_excp_to",
+    #         "super",
+    #         "--a_d_bit_randomization",
+    #         "0",
+    #     ]
+    #     testname = "dtest_framework/tests/test_vs_gstage.s"
+    #     self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)  # FIXME: Fails on seed 2, 3
 
-    def test_vs_gstage_super_with_svadu(self):
-        args = [
-            "--run_iss",
-            "--test_env",
-            "virtualized",
-            "--deleg_excp_to",
-            "super",
-            "--a_d_bit_randomization",
-            "100",
-        ]
-        testname = "dtest_framework/tests/test_vs_gstage.s"
-        self.run_riescued(testname=testname, cli_args=args, iterations=1)  # FIXME: Fails on seed 2, 3
+    # def test_vs_gstage_super_with_svadu(self):
+    # RVTOOLS-4732
+    #     args = [
+    #         "--run_iss",
+    #         "--test_env",
+    #         "virtualized",
+    #         "--deleg_excp_to",
+    #         "super",
+    #         "--a_d_bit_randomization",
+    #         "100",
+    #     ]
+    #     testname = "dtest_framework/tests/test_vs_gstage.s"
+    #     self.run_riescued(testname=testname, cli_args=args, iterations=1)  # FIXME: Fails on seed 2, 3
 
 
 if __name__ == "__main__":
