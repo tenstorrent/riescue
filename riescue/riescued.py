@@ -93,7 +93,8 @@ class RiescueD(CliBase):
         """
         Adds group arguments to the parser. Includes arguments for FeatMgr, RiescueLogger, Compiler, Disassembler, Spike, and Whisper.
         """
-        parser.add_argument("--testname", "-t", type=Path, help="Testname with path to be compiled with RiESCUE-D")
+        parser.add_argument("--testfile", "-t", type=Path, help="Testname with path to be compiled with RiESCUE-D")
+        parser.add_argument("--testname", type=Path, help="Legacy switch to be deprecated, use --testfile instead.")
         parser.add_argument("--run_dir", "-rd", type=Path, default="./", help="Run directory where the test will be run")
         parser.add_argument("--seed", type=int, help="Seed for the test")
         parser.add_argument("--cpuconfig", type=Path, default="dtest_framework/lib/config.json", help="Path to cpu feature configuration")
@@ -123,7 +124,13 @@ class RiescueD(CliBase):
         else:
             print(" ".join(sys.argv))
 
-        testfile = cl_args.testname
+        testname = cl_args.testname
+        testfile = cl_args.testfile
+        if testname and testfile:
+            raise ValueError("Cannot use both --testname and --testfile; just use --testfile")
+        if testname:
+            print("Warning: --testname is deprecated, use --testfile instead")  # FIXME: move to logger
+            testfile = testname
         if testfile is None:
             raise ValueError("Testfile is required when running from CLI")
 
