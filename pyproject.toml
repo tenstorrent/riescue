@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riescue"
-version = "0.3.4"
+version = "0.4.1"
 description = "RISC-V Directed Test Framework and Compliance Suite"
 readme = "README.md"
 requires-python = ">= 3.9"
@@ -29,7 +29,7 @@ dependencies = [
     "intervaltree",
     "coverage",
     "tabulate",
-    "pyright",
+    "pyright[nodejs]",
 ]
 
 [tool.setuptools.package-dir]

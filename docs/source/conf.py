@@ -28,7 +28,18 @@ autodoc.ClassDocumenter = MockedClassDocumenter
 project = "Riescue"
 copyright = "© 2025 Tenstorrent AI ULC"
 author = "Tenstorrent AI ULC"
-release = "0.3.0"
+pyproject_path = Path(__file__).parents[2] / "pyproject.toml"
+
+version = None
+with open(pyproject_path, "r") as f:
+    for line in f:
+        if line.startswith("version =") or line.startswith("version="):
+            version = line.split("=")[1].strip().strip('"')
+            break
+if version is None:
+    raise ValueError(f"Version not found in {pyproject_path}, ensure pyproject.toml has a 'version=str' or 'version = str'")
+
+release = version
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
