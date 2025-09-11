@@ -125,7 +125,7 @@ Like toolchains, simulators can be set with a command line switch, environment v
 
 
 ## Getting Started
-[RiescueD Tutorial](https://docs.tenstorrent.com/riescue/user_guides/riescued_tutorial.html)
+See the [RiescueD Getting Started Guide](https://docs.tenstorrent.com/riescue/tutorials/index.html) for more information on setting up RiescueD and running tests.
 
 # Developing and Contributing
 To develop or contribute, you need [Apptainer (formerly Singularity)](https://apptainer.org/).
