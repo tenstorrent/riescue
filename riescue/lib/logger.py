@@ -72,7 +72,7 @@ def log_format() -> logging.Formatter:
     return logging.Formatter(fmt, datefmt="%Y-%m-%dT%H:%M:%S")
 
 
-def add_args(parser: argparse.ArgumentParser):
+def add_arguments(parser: argparse.ArgumentParser):
     """Add logger arguments to parser.
 
     :param parser: ArgumentParser to add logger arguments to
@@ -87,7 +87,7 @@ def add_args(parser: argparse.ArgumentParser):
     logger_parser.add_argument("--logger_verbose", dest="verbose_logging", action="store_true", default=False, help="Enable verbose logging (filename, function name)")
 
 
-def from_args(args: argparse.Namespace, default_logger_file=None):
+def from_clargs(args: argparse.Namespace, default_logger_file=None):
     "Create a Logger instance from command-line arguments. Optional `default_logger_file` if `--logger_file` argument isn't used"
     logger_file = args.logger_file
     if args.logger_file is None:

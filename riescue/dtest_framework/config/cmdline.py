@@ -78,7 +78,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     test_env_args.add_argument(
         "--test_secure_mode",
         default=None,
-        help="Specify secure mode for the test to be forced. e.g. \n\t--test_secure_mode random \nIf random is selected then the probability of secure mode is 20%%",
+        choices=["on", "off", "random", "any"],
+        help="Specify secure mode for the test to be forced. e.g. \n\t--test_secure_mode random \nIf random or any is selected then the probability of secure mode is 20%%",
         type=str,
     )
 
@@ -206,6 +207,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
     new_args = parser.add_argument_group("New Arguments", "Arguments that are not yet fully enabled in FeatMgr")
+    new_args.add_argument("--private_maps", action="store_true", default=None, help="Setup isolated page map address spaces")
+    new_args.add_argument("--cfile", type=Path, action="append", default=None, help="Use runtime c-files that must be specified with this arg. Can be specified multiple times")
+
     new_args.add_argument(
         "--enable_machine_paging",
         action="store_true",
@@ -478,8 +482,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     test_probability_args = parser.add_argument_group("Test Probability", "Arguments that affect test probability")
     test_probability_args.add_argument(
         "--secure_access_probability",
+        "-sap",
         default=None,
-        help="Probability of secure access in the test",
+        help="Probability of secure access in the test. Default is 30%%",
         type=int,
     )
     test_probability_args.add_argument(
@@ -504,24 +509,28 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     gold = parser.add_argument_group("gold", "Deprecated ???")
     gold.add_argument(
         "--gold_standard_filepath",
+        "-gsfp",
         default=None,
         help="Path to gold standard file. Signals that test output should be diffed against this file",
         type=str,
     )
     gold.add_argument(
         "--replace_gold_standard",
+        "-rgs",
         action="store_true",
         default=None,
         help="Convenience option to replace gold standard with test output",
     )
     gold.add_argument(
         "--riescue_d_gold_test",
+        "-rgt",
         action="store_true",
         default=None,
         help="Run the test with Riescue-D gold standard",
     )
     gold.add_argument(
         "--repo_gold_file_used",
+        "-rgfu",
         action="store_true",
         default=None,
         help="Indicates that the gold standard file is in the repo",

@@ -8,7 +8,7 @@ It includes tools for logging, randomization, register management, instruction h
 
 
 .. automodule:: riescue.lib.logger
-    :members: init_logger, add_args, from_args
+    :members: init_logger, add_arguments, from_clargs
     :undoc-members:
     :show-inheritance:
 

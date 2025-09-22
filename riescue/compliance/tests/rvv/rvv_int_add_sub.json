@@ -1,0 +1,22 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+        "vadd.vv", 
+        "vadd.vx", 
+        "vadd.vi", 
+        "vsub.vv",
+        "vsub.vx",
+        "vrsub.vx",
+        "vrsub.vi" 
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+
+    ],
+    "iss" : "whisper"
+}

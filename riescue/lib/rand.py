@@ -8,6 +8,14 @@ from typing import TypeVar, Optional, Sequence
 T = TypeVar("T")
 
 
+def initial_random_seed() -> int:
+    """
+    Generate a random seed for the random number generator. Used when random seed is not provided.
+    Ensures classes aren't importing random directly.
+    """
+    return random.randrange(2**32)
+
+
 class RandNum:
     """Random number generator with configurable distributions.
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import TypeVar, Optional
+from typing import TypeVar, Optional, List
 
 import riescue.lib.enums as RV
 from riescue.lib.feature_discovery import FeatureDiscovery
@@ -129,6 +129,7 @@ class FeatMgr:
     code_offset: Optional[int] = None  # unused?
     randomize_code_location: bool = False
     repeat_times: int = 3
+    cfiles: Optional[List[Path]] = None
 
     # bringup mode
     fe_tb: bool = False
@@ -191,6 +192,7 @@ class FeatMgr:
     # enabled features?
     pbmt_ncio: bool = False
     svadu: bool = False
+    private_maps: bool = False
 
     # Feature randomization?
     a_d_bit_randomization: int = 0  # unused?

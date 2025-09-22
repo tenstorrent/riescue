@@ -1,0 +1,17 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [ 
+        "rv_v_fp_addsub_s","rv_v_fp_minmax","rv_v_fp_signinj","rv_v_fp_class","rv_v_fp_merge","rv_v_fp_move","rv_v_fp_fma_s"       
+    ],
+    "include_instrs" : [
+        "vfmul.vf","vfmul.vv"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+
+    ],
+    "iss" : "whisper"
+}

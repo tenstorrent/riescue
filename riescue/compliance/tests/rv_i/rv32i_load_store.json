@@ -1,0 +1,14 @@
+{
+    "arch" : "rv32",
+    "include_extensions" : [
+    ],
+    "include_groups" : [ 
+        "rv32i_load_store"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ]
+}

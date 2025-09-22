@@ -98,12 +98,17 @@ class AddressCluster:
 
         # Do (1)
         cluster_range = self.super_cluster[qualifiers[0]]
-        log.debug(f"qualifiers: {qualifiers}, super_clusters inside this cluster: {str(cluster_range)}")
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(f"qualifiers: {qualifiers}, super_clusters inside this cluster: {str(cluster_range)}")
+
         qualifiers.pop(0)
         for q in qualifiers:
-            log.debug(f"Calling get_intersection for {cluster_range} and {self.super_cluster[q]}")
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug(f"Calling get_intersection for {cluster_range} and {self.super_cluster[q]}")
             cluster_range = self._get_intersection(cluster_range, self.super_cluster[q])
-        log.debug(f"common overlapping addresses: {common.format_hex_list(cluster_range)}")  # Should this be str()?
+
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(f"common overlapping addresses: {common.format_hex_list(cluster_range)}")  # Should this be str()?
 
         # Do (2)
         new_list = address_range_set()
@@ -197,7 +202,8 @@ class AddressCluster:
         # Need to allocate near "addresses"
         address_list_shuffle = list(addresses)
         self.rng.shuffle(address_list_shuffle)
-        log.debug(f"trying NEAR other addresses in cluster: {self.cluster_id}")
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(f"trying NEAR other addresses in cluster: {self.cluster_id}")
 
         for entry in address_list_shuffle:
             start_entry, end_entry = entry[0], entry[1]
@@ -282,7 +288,9 @@ class AddressCluster:
         Get the overlap/intersection of two SortedSet lists
         """
         ilist = address_range_set()
-        log.debug(f"get_intersection: cluster1: {cluster1}, cluster2: {cluster2}")
+        if log.isEnabledFor(logging.DEBUG):
+
+            log.debug(f"get_intersection: cluster1: {cluster1}, cluster2: {cluster2}")
 
         for i in cluster1:
             for j in cluster2:
@@ -292,6 +300,6 @@ class AddressCluster:
                 # Only add to ilist if it's a valid non-empty intersection
                 if start < end:
                     ilist.add((start, end))
-
-        log.debug(f"get_intersection: {ilist}")
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(f"get_intersection: {ilist}")
         return ilist

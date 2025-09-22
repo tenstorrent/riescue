@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import copy
 from typing import Optional, TYPE_CHECKING
 
 import riescue.lib.enums as RV
@@ -33,7 +35,9 @@ class Pool:
         self.parsed_random_data = dict()
         self.parsed_res_mem = dict()
         self.parsed_random_addrs = dict()
+        self.raw_parsed_page_mappings = []
         self.parsed_page_mappings = dict()
+        self.parsed_page_mappings_with_lin_name = dict()
         self.parsed_page_maps = dict()
         self.parsed_test_header: Optional["ParsedTestHeader"] = None
         self.parsed_discrete_tests = dict()
@@ -109,17 +113,31 @@ class Pool:
         return self.parsed_random_addrs
 
     # parsed_page_mappings setters and getters
-    def parsed_page_mapping_exists(self, lin_name):
-        return lin_name in self.parsed_page_mappings
+    def parsed_page_mapping_exists(self, lin_name, map_name):
+        return (lin_name, map_name) in self.parsed_page_mappings
+
+    def parsed_page_mapping_with_lin_name_exists(self, lin_name):
+        return lin_name in self.parsed_page_mappings_with_lin_name
+
+    def get_parsed_page_mapping_with_lin_name(self, lin_name):
+        return self.parsed_page_mappings_with_lin_name[lin_name]
 
     def add_parsed_page_mapping(self, parsed_page_mapping):
-        self.parsed_page_mappings[parsed_page_mapping.lin_name] = parsed_page_mapping
+        self.parsed_page_mappings_with_lin_name[parsed_page_mapping.lin_name] = []
+        if (len(parsed_page_mapping.page_maps) == 0) or not parsed_page_mapping.in_private_map:
+            map_key = "map_os"
+            self.parsed_page_mappings[parsed_page_mapping.lin_name, map_key] = parsed_page_mapping
+            self.parsed_page_mappings_with_lin_name[parsed_page_mapping.lin_name].append(map_key)
+        else:
+            for map_key in parsed_page_mapping.page_maps:
+                self.parsed_page_mappings[parsed_page_mapping.lin_name, map_key] = parsed_page_mapping
+                self.parsed_page_mappings_with_lin_name[parsed_page_mapping.lin_name].append(map_key)
 
     def get_parsed_page_mappings(self):
         return self.parsed_page_mappings
 
-    def get_parsed_page_mapping(self, key):
-        return self.parsed_page_mappings[key]
+    def get_parsed_page_mapping(self, key1, key2):
+        return self.parsed_page_mappings[key1, key2]
 
     def add_parsed_page_map(self, parsed_page_map):
         self.parsed_page_maps[parsed_page_map.name] = parsed_page_map
@@ -247,7 +265,12 @@ class Pool:
     def add_page(self, page, map_names):
         for map_name in map_names:
             map_inst = self.get_page_map(map_name)
-            map_inst.add_page(page)
+            if (map_inst.name == "map_os") or not page.in_private_map:
+                p = page
+            else:
+                p = copy.copy(page)
+
+            map_inst.add_page(p)
 
     def get_page(self, page_name, map_name):
         map_inst = self.get_page_map(map_name)
@@ -288,7 +311,11 @@ class Pool:
         alias_skip = False
         if section_name.startswith("0x"):
             page_name = f"__auto_lin_{section_name}"
-            map_os_page = self.get_page(page_name=page_name, map_name="map_os")
+            map_name = "map_os"
+            match = re.match(r".*_([^_]+)$", section_name)
+            if match:
+                map_name = match.group(1)
+            map_os_page = self.get_page(page_name=page_name, map_name=map_name)
             address = map_os_page.phys_addr
         else:
             rand_addr_inst = self.get_random_addr(addr_name=section_name)
@@ -329,3 +356,9 @@ class Pool:
 
     def get_parsed_sections(self):
         return self.parsed_sections
+
+    def add_raw_parsed_page_mapping(self, ppm):
+        self.raw_parsed_page_mappings.append(ppm)
+
+    def get_raw_parsed_page_mappings(self):
+        return self.raw_parsed_page_mappings

@@ -1,0 +1,22 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+        "vandn.vv",
+        "vandn.vx",
+        "vbrev.v",
+        "vbrev8.v",
+        "vrev8.v",
+        "vclz.v",
+        "vctz.v",
+        "vcpop.v"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}

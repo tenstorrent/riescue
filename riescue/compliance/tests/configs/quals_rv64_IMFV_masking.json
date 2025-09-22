@@ -1,0 +1,7 @@
+{
+        "config" : {
+                "v_ext" : {
+                        "masking" : ["mask", "nomask"]
+                }
+        }
+} 

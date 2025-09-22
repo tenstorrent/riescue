@@ -130,7 +130,7 @@ class DramRange(BaseMem):
     secure: bool = False
 
     @classmethod
-    def from_dict(cls, cfg: dict[str, Union[int, bool]]) -> DramRange:
+    def from_dict(cls, cfg: dict[str, Union[str, int, bool]]) -> DramRange:
         start, size = cls.range_from_dict(cfg)
         return cls(start=start, size=size, secure=cls.get_bool(cfg, "secure", False))
 
@@ -145,27 +145,38 @@ class DramRange(BaseMem):
 @dataclass
 class IoRange(BaseMem):
     """
-    IO range with start address, end address, size, and reserved flag
+    IO range with start address, end address, size, and test_access flag
 
     :param start: start address
     :param size: size of the range
-    :param reserved: if True, the range is reserved and not accessible for testing
+    :param test_access: if False, the range is test_access and not accessible for testing
+
+    Construct with ``from_dict(cfg)`` using a Memory Map structured as (JSON format):
+
+    .. code-block:: JSON
+        {
+            "address": "0x200_c000",
+            "size": "0x5ff_4000",
+            "test_access": true,
+        }
+
+    By default, ``test_access`` is ``False``.
     """
 
     start: int = 0
     size: int = 0
-    reserved: bool = True
+    test_access: bool = False
 
     @classmethod
     def from_dict(cls, cfg: Mapping[str, Union[str, int, bool]]) -> IoRange:
         start, size = cls.range_from_dict(cfg)
-        return cls(start=start, size=size, reserved=cls.get_bool(cfg, "reserved", True))
+        return cls(start=start, size=size, test_access=cls.get_bool(cfg, "test_access", False))
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "address": self.start,
             "size": self.size,
-            "reserved": self.reserved,
+            "test_access": self.test_access,
         }
 
 
@@ -195,7 +206,7 @@ class Memory:
             },
             "io": {
                 "io0": {"address" : "0x0", "size" : "0x1_0000"},
-                "io1": {"address" : "0x1_0000", "size" : "0x1_0000"},
+                "io1": {"address" : "0x1_0000", "size" : "0x1_0000", "test_access": true},
             },
         }
 
@@ -213,16 +224,7 @@ class Memory:
     dram_ranges: list[DramRange] = field(default_factory=lambda: [DramRange(0x8000_0000, 2**56, False)])
     io_ranges: list[IoRange] = field(default_factory=lambda: [IoRange(0x0, 0x8000_0000)])
     secure_ranges: list[DramRange] = field(default_factory=list)
-    reserved_ranges: list[DramRange] = field(default_factory=list)
-
-    @staticmethod
-    def determine_mmio_region_address_qualifier(disallow_mmio: bool, test_access: str):
-        if disallow_mmio or test_access == "reserved":
-            return RV.AddressQualifiers.ADDRESS_RESERVED
-        elif test_access == "available":
-            return RV.AddressQualifiers.ADDRESS_MMIO
-        else:
-            raise ValueError(f"Unknown test_access level {test_access}")
+    reserved_ranges: list[BaseMem] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -258,13 +260,12 @@ class Memory:
         if not dram:
             raise ValueError('"dram" cannot be empty')
 
-        dram_ranges = [DramRange.from_dict(value) for _, value in dram.items()]
+        dram_ranges, secure_ranges = cls._split_dram_ranges_by_secure(dram)
         log.debug(f"DRAM ranges: {dram_ranges}")
-        io_ranges = [IoRange.from_dict(value) for _, value in cfg.get("io", {}).items()]
-        log.debug(f"IO ranges: {io_ranges}")
-
-        secure_ranges = [DramRange.from_dict(value) for name, value in dram.items() if name.startswith("secure") or value.get("secure", False)]
         log.debug(f"Secure ranges: {secure_ranges}")
+        all_io_ranges = [IoRange.from_dict(value) for _, value in cfg.get("io", {}).items()]
+        io_ranges, reserved_ranges = cls._split_io_ranges_by_test_access(all_io_ranges)
+        log.debug(f"IO ranges: {io_ranges}")
 
         all_ranges = dram_ranges + io_ranges + secure_ranges
         if not all_ranges:
@@ -275,5 +276,30 @@ class Memory:
             dram_ranges=dram_ranges,
             io_ranges=io_ranges,
             secure_ranges=secure_ranges,
-            reserved_ranges=[],
+            reserved_ranges=reserved_ranges,
         )
+
+    @staticmethod
+    def _split_dram_ranges_by_secure(dram_dict: dict[str, dict[str, Union[str, int, bool]]]) -> tuple[list[DramRange], list[DramRange]]:
+        "Splits all DRAM ranges into secure and non-secure ranges"
+        secure_ranges: list[DramRange] = []
+        dram_ranges: list[DramRange] = []
+        for name, value in dram_dict.items():
+            dram_range = DramRange.from_dict(value)
+            if name.startswith("secure") or dram_range.secure:
+                secure_ranges.append(dram_range)
+            else:
+                dram_ranges.append(dram_range)
+        return dram_ranges, secure_ranges
+
+    @staticmethod
+    def _split_io_ranges_by_test_access(io_ranges: list[IoRange]) -> tuple[list[IoRange], list[BaseMem]]:
+        "Returns a list of all IO ranges that are test_access and a list of all IO ranges that are reserved"
+        test_access_ranges = []
+        reserved_ranges = []
+        for io_range in io_ranges:
+            if io_range.test_access:
+                test_access_ranges.append(io_range)
+            else:
+                reserved_ranges.append(io_range)
+        return test_access_ranges, reserved_ranges

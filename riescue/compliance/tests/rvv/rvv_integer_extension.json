@@ -1,0 +1,17 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+        "vzext.vf2","vsext.vf2", "vzext.vf4", "vsext.vf4",  "vzext.vf8", "vsext.vf8"
+
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+
+    ],
+    "iss" : "whisper"
+}

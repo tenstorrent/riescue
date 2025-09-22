@@ -1,0 +1,17 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+	"zbb_ext"
+    ],
+    "include_groups" : [
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "spike"
+}
+
+

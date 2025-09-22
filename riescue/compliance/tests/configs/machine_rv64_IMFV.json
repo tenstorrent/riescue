@@ -1,0 +1,14 @@
+{
+        "config" : {
+                "v_ext" : {
+                        "vlmul" : ["mf2", "m4"],
+                        "vsew" : ["16", "64"]
+                },
+                "test" : {
+                    "configs" : {
+                        "paging_mode" : ["disable"],
+                        "privilege_mode" : ["machine"]
+                    }
+                }
+        }
+} 

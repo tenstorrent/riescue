@@ -1,0 +1,14 @@
+{
+    "arch" : "rv32",
+    "include_extensions" : [
+    ],
+    "include_groups" : [ 
+        "rv32i_compute_register_register"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ]
+}

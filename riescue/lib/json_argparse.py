@@ -38,7 +38,7 @@ class JsonArgParser(argparse.ArgumentParser):
     type_map = {"int": int, "str": str, "hex": auto_base_int, "binary": auto_base_int, "auto_int": auto_base_int, "bool": bool, "float": float, "Path": Path, "list": list}
 
     @classmethod
-    def from_json(cls, cmdline_json, **kwargs):
+    def from_json(cls, cmdline_json, parent_groups=None, **kwargs):
         """
         Configure parser from JSON file with argument definitions. Requires an `args` key in the JSON that has a list of `_groups` and arguments passed to `add_argument()`
         Other top-level keys are passed to the ArgumentParser constructor.
@@ -86,6 +86,17 @@ class JsonArgParser(argparse.ArgumentParser):
 
         argument_info = cmdline_content.pop("args")  # removes args key from json and assigns its contents
         parser = cls(**cmdline_content)  # unpacks dictionary contents to send to constructor
+
+        # Parent groups are added to the main parser as a group. These can be overriddef by the json file.
+        if parent_groups is not None:
+            for parent in parent_groups:
+                if not hasattr(parent, "add_arguments"):
+                    raise AttributeError(f"parents objects {parent} does not have an 'add_args' method.")
+                if not callable(parent.add_arguments):
+                    raise TypeError(f"parents objects {parent} 'add_args' method is not callable.")
+                parent_group = parser.add_argument_group(parent.__name__)
+                parent.add_arguments(parent_group)
+
         parser.add_json_args(argument_info)
         return parser
 
@@ -154,3 +165,24 @@ class JsonArgParser(argparse.ArgumentParser):
         if parser is None:
             parser = self
         parser.add_argument(*name_list, dest=dest, **arg_item)
+
+    def print_help(self, file=None):
+        super().print_help()
+
+        # Default helper formatter class does not handle hierarchial groups
+        # Loop through all groups and print hierarchial groups
+        def recurse_subgroups(fmt, group, parent_title=None):
+            if group._action_groups is not None:
+                parent_title = group.title if parent_title is None else f"{parent_title} -> {group.title}"
+                for g in group._action_groups:
+                    title = g.title if parent_title is None else f"{parent_title} -> {g.title}"
+                    fmt.start_section(title)
+                    fmt.add_text(g.description)
+                    fmt.add_arguments(g._group_actions)
+                    fmt.end_section()
+                    recurse_subgroups(fmt, g, parent_title=parent_title)
+
+        fmt = self._get_formatter()
+        for group in self._action_groups:
+            recurse_subgroups(fmt, group)
+        print(fmt.format_help())

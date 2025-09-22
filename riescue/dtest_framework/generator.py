@@ -5,6 +5,7 @@ import re
 import io
 import logging
 from pathlib import Path
+import copy
 
 import riescue.dtest_framework.lib.addrgen as addrgen
 import riescue.lib.common as common
@@ -13,7 +14,7 @@ from riescue.lib.address import Address
 from riescue.lib.numgen import NumGen
 from riescue.lib.rand import RandNum
 from riescue.dtest_framework.pool import Pool
-from riescue.dtest_framework.parser import PmaInfo, PmpInfo, ParsedPageMapping, ParsedRandomAddress, ParsedRandomData
+from riescue.dtest_framework.parser import PmaInfo, PmpInfo, ParsedPageMapping, Parser, ParsedRandomAddress, ParsedRandomData
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.lib.page_map import Page, PageMap
 from riescue.dtest_framework.config import CpuConfig, Memory
@@ -199,6 +200,7 @@ class Generator:
             filehandle = f
             # The order of calling following functions is very important, please do not change
             # unless you know what you are doing
+            self.process_raw_parsed_page_mappings()
             self.generate_data()
             self.add_page_maps()
             self.generate_sections()
@@ -349,6 +351,16 @@ class Generator:
             page_maps += ["map_hyp"]
         page_maps += page_mapping.page_maps
 
+        if self.featmgr.private_maps:
+            # The command line has --private_maps enabled. This means
+            # that the only non-private map is map_os and any of its
+            # mappings should be available in all private maps.
+            if not page_mapping.in_private_map:
+                for map in self.pool.get_page_maps().values():
+                    if map.name == "map_os":
+                        continue
+                    page_maps += [map.name]
+
         self.randomize_pagesize(page_mapping)
         phys_addr_size = address_size = page_mapping.address_size
         if self.featmgr.reserve_partial_phys_memory:
@@ -476,6 +488,8 @@ class Generator:
         else:
             p.phys_addr = phys_addr
         self.pass_parsed_attrs(page=p, parsed_page_mapping=page_mapping)
+        if page_mapping.in_private_map:
+            p.in_private_map = True
         self.pool.add_page(page=p, map_names=page_maps)
 
         # return tuple([lin_addr_name, lin_addr]), tuple([phys_addr_name, phys_addr])
@@ -487,6 +501,8 @@ class Generator:
         """
 
         lin_addr_name = page_mapping.lin_name
+        if self.pool.random_addr_exists(lin_addr_name):
+            return
         phys_addr_name = "__auto_phys_" + lin_addr_name
 
         # Handle maps
@@ -636,22 +652,23 @@ class Generator:
         phys_address_mask = address_mask = random_addr.and_mask
         secure = False
 
-        if self.pool.parsed_page_mapping_exists(addr_name) and self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE:
-            parsed_page_mapping = self.pool.get_parsed_page_mapping(addr_name)
-            address_mask = parsed_page_mapping.address_mask
-            phys_address_size = RV.RiscvPageSizes.memory(parsed_page_mapping.final_pagesize)
-            phys_address_mask = RV.RiscvPageSizes.address_mask(parsed_page_mapping.final_pagesize)
-            # If g-stage s enabled, this physical address becomes GPA. It means that the alignment of
-            # this address should be at least the size of gstage_vs_leaf pagesize
-            if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                phys_address_mask = min(phys_address_mask, parsed_page_mapping.gstage_vs_leaf_address_mask)
-                phys_address_size = max(phys_address_size, parsed_page_mapping.gstage_vs_leaf_address_size)
+        if self.pool.parsed_page_mapping_with_lin_name_exists(addr_name) and self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE:
+            for map_key in self.pool.get_parsed_page_mapping_with_lin_name(addr_name):
+                parsed_page_mapping = self.pool.get_parsed_page_mapping(addr_name, map_key)
+                address_mask = parsed_page_mapping.address_mask
+                phys_address_size = RV.RiscvPageSizes.memory(parsed_page_mapping.final_pagesize)
+                phys_address_mask = RV.RiscvPageSizes.address_mask(parsed_page_mapping.final_pagesize)
+                # If g-stage s enabled, this physical address becomes GPA. It means that the alignment of
+                # this address should be at least the size of gstage_vs_leaf pagesize
+                if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
+                    phys_address_mask = min(phys_address_mask, parsed_page_mapping.gstage_vs_leaf_address_mask)
+                    phys_address_size = max(phys_address_size, parsed_page_mapping.gstage_vs_leaf_address_size)
 
-            # also update address_bits/mask for the physical address, if fixed address is not proivded in the page_mapping
-            if self.pool.parsed_random_addr_exists(addr_name=parsed_page_mapping.phys_name):
-                phys_random_addr = self.pool.get_parsed_addr(parsed_page_mapping.phys_name)
-                phys_random_addr.size = address_size
-                phys_random_addr.and_mask &= address_mask
+                # also update address_bits/mask for the physical address, if fixed address is not proivded in the page_mapping
+                if self.pool.parsed_random_addr_exists(addr_name=parsed_page_mapping.phys_name):
+                    phys_random_addr = self.pool.get_parsed_addr(parsed_page_mapping.phys_name)
+                    phys_random_addr.size = address_size
+                    phys_random_addr.align = address_mask
 
         # FIXME: The type should be cast to an enum already
         if addr_type == RV.AddressType.NONE:
@@ -1387,8 +1404,11 @@ class Generator:
         log.debug(f"final_pagesize: {final_pagesize}, addr_size: {addr_size:016x}, addr_mask: {addr_mask:016x}\n")
         # Force final pagesize to 4kb if switch says so
         has_linked_pages = False
-        if self.pool.parsed_page_mapping_exists(page_mapping.lin_name) and self.pool.get_parsed_page_mapping(page_mapping.lin_name):
-            ppm = self.pool.get_parsed_page_mapping(page_mapping.lin_name)
+        map_key = "map_os"
+        if page_mapping.in_private_map:
+            map_key = page_mapping.page_maps[0]
+        if self.pool.parsed_page_mapping_exists(page_mapping.lin_name, map_key) and self.pool.get_parsed_page_mapping(page_mapping.lin_name, map_key):
+            ppm = self.pool.get_parsed_page_mapping(page_mapping.lin_name, map_key)
             if ppm.has_linked_ppms:
                 log.debug(f"Has linked pages: {page_mapping.lin_name}")
                 has_linked_pages = True
@@ -1414,8 +1434,11 @@ class Generator:
         phys_rand_addr = self.pool.get_parsed_addr(key=page_mapping.phys_name)
         phys_rand_addr.size = max(page_mapping.address_size, phys_rand_addr.size)
         has_linked_pages = False
-        if self.pool.parsed_page_mapping_exists(page_mapping.lin_name) and self.pool.get_parsed_page_mapping(page_mapping.lin_name):
-            ppm = self.pool.get_parsed_page_mapping(page_mapping.lin_name)
+        map_key = "map_os"
+        if page_mapping.in_private_map:
+            map_key = page_mapping.page_maps[0]
+        if self.pool.parsed_page_mapping_exists(page_mapping.lin_name, map_key) and self.pool.get_parsed_page_mapping(page_mapping.lin_name, map_key):
+            ppm = self.pool.get_parsed_page_mapping(page_mapping.lin_name, map_key)
             if ppm.has_linked_ppms:
                 log.debug(f"Has linked pages: {page_mapping.lin_name}")
                 has_linked_pages = True
@@ -1442,6 +1465,83 @@ class Generator:
         #                     )
         # return tuple([lin_addr_name, addrgen.generate_address(lin_addr_c)]), tuple([phys_addr_name, addrgen.generate_address(phys_addr_c)])
 
+    def process_raw_parsed_page_mappings(self):
+        for ppm_inst in self.pool.get_raw_parsed_page_mappings():
+            fixed_addr_specified = False
+            attrs = ppm_inst.gen_time_proc
+            line = ppm_inst.source_line
+            pagemap_str = ppm_inst.pagemap_str
+            for var_val in attrs:
+                var = var_val[0]
+                val = var_val[1]
+                if re.match(r"lin_name", var):
+                    if re.match(r"lin_name", var):
+                        # Do additional check if we have linked page_mappings
+                        match = re.search(r"(\w+)\+(\w+)", val)
+                        if match:
+                            # Find the parent parsedpagemap instance
+                            parent = match.group(1)
+                            map_key = "map_os"
+                            if self.featmgr.private_maps:
+                                if len(ppm_inst.page_maps) != 0:
+                                    map_key = ppm_inst.page_maps[0]
+                            parent_ppm_inst = self.pool.get_parsed_page_mapping(parent, map_key)
+                            parent_ppm_inst.linked_page_mappings.append(ppm_inst)
+                            parent_ppm_inst.has_linked_ppms = True
+                            ppm_inst.is_linked = True
+                            # The text after + in lin_name has the starting offset for the linked ppm
+                            ppm_inst.linked_ppm_offset = int(match.group(2), 16)
+
+                if re.match(r"lin_addr|phys_addr", var):
+                    if re.match(r"lin_addr|phys_addr", var):
+                        if common.is_number(val):
+                            if var == "lin_addr":
+                                ppm_inst.lin_name = f"__auto_lin_{val}"
+                            elif var == "phys_addr":
+                                ppm_inst.phys_name = f"__auto_phys_{val}"
+                            fixed_addr_specified = True
+                        else:
+                            suggestion = ""
+                            if val == "&random":
+                                suggestion = f"Maybe you should use phys_name={val}\n"
+                            raise ValueError(f"{var}={val} must be a number for entry:\n \t{line}\n {suggestion}")
+                        if var == "lin_addr":
+                            ppm_inst.lin_addr_specified = True
+                        elif var == "phys_addr":
+                            ppm_inst.phys_addr_specified = True
+
+                if var == "phys_name":
+                    if val == "&random":
+                        ppm_inst.resolve_priority = 20
+                        # Check if phys_name exists in any value instance in ppm
+                        exists = any(ppm.phys_name == val for ppm in self.pool.get_parsed_page_mappings().values())
+                        if exists:
+                            log.debug(f"phys_name {val} already exists in another page mapping, marking as alias case")
+                            ppm_inst.alias = True
+
+            if fixed_addr_specified:
+                ppm_inst.resolve_priority = 15
+
+            if self.featmgr.private_maps:
+                # Make a separate copy of ppm_inst for each map
+                if pagemap_str != "":
+                    ppm_inst.in_private_map = True
+                if len(ppm_inst.page_maps) != 0:
+                    for pm in ppm_inst.page_maps[1:]:
+                        ppm_copy = copy.deepcopy(ppm_inst)
+                        if ppm_copy.is_linked:
+                            parent_ppm_inst.linked_page_mappings.append(ppm_copy)
+                        ppm_copy.page_maps = [pm]
+                        if not ppm_copy.is_linked:
+                            ppm_copy.lin_name += f"_{pm}"
+                            ppm_copy.phys_name += f"_{pm}"
+                            self.pool.add_parsed_page_mapping(ppm_copy)
+                    ppm_inst.page_maps = [ppm_inst.page_maps[0]]
+                    ppm_inst.lin_name += f"_{ppm_inst.page_maps[0]}"
+
+            if not ppm_inst.is_linked:
+                self.pool.add_parsed_page_mapping(ppm_inst)
+
     def handle_page_mappings(self, parsed_page_mappings=None):
         """
         All the addresses should have been generated before this. So, we just need to create a Page instance for
@@ -1450,7 +1550,7 @@ class Generator:
         if parsed_page_mappings is None:
             parsed_page_mappings = self.pool.get_parsed_page_mappings()
 
-        for lin_name, parsed_page_mapping in parsed_page_mappings.items():
+        for lin_map_name, parsed_page_mapping in parsed_page_mappings.items():
             if parsed_page_mapping.resolve_priority == 0:
                 # Handle maps
                 # Everything goes in map_os, map_hyp by default
@@ -1460,10 +1560,10 @@ class Generator:
                     page_maps += ["map_hyp"]
                 page_maps += parsed_page_mapping.page_maps
 
-                log.debug(f"Page: {lin_name}, alias={parsed_page_mapping.alias}")
+                log.debug(f"Page: {lin_map_name}, alias={parsed_page_mapping.alias}")
                 # Create the Page instance for this type of page_mapping entry
                 p = Page(
-                    name=lin_name,
+                    name=lin_map_name[0],
                     phys_name=parsed_page_mapping.phys_name,
                     pool=self.pool,
                     featmgr=self.featmgr,
@@ -2084,7 +2184,7 @@ class Generator:
         Generate all the addresses here
         """
         # page_mappings = {k: v for k,v in sorted(self.pool.get_parsed_page_mapings().items(),key=lambda item : item[1].resolve_priority, reverse=True)}
-        for lin_name, page_mapping in self.pool.get_parsed_page_mappings().items():
+        for lin_name_map, page_mapping in self.pool.get_parsed_page_mappings().items():
             if page_mapping.resolve_priority == 15:
                 self.handle_fixed_page_mappings(page_mapping)
 
@@ -2209,16 +2309,35 @@ class Generator:
 
         for i, line in enumerate(lines):
             if line.startswith(";#init_memory"):
+                lin_name_map = Parser.separate_lin_name_map(line)
+                maps = lin_name_map[1]
+                found = False
                 for lin_name in init_mem_sections:
-                    if "@" + lin_name in line:
-                        permissions = "aw"
-                        if self.pool.parsed_page_mapping_exists(lin_name) and self.pool.get_parsed_page_mapping(lin_name).x:
-                            permissions = "ax"
-                        print_lin_name = lin_name
-                        if lin_name.startswith("0x"):
-                            print_lin_name = self.prefix_hex_lin_name(lin_name)
-                        lines[i] = line + line.replace(line, f'.section .{print_lin_name}, "{permissions}"\n')
-                        break
+                    if len(maps) == 0:
+                        if "@" + lin_name in line:
+                            permissions = "aw"
+                            if self.pool.parsed_page_mapping_exists(lin_name, "map_os") and self.pool.get_parsed_page_mapping(lin_name, "map_os").x:
+                                permissions = "ax"
+                            print_lin_name = lin_name
+                            if lin_name.startswith("0x"):
+                                print_lin_name = self.prefix_hex_lin_name(lin_name)
+                            lines[i] = line + line.replace(line, f'.section .{print_lin_name}, "{permissions}"\n')
+                            break
+                    else:
+                        for m in maps:
+                            lin_name_2 = (line.split(":")[0]).split("@")[1].strip()
+                            if lin_name == (lin_name_2 + "_" + m):
+                                permissions = "aw"
+                                if self.pool.parsed_page_mapping_exists(lin_name, m) and self.pool.get_parsed_page_mapping(lin_name, m).x:
+                                    permissions = "ax"
+                                print_lin_name = lin_name
+                                if lin_name.startswith("0x"):
+                                    print_lin_name = self.prefix_hex_lin_name(lin_name)
+                                lines[i] = line + line.replace(line, f'.section .{print_lin_name}, "{permissions}"\n')
+                                found = True
+                                break
+                            if found:
+                                break
 
         if single_assembly_file:
             output_file.write("## equates ##\n")
