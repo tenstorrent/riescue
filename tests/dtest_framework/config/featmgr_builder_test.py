@@ -22,7 +22,7 @@ class FeatMgrBuilderBase(unittest.TestCase):
 
     def setUp(self):
         self.rng = RandNum(seed=42)  # Fixed seed for reproducibility
-        self.builder = FeatMgrBuilder(rng=self.rng)
+        self.builder = FeatMgrBuilder()
 
     def parse_args(self, args: list[str]) -> argparse.Namespace:
         parser = argparse.ArgumentParser()
@@ -43,7 +43,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         self.builder.priv_mode = Candidate(RiscvPrivileges.MACHINE)
         self.builder.paging_mode = Candidate(RiscvPagingModes.SV39)
         self.builder.env = Candidate(RiscvTestEnv.TEST_ENV_BARE_METAL)
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertIsInstance(featmgr, FeatMgr)
         self.assertEqual(featmgr.priv_mode, RiscvPrivileges.MACHINE)
@@ -64,7 +64,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
                 "virtualized",
             ]
         )
-        featmgr = self.builder.with_args(args).build()
+        featmgr = self.builder.with_args(args).build(rng=self.rng)
 
         self.assertEqual(featmgr.counter_event_path, Path("events.txt"))
         self.assertEqual(featmgr.paging_mode, RiscvPagingModes.SV39)
@@ -82,7 +82,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         )
         self.builder.with_test_header(header)
         self.assertEqual(self.builder.featmgr.num_cpus, 4)
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertEqual(self.builder.featmgr.num_cpus, 4)
         self.assertEqual(featmgr.arch, RiscvBaseArch.ARCH_RV64I)
@@ -94,7 +94,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         """Test that configuration sources override each other in correct priority"""
         header = ParsedTestHeader(priv="user", paging="sv39", env="bare_metal")
         args = self.parse_args(["--test_priv_mode", "SUPER", "--test_paging_mode", "sv48", "--test_env", "virtualized"])
-        featmgr = self.builder.with_test_header(header).with_args(args).build()
+        featmgr = self.builder.with_test_header(header).with_args(args).build(rng=self.rng)
         self.assertEqual(featmgr.priv_mode, RiscvPrivileges.SUPER)
         self.assertEqual(featmgr.paging_mode, RiscvPagingModes.SV48)
         self.assertEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED)
@@ -103,7 +103,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         """Test that machine mode enforces correct paging constraints"""
         args = self.parse_args(["--test_priv_mode", "machine", "--test_paging_mode", "sv39", "--test_paging_g_mode", "sv48"])
 
-        featmgr = self.builder.with_args(args).build()
+        featmgr = self.builder.with_args(args).build(rng=self.rng)
 
         self.assertEqual(featmgr.priv_mode, RiscvPrivileges.MACHINE)
         self.assertEqual(featmgr.paging_mode, RiscvPagingModes.DISABLE, "machine mode should force paging to disable")
@@ -113,7 +113,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         """Test that secure mode properly configures PMP setup"""
         args = self.parse_args(["--test_secure_mode", "on"])
 
-        featmgr = self.builder.with_args(args).build()
+        featmgr = self.builder.with_args(args).build(rng=self.rng)
 
         self.assertEqual(featmgr.secure_mode, RiscvSecureModes.SECURE)
         self.assertTrue(featmgr.setup_pmp)
@@ -122,7 +122,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         """Test that secure mode properly configures PMP setup"""
         args = self.parse_args(["--tohost", "0xBEEF"])
 
-        featmgr = self.builder.with_args(args).build()
+        featmgr = self.builder.with_args(args).build(rng=self.rng)
 
         self.assertEqual(featmgr.io_htif_addr, 0xBEEF)
 
@@ -133,7 +133,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
             paging="sv39",
         )
 
-        featmgr = self.builder.with_test_header(header).build()
+        featmgr = self.builder.with_test_header(header).build(rng=self.rng)
         self.assertEqual(featmgr.paging_mode, RiscvPagingModes.SV39)
 
     def test_mp_mode_off(self):
@@ -160,7 +160,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         )
 
         args = self.parse_args([])
-        feat_mgr = self.builder.with_test_header(header).with_args(args).build()
+        feat_mgr = self.builder.with_test_header(header).with_args(args).build(rng=self.rng)
         self.assertEqual(feat_mgr.mp, RV.RiscvMPEnablement.MP_OFF, "Tests should default to MP_OFF")
         self.assertEqual(feat_mgr.mp_mode, RV.RiscvMPMode.MP_PARALLEL, "Tests should default to MP_PARALLEL")
 
@@ -173,7 +173,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         header = ParsedTestHeader(
             mp="on",
         )
-        feat_mgr = self.builder.with_test_header(header).build()
+        feat_mgr = self.builder.with_test_header(header).build(rng=self.rng)
         self.assertEqual(feat_mgr.mp, RV.RiscvMPEnablement.MP_ON, "Tests should default to MP_ON when mp is set to on ")
 
     def test_mp_header_on_conflicting_args(self):
@@ -186,7 +186,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
             cpus="1",
         )
         args = self.parse_args(["--mp", "off"])
-        feat_mgr = self.builder.with_test_header(header).with_args(args).build()
+        feat_mgr = self.builder.with_test_header(header).with_args(args).build(rng=self.rng)
         self.assertEqual(feat_mgr.mp, RV.RiscvMPEnablement.MP_OFF, "Tests should default to MP_OFF when mp is set to off on the command line")
 
     def test_parallel_scheduling_mode_exhaustive(self):
@@ -197,7 +197,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
             cpus="2",
             parallel_scheduling_mode="exhaustive",
         )
-        feat_mgr = self.builder.with_test_header(header).build()
+        feat_mgr = self.builder.with_test_header(header).build(rng=self.rng)
         self.assertEqual(feat_mgr.parallel_scheduling_mode, RV.RiscvParallelSchedulingMode.EXHAUSTIVE, "Tests should default to EXHAUSTIVE when parallel_scheduling_mode is set to exhaustive")
 
     def test_parallel_scheduling_mode_round_robin(self):
@@ -206,7 +206,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
             cpus="2",
             parallel_scheduling_mode="round_robin",
         )
-        feat_mgr = self.builder.with_test_header(header).build()
+        feat_mgr = self.builder.with_test_header(header).build(rng=self.rng)
         self.assertEqual(feat_mgr.parallel_scheduling_mode, RV.RiscvParallelSchedulingMode.ROUND_ROBIN, "Tests should default to ROUND_ROBIN when parallel_scheduling_mode is set to round_robin")
 
     def test_force_alignment_arg(self):
@@ -226,7 +226,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         args = parser.parse_args(["--force_alignment"])
         self.builder = self.builder.with_test_header(header).with_args(args)
 
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertTrue(featmgr.force_alignment)
         self.assertFalse(featmgr.mp_mode_on())
@@ -238,7 +238,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
             paging="sv39",
         )
 
-        featmgr = self.builder.with_test_header(header).build()
+        featmgr = self.builder.with_test_header(header).build(rng=self.rng)
         self.assertEqual(featmgr.paging_mode, RiscvPagingModes.DISABLE)
 
     def test_tohost_auto_arg(self):
@@ -247,7 +247,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         args = self.parse_args(["--tohost", "auto"])
         self.builder = self.builder.with_args(args)
 
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
         self.assertIsNone(featmgr.io_htif_addr)
 
     def test_supervisor_virtualized_trap_delegation(self):
@@ -262,7 +262,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         )
 
         self.builder = self.builder.with_test_header(header)
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED)
         self.assertEqual(featmgr.priv_mode, RiscvPrivileges.SUPER)
@@ -273,7 +273,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         args = self.parse_args(["--eot_fail_value", "0x1000", "--eot_pass_value", "0x2000"])
         self.builder = self.builder.with_args(args)
 
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertEqual(featmgr.eot_fail_value, 0x1000)
         self.assertEqual(featmgr.eot_pass_value, 0x2000)
@@ -283,7 +283,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         args = self.parse_args(["--menvcfg", "0x70", "--henvcfg", "0x70", "--senvcfg", "0x70", "--test_paging_mode", "disable", "--test_priv_mode", "user"])
         self.builder = self.builder.with_args(args)
 
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertEqual(featmgr.menvcfg, 0x70)
         self.assertEqual(featmgr.henvcfg, 0x70)
@@ -294,7 +294,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         args = self.parse_args(["--repeat_times=1"])
         self.builder = self.builder.with_args(args)
 
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertEqual(featmgr.repeat_times, 1)
 
@@ -303,7 +303,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         args = self.parse_args(["--linux_mode"])
         self.builder = self.builder.with_args(args)
 
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertTrue(featmgr.linux_mode)
 
@@ -312,7 +312,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         args = self.parse_args(["--test_paging_g_mode", "sv39"])
         self.builder = self.builder.with_args(args)
 
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertEqual(featmgr.paging_g_mode, RiscvPagingModes.SV39)
         self.assertIn(featmgr.paging_mode, [RV.RiscvPagingModes.DISABLE, RV.RiscvPagingModes.SV39])
@@ -321,7 +321,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         """Test deleg_excp_to argument"""
         args = self.parse_args(["--deleg_excp_to", "super"])
         self.builder = self.builder.with_args(args)
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertEqual(featmgr.deleg_excp_to, RV.RiscvPrivileges.SUPER)
 
@@ -329,7 +329,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         "Check that --delege_excep_to machine works"
         args = self.parse_args(["--deleg_excp_to", "machine"])
         self.builder = self.builder.with_args(args)
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
         self.assertEqual(featmgr.deleg_excp_to, RV.RiscvPrivileges.MACHINE)
 
 
@@ -352,7 +352,7 @@ class TestFeatMgrBuilderVirtualization(FeatMgrBuilderBase):
 
         args = self.parse_args([])
         self.builder = self.builder.with_test_header(header).with_args(args)
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertNotEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED, "virtualized should only be picked when --test_env=virtualized is specified or --test_env_any is set")
 
@@ -369,7 +369,7 @@ class TestFeatMgrBuilderVirtualization(FeatMgrBuilderBase):
 
         args = self.parse_args(["--test_env", "virtualized"])
         self.builder = self.builder.with_test_header(header).with_args(args)
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED, "virtualized should be picked when --test_env=virtualized is specified")
 
@@ -386,7 +386,7 @@ class TestFeatMgrBuilderVirtualization(FeatMgrBuilderBase):
 
         args = self.parse_args([])
         self.builder = self.builder.with_test_header(header).with_args(args)
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertNotEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED, "virtualized should only be picked when --test_env=virtualized is specified or --test_env_any is set")
 
@@ -404,7 +404,7 @@ class TestFeatMgrBuilderVirtualization(FeatMgrBuilderBase):
 
         args = self.parse_args(["--test_env", "virtualized"])
         self.builder = self.builder.with_test_header(header).with_args(args)
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED, "virtualized should be picked when --test_env=virtualized is specified")
 
@@ -421,7 +421,7 @@ class TestFeatMgrBuilderVirtualization(FeatMgrBuilderBase):
 
         args = self.parse_args(["--csr_init", "mstatus=0x8000000A00046800", "--test_priv", "super", "--test_env", "virtualized", "--deleg_excp_to", "machine"])
         self.builder = self.builder.with_args(args)
-        featmgr = self.builder.build()
+        featmgr = self.builder.build(rng=self.rng)
 
         self.assertEqual(featmgr.csr_init, ["mstatus=0x8000000A00046800"])
         self.assertEqual(featmgr.priv_mode, RiscvPrivileges.SUPER)
@@ -456,6 +456,6 @@ class TestFeatMgrBuilderFeatureDiscovery(FeatMgrBuilderBase):
         with tempfile.NamedTemporaryFile(mode="w") as f:
             json.dump(config, f)
             f.flush()
-            featmgr = self.builder.with_test_header(header).with_cpu_json(Path(f.name)).build()
+            featmgr = self.builder.with_test_header(header).with_cpu_json(Path(f.name)).build(rng=self.rng)
 
         self.assertTrue(featmgr.wysiwyg)

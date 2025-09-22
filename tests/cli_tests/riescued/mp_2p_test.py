@@ -167,6 +167,23 @@ class Mp_2PTests(BaseRiescuedTest):
         ]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 
+    def test_mp2_with_c_whisper_private_maps(self):
+        self.testname = "dtest_framework/tests/mp_with_c.s"
+        args = [
+            "--cpuconfig",
+            "dtest_framework/tests/cpu_config_mp_with_c.json",
+            "--private_maps",
+            "--run_iss",
+            "--iss",
+            "whisper",
+            "--deleg_excp_to",
+            "machine",
+            "--cfile",
+            "dtest_framework/tests/c_func.c",
+            "--c_used",
+        ]
+        self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

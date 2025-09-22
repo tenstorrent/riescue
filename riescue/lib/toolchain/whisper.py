@@ -44,7 +44,7 @@ class Whisper(Tool):
         super().__init__(path=whisper_path, env_name="WHISPER_PATH", tool_name="whisper", args=args)
 
     @staticmethod
-    def add_args(parser: argparse.ArgumentParser):
+    def add_arguments(parser: argparse.ArgumentParser):
         whisper_parser = parser.add_argument_group("Whisper", description="Arguments that affect Whisper ISS behavior. If not provided, will use SPIKE_PATH environment variable")
         # fmt: off
         whisper_parser.add_argument("--whisper_path", type=Path, default=Tool.package_path.parent / "whisper/whisper", help="Path to Whisper executable. If not provided, will use WHISPER_PATH environment variable")  # noqa: E501
@@ -56,7 +56,7 @@ class Whisper(Tool):
         # fmt: on
 
     @classmethod
-    def from_args(cls, args: argparse.Namespace, default_whisper_config_json: Optional[Path] = None):
+    def from_clargs(cls, args: argparse.Namespace, default_whisper_config_json: Optional[Path] = None):
         if args.whisper_config_json is None:
             if default_whisper_config_json is None:
                 whisper_config_json = cls.default_whisper_config_json
@@ -127,19 +127,24 @@ class Whisper(Tool):
     def run(self, output_file=None, cwd=None, timeout=90, args: Optional[list[str]] = None):
         raise NotImplementedError("Use run_iss() instead of run() for this tool.")
 
-    def run_iss(self, elf_file: Path, output_file, cwd=None, timeout=60) -> subprocess.CompletedProcess:
+    def run_iss(self, elf_file: Path, output_file, cwd=None, timeout=60, args: Optional[list[str]] = None) -> subprocess.CompletedProcess:
         """
         Whisper is a special run case since output file is an argument for command instead of pipe
         """
-        if self.dumpmem_arg:
-            self.args.extend(["--dumpmem", self.process_dumpmem_arg(elf_file)])
+        if args is not None:
+            extra_args = args
+        else:
+            extra_args = []
 
-        self.args.extend([str(elf_file)])
+        if self.dumpmem_arg:
+            extra_args.extend(["--dumpmem", self.process_dumpmem_arg(elf_file)])
+
+        extra_args.extend([str(elf_file)])
         self.log_file = output_file
-        self.args.extend(["--logfile", str(self.log_file)])
+        extra_args.extend(["--logfile", str(self.log_file)])
         whisper_config_json_path = str(self.check_filepath(self.whisper_config_json))  # resolve relative path
-        self.args.extend(["--configfile", whisper_config_json_path])
-        return super().run(output_file=None, cwd=cwd, timeout=timeout)
+        extra_args.extend(["--configfile", whisper_config_json_path])
+        return super().run(output_file=None, cwd=cwd, timeout=timeout, args=extra_args)
 
     def _classify(self, process: subprocess.CompletedProcess, output_file: Optional[Path]):
         if process.returncode != 0:

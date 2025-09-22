@@ -1,0 +1,397 @@
+{
+    "fcvt.l.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.lu.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.d.l" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fcvt.d.lu" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fmv.x.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmv.d.x" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+
+    "fcvt.l.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.lu.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.s.l" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fcvt.s.lu" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+
+    "flh" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fsh" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fmadd.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fmsub.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fnmsub.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fnmadd.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fadd.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fsub.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fmul.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fdiv.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fsqrt.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fsgnj.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fsgnjn.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fsgnjx.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fmin.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fmax.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fcvt.s.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fcvt.h.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "feq.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "flt.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fle.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fclass.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fcvt.w.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fcvt.wu.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fmv.x.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fcvt.h.w" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fcvt.h.wu" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fmv.h.x" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fcvt.d.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fcvt.h.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.l.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fcvt.lu.h" : {
+        "Neg" : ["Normal"],
+        "Pos" : ["Zero", "Normal"]
+    },
+    "fcvt.h.l" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fcvt.h.lu" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+
+    "fld" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsd" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmadd.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmsub.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fnmsub.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fnmadd.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fadd.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsub.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmul.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fdiv.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsqrt.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsgnj.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsgnjn.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsgnjx.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmin.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmax.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.s.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.d.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "feq.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "flt.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fle.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fclass.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.w.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.wu.d" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.d.w" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fcvt.d.wu" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "flw" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsw" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmadd.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmsub.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fnmsub.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fnmadd.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fadd.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsub.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmul.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fdiv.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsqrt.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsgnj.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsgnjn.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fsgnjx.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmin.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmax.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.w.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.wu.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fmv.x.w" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "feq.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "flt.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fle.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fclass.s" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.s.w" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fcvt.s.wu" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fmv.w.x" : {
+        "Neg" : ["Zero", "Infinity", "Normal"],
+        "Pos" : ["Zero", "NaN", "Normal"]
+    },
+    "fcvt.s.bf16": {
+        "Neg" : ["Zero", "Infinity", "NaN", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    },
+    "fcvt.bf16.s": {
+        "Neg" : ["Zero", "Infinity", "NaN", "Normal"],
+        "Pos" : ["Zero", "Infinity", "NaN", "Normal"]
+    }
+}

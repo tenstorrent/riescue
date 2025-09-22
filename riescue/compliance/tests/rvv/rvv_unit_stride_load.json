@@ -1,0 +1,19 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [
+    ],
+    "include_instrs" : [
+        "vle8.v", 
+        "vle16.v", 
+        "vle32.v" ,
+        "vle64.v" 
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}
+

@@ -1,0 +1,14 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+        "rv_zfbfmin"
+    ],
+    "include_groups" : [ 
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ]
+}

@@ -1,0 +1,23 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [
+    ],
+    "include_instrs" : [
+        "vminu.vv", 
+        "vminu.vx", 
+        "vmaxu.vv",
+        "vmaxu.vx",
+        "vmin.vv",
+        "vmin.vx",
+        "vmax.vv",
+        "vmax.vx"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}
+

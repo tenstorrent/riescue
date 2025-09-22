@@ -1,0 +1,23 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [
+    ],
+    "include_instrs" : [
+        "vmacc.vv",   
+        "vmacc.vx",   
+        "vnmsac.vv",   
+        "vnmsac.vx",   
+        "vmadd.vv",   
+        "vmadd.vx",   
+        "vnmsub.vv",   
+        "vnmsub.vx"   
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}
+

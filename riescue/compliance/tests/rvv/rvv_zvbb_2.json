@@ -1,0 +1,23 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+        "vrol.vv",
+        "vrol.vx",
+        "vror.vv",
+        "vror.vx",
+        "vror.vi",
+        "vwsll.vv",
+        "vwsll.vv",
+        "vwsll.vx",
+        "vwsll.vi"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}

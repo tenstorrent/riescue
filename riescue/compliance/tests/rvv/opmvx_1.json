@@ -1,0 +1,25 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [
+    ],
+    "include_instrs" : [
+        "vslide1down.vx",
+        "vslide1up.vx",
+        "vmul.vx",
+        "vmulh.vx",
+        "vmulhu.vx",
+        "vmulhsu.vx",
+        "vmadd.vx",
+        "vrem.vx",
+        "vdiv.vx"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+        "vremu.vx",
+        "vdivu.vx"
+    ],
+    "iss" : "whisper"
+}

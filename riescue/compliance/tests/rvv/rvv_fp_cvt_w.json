@@ -1,0 +1,21 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+        "vfwcvt.f.f.v",
+        "vfwcvt.f.x.v",
+        "vfwcvt.f.xu.v",
+        "vfwcvt.rtz.x.f.v",
+        "vfwcvt.rtz.xu.f.v",
+        "vfwcvt.x.f.v",
+        "vfwcvt.xu.f.v"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}

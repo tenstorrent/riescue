@@ -37,8 +37,9 @@ class Toolchain:
         self.compiler = compiler if compiler is not None else Compiler()
         self.disassembler = disassembler if disassembler is not None else Disassembler()
 
-        # RiescueD only expects a single ISS run
-        # Legacy wrappers rely on lazy ISS instantiation. Whisper/Spike fail without valid paths.
+        self.whisper = whisper
+        self.spike = spike
+
         if spike is not None:
             self.simulator = spike
             self.tool_name = "spike"
@@ -56,32 +57,32 @@ class Toolchain:
         toolchain_parser.add_argument("--iss", type=str, default="whisper", choices=["whisper", "spike"], help="Instruction set simulator to use")
         # tool args
 
-        Compiler.add_args(parser)
-        Disassembler.add_args(parser)
-        Spike.add_args(parser)
-        Whisper.add_args(parser)
+        Compiler.add_arguments(parser)
+        Disassembler.add_arguments(parser)
+        Spike.add_arguments(parser)
+        Whisper.add_arguments(parser)
 
     @classmethod
-    def from_args(cls, args: argparse.Namespace) -> "Toolchain":
+    def from_clargs(cls, args: argparse.Namespace) -> "Toolchain":
         """
         Create toolchain from command line arguments.
         """
         if not args.run_iss:
             return cls(
-                compiler=Compiler.from_args(args),
-                disassembler=Disassembler.from_args(args),
+                compiler=Compiler.from_clargs(args),
+                disassembler=Disassembler.from_clargs(args),
             )
         if args.iss == "whisper":
             return cls(
-                compiler=Compiler.from_args(args),
-                disassembler=Disassembler.from_args(args),
-                whisper=Whisper.from_args(args),
+                compiler=Compiler.from_clargs(args),
+                disassembler=Disassembler.from_clargs(args),
+                whisper=Whisper.from_clargs(args),
             )
         elif args.iss == "spike":
             return cls(
-                compiler=Compiler.from_args(args),
-                disassembler=Disassembler.from_args(args),
-                spike=Spike.from_args(args),
+                compiler=Compiler.from_clargs(args),
+                disassembler=Disassembler.from_clargs(args),
+                spike=Spike.from_clargs(args),
             )
         else:
             raise ValueError(f"Invalid instruction set simulator but --run_iss is set: {args.iss}")

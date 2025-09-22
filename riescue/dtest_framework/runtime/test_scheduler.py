@@ -325,7 +325,7 @@ class TestScheduler(AssemblyGenerator):
                 for hart in range(num_harts):
                     harts_to_tests[hart].append(test)
         else:
-            assert False, "Unknown parallel scheduling mode"
+            raise Exception(f"Unknown parallel scheduling mode: {self.featmgr.parallel_scheduling_mode}")
 
         # NOTE: other code is written assuming each hart has a count for each test, so for those tests
         #       a hart doesn't do, we set the count to 0.

@@ -1,0 +1,22 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [
+        "vector_load_indexed_unordered",
+        "vector_load_indexed_ordered",
+        "vector_store_indexed_unordered",
+        "vector_store_indexed_ordered"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+        "vid.v",
+        "vcompress.vm",
+        "vmsif.m",
+        "vmsbf.m",
+        "vmsof.m"
+    ]
+}

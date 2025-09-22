@@ -1,0 +1,16 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+        "f_ext"
+    ],
+    "include_groups" : [ 
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+        "rv32f_single_precision_classify"
+    ],
+    "exclude_instrs" : [
+        "fmv.x.s"
+    ]
+}

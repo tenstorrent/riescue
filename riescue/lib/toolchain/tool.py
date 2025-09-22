@@ -166,7 +166,7 @@ class Compiler(Tool):
         super().__init__(path=compiler_path, env_name="RV_GCC", tool_name="riscv64-unknown-elf-gcc", args=args)
 
     @staticmethod
-    def add_args(parser: argparse.ArgumentParser):
+    def add_arguments(parser: argparse.ArgumentParser):
         compiler_parser = parser.add_argument_group("Compiler", description="Arguments that affect compiling behavior")
         # fmt: off
         compiler_parser.add_argument("--compiler_path", type=Path, default=None, help="Path to compiler executable. If not provided, will use RV_GCC environment variable")
@@ -178,11 +178,17 @@ class Compiler(Tool):
         # fmt: on
 
     @classmethod
-    def from_args(cls, args: argparse.Namespace, march_override: Optional[str] = None):
+    def from_clargs(cls, args: argparse.Namespace, march_override: Optional[str] = None):
         """
         Overrides march if provided.
         """
-
+        print(
+            f"Compiler.from_clargs: compiler_path={args.compiler_path}, "
+            f"compiler_opts={args.compiler_opts}, "
+            f"compiler_march={march_override or args.compiler_march}, "
+            f"test_equates={args.test_equates}, "
+            f"abi={getattr(args, 'compiler_mabi', None)}"
+        )
         return cls(
             compiler_path=args.compiler_path,
             compiler_opts=args.compiler_opts,
@@ -215,7 +221,7 @@ class Disassembler(Tool):
         super().__init__(path=disassembler_path, env_name="RV_OBJDUMP", tool_name="riscv64-unknown-elf-objdump")
 
     @staticmethod
-    def add_args(parser: argparse.ArgumentParser):
+    def add_arguments(parser: argparse.ArgumentParser):
         disassembler_parser = parser.add_argument_group("Disassembler", description="Arguments for disassembler")
         # fmt: off
         disassembler_parser.add_argument("--disassembler_path", type=Path, default=None, help="Path to disassembler executable. If not provided, will use RV_OBJDUMP environment variable")
@@ -223,7 +229,7 @@ class Disassembler(Tool):
         # fmt: on
 
     @classmethod
-    def from_args(cls, args: argparse.Namespace):
+    def from_clargs(cls, args: argparse.Namespace):
         if args.disassembler_opts:
             # FIXME: not passing disassembler_opts to disassembler. Legacy flows are using `--dissasembler_opts=zvbb`
             # Before removing need to fix legacy flows calling with --disassembler_opts
@@ -254,7 +260,7 @@ class Objcopy(Tool):
         super().__init__(path=objcopy_path, env_name="RV_OBJCOPY", tool_name="riscv64-unknown-elf-objcopy", args=objcopy_opts)
 
     @staticmethod
-    def add_args(parser: argparse.ArgumentParser):
+    def add_arguments(parser: argparse.ArgumentParser):
         objcopy_parser = parser.add_argument_group("Objcopy", description="Arguments for objcopy")
         # fmt: off
         objcopy_parser.add_argument("--objcopy_path", type=Path, default=None, help="Path to objcopy executable. If not provided, will use RV_OBJCOPY environment variable")
@@ -262,7 +268,7 @@ class Objcopy(Tool):
         # fmt: on
 
     @classmethod
-    def from_args(cls, args: argparse.Namespace):
+    def from_clargs(cls, args: argparse.Namespace):
         return cls(objcopy_path=args.objcopy_path, objcopy_opts=args.objcopy_opts)
 
     def _classify(self, process: subprocess.CompletedProcess, output_file: Optional[Path]):
@@ -298,7 +304,7 @@ class Spike(Tool):
         super().__init__(path=spike_path, env_name="SPIKE_PATH", tool_name=tool_name, args=args)
 
     @staticmethod
-    def add_args(parser: argparse.ArgumentParser):
+    def add_arguments(parser: argparse.ArgumentParser):
         spike_parser = parser.add_argument_group("Spike", description="Arguments that affect Spike ISS behavior")
         spike_parser.add_argument("--spike_path", type=Path, default=None, help="Path to spike executable")
         spike_parser.add_argument("--spike_args", nargs="*", default=[], help="Additional spike args to pass to the simulator")
@@ -307,7 +313,7 @@ class Spike(Tool):
         spike_parser.add_argument("--spike_max_instr", type=int, default=2000000, help="Max instructions to simulate on spike")
 
     @classmethod
-    def from_args(cls, args: argparse.Namespace):
+    def from_clargs(cls, args: argparse.Namespace):
         return cls(spike_path=args.spike_path, spike_args=args.spike_args, spike_isa=args.spike_isa, third_party_spike=args.third_party_spike, spike_max_instr=args.spike_max_instr)
 
     def _classify(self, process: subprocess.CompletedProcess, output_file: Optional[Path]):
@@ -317,6 +323,10 @@ class Spike(Tool):
     def run(self, output_file=None, cwd=None, timeout=90, args: Optional[list[str]] = None):
         raise NotImplementedError("Use run_iss() instead of run() for this tool.")
 
-    def run_iss(self, elf_file: Path, output_file, cwd=None, timeout=60) -> subprocess.CompletedProcess:
-        self.args.extend([str(elf_file)])
-        return super().run(output_file=output_file, cwd=cwd, timeout=timeout)
+    def run_iss(self, elf_file: Path, output_file, cwd=None, timeout=60, args: Optional[list[str]] = None) -> subprocess.CompletedProcess:
+        if args is not None:
+            extra_args = args
+        else:
+            extra_args = []
+        extra_args.extend([str(elf_file)])
+        return super().run(output_file=output_file, cwd=cwd, timeout=timeout, args=extra_args)

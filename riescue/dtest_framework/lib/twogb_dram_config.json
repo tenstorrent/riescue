@@ -22,7 +22,7 @@
       "io4": {
         "address": "0x00082ffe",
         "size": "0x001f7d002",
-        "test_access": "available"
+        "test_access": true
       },
       "clint": {
         "address": "0x2000000",

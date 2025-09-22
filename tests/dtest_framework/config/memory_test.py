@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import unittest
+from typing import Union
 
 from riescue.dtest_framework.config import CpuConfig, Memory
 from riescue.dtest_framework.config.memory import IoRange, DramRange
@@ -21,21 +22,21 @@ class DramRangeTest(unittest.TestCase):
 
     def test_from_dict_integers(self):
         """DramRange.from_dict handles integer inputs."""
-        cfg = {"address": 0x1000, "size": 0x100}
-        rng = DramRange.from_dict(cfg)
-        self.assertEqual(rng.start, 0x1000)
-        self.assertEqual(rng.size, 0x100)
-        self.assertFalse(rng.secure)
-        self.assertEqual(rng.end, 0x10FF)
+        cfg: dict[str, Union[str, int, bool]] = {"address": 0x1000, "size": 0x100}
+        mem = DramRange.from_dict(cfg)
+        self.assertEqual(mem.start, 0x1000)
+        self.assertEqual(mem.size, 0x100)
+        self.assertFalse(mem.secure)
+        self.assertEqual(mem.end, 0x10FF)
 
     def test_from_dict_hex_strings_secure(self):
         """DramRange.from_dict handles hexadecimal strings and secure flag."""
         cfg = {"address": "0x2000", "size": "0x200", "secure": True}
-        rng = DramRange.from_dict(cfg)
-        self.assertEqual(rng.start, 0x2000)
-        self.assertEqual(rng.size, 0x200)
-        self.assertTrue(rng.secure)
-        self.assertEqual(rng.end, 0x21FF)
+        mem = DramRange.from_dict(cfg)
+        self.assertEqual(mem.start, 0x2000)
+        self.assertEqual(mem.size, 0x200)
+        self.assertTrue(mem.secure)
+        self.assertEqual(mem.end, 0x21FF)
 
     def test_from_dict_missing_key(self):
         """DramRange.from_dict raises on missing keys."""
@@ -63,45 +64,45 @@ class IoRangeTest(unittest.TestCase):
 
     def test_defaults(self):
         """IoRange default construction."""
-        rng = IoRange()
-        self.assertEqual(rng.start, 0)
-        self.assertEqual(rng.size, 0)
-        self.assertTrue(rng.reserved)
+        mem = IoRange()
+        self.assertEqual(mem.start, 0)
+        self.assertEqual(mem.size, 0)
+        self.assertFalse(mem.test_access)
 
     def test_custom_values(self):
         """IoRange custom construction."""
-        rng = IoRange(0x4000, 0x1000, False)
-        self.assertEqual(rng.start, 0x4000)
-        self.assertEqual(rng.size, 0x1000)
-        self.assertFalse(rng.reserved)
+        mem = IoRange(0x4000, 0x1000, False)
+        self.assertEqual(mem.start, 0x4000)
+        self.assertEqual(mem.size, 0x1000)
+        self.assertFalse(mem.test_access)
 
     def test_defaults_from_dict_empty(self):
         """IoRange.from_dict raises ``ValueError`` on empty dict."""
         with self.assertRaises(ValueError):
-            rng = IoRange.from_dict({})
+            mem = IoRange.from_dict({})
 
     def test_custom_values_from_dict(self):
-        """IoRange custom construction from dict. Default to reserved=True"""
+        """IoRange custom construction from dict. Default to test_access=True"""
         custom = {
             "address": "0x200_c000",
             "size": "0x5ff_4000",
         }
-        rng = IoRange.from_dict(custom)
-        self.assertEqual(rng.start, 0x200C000)
-        self.assertEqual(rng.size, 0x5FF4000)
-        self.assertTrue(rng.reserved)
+        mem = IoRange.from_dict(custom)
+        self.assertEqual(mem.start, 0x200C000)
+        self.assertEqual(mem.size, 0x5FF4000)
+        self.assertFalse(mem.test_access)
 
-    def test_custom_values_reserved_from_dict(self):
+    def test_custom_values_test_access_from_dict(self):
         """IoRange custom construction from dict."""
         custom = {
             "address": "0x200_c000",
             "size": "0x5ff_4000",
-            "reserved": False,
+            "test_access": False,
         }
-        rng = IoRange.from_dict(custom)
-        self.assertEqual(rng.start, 0x200C000)
-        self.assertEqual(rng.size, 0x5FF4000)
-        self.assertFalse(rng.reserved)
+        mem = IoRange.from_dict(custom)
+        self.assertEqual(mem.start, 0x200C000)
+        self.assertEqual(mem.size, 0x5FF4000)
+        self.assertFalse(mem.test_access)
 
 
 class MemoryTest(unittest.TestCase):
@@ -131,9 +132,23 @@ class MemoryTest(unittest.TestCase):
         """Memory.from_dict handles IO configuration."""
         cfg = {"dram": {"dram0": {"address": "0x8000_0000", "size": "0x1000_0000"}}, "io": {"io0": {"address": "0x0", "size": "0x1000"}}}
         mem = Memory.from_dict(cfg)
-        self.assertEqual(len(mem.io_ranges), 1)
-        self.assertEqual(mem.io_ranges[0].start, 0x0)
-        self.assertEqual(mem.io_ranges[0].size, 0x1000)
+        self.assertEqual(len(mem.io_ranges), 0)
+        self.assertEqual(len(mem.reserved_ranges), 1, "IO region should be in reserved_ranges")
+
+    def test_from_dict_with_io_test_access(self):
+        """Memory.from_dict handles IO configuration."""
+        cfg = {
+            "dram": {
+                "dram0": {"address": "0x8000_0000", "size": "0x1000_0000"},
+            },
+            "io": {
+                "io0": {"address": "0x0", "size": "0x1000"},
+                "io1": {"address": "0x1000", "size": "0x1000", "test_access": True},
+            },
+        }
+        mem = Memory.from_dict(cfg)
+        self.assertEqual(len(mem.io_ranges), 1, "io1 region should be in io_ranges, since test_access is True")
+        self.assertEqual(len(mem.reserved_ranges), 1, "IO region should be in reserved_ranges")
 
     def test_from_dict_missing_dram(self):
         """Memory.from_dict raises on missing DRAM."""
@@ -155,7 +170,7 @@ class MemoryTest(unittest.TestCase):
         }
         mem = Memory.from_dict(cfg)
         self.assertEqual(len(mem.secure_ranges), 1, "There should only be one secure range since secure0 is in the name")
-        self.assertEqual(len(mem.dram_ranges), 2)
+        self.assertEqual(len(mem.dram_ranges), 1, "There should only be one DRAM range since secure regions are not included in dram_ranges")
 
     def test_from_dict_secure_name_with_secure_key(self):
         """Memory.from_dict handles DRAM ranges with secure in name and secure key"""
@@ -166,5 +181,5 @@ class MemoryTest(unittest.TestCase):
             },
         }
         mem = Memory.from_dict(cfg)
-        self.assertEqual(len(mem.dram_ranges), 2, "Should only two be 2 DRAM ranges.")
+        self.assertEqual(len(mem.dram_ranges), 1, "There should only be one DRAM range since secure regions are not included in dram_ranges")
         self.assertEqual(len(mem.secure_ranges), 1, "There should only be one secure range since secure0 has secure: True")

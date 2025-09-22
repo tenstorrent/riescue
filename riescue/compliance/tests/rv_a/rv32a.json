@@ -1,0 +1,16 @@
+{
+    "arch" : "rv32",
+    "include_extensions" : [
+        "a_ext"
+    ],
+    "include_groups" : [ 
+        "rv32a_atomic_memory_operations_single_word",
+        "rv32a_load_reserved_store_conditional_single_word"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ]
+}

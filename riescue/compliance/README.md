@@ -1,50 +1,66 @@
-# RiESCUE C
+# RiescueC - RISC-V Compliance Test Generator
 
-The RiESCUE Compliance suite is used to generate self-checking tests for a given set of extensions. The suite is ran using the `riescue_c.py` wrapper script found at the top of the repo.
+RiescueC is a Python library that generates self-checking compliance tests for RISC-V instruction set extensions, providing comprehensive instruction coverage and verification capabilities.
+
+## Features
+
+### Core Features
+1. **Self-Checking Test Generation**
+   - Two-pass test methodology for golden reference generation
+   - Automatic instruction verification against ISS execution
+   - Support for multiple instruction set extensions
+
+2. **Instruction Coverage**
+   - Extension-based test selection (I, M, F, D, V, Zb*, etc.)
+   - Group-based instruction organization
+   - Individual instruction inclusion/exclusion control
+
+3. **Multi-ISS Support**
+   - Spike and Whisper ISS integration
+   - Configurable first/second pass ISS selection
+   - Cross-ISS verification and comparison
+
+4. **RISC-V Extension Support**
+   - Base integer extensions (RV32I, RV64I)
+   - Standard extensions (M, F, D, V, A, C)
+   - Bit manipulation extensions (Zba, Zbb, Zbc, Zbs, Zb)
+   - Half-precision floating point (Zfh, Zfbfmin)
 
 
-# Running RiESCUE C
-The RiESCUE C suite is started by calling the wrapper script at the top of the repo using the `Apptainer` container that can be launched with:
-```
-./infra/container-run "./riescue_c.py <arguments>"
-```
-* NOTE: Quotes should be added after the container run call to ensure they get passed through in the container.
 
-## `test.json`
-The `riescue_c.py` script requires a `--json` flag with a JSON file be passed in to configure the test. An example `test.json` looks like:
+### Configuration Format
 ```json
 {
-    "arch" : "rv64",
-    "include_extensions" : [
-        "i_ext"
-    ],
-    "include_groups" : [
-    ],
-    "include_instrs" : [
-    ],
-    "exclude_groups" : [
-    ],
-    "exclude_instrs" : [
-        "wfi", "ebreak", "mret", "sret", "ecall", "fence", "fence.i", "c.ebreak"
-    ]
+    "arch": "rv64",
+    "include_extensions": ["i_ext", "m_ext"],
+    "include_groups": ["rv64i_compute_register_register"],
+    "include_instrs": ["add", "sub"],
+    "exclude_instrs": ["wfi", "ebreak", "mret"]
 }
 ```
-Which includes the `arch` and information about the instructions to be tested. The included instructions can be selected as candidates for self-checking tests. E.g. the `addi` being in the `include_instrs` category means it can be selected as a possible instruction to verify.
 
-Extensions roughly correspond to a RISC-V extension, e.g. `V` or `M`. `groups` are a unique set of instructions specific to an extension. E.g. `rv64i_compute_register_register` contains `rv64i` instructions related to the register-register formatting like `addw`, `subw`. Instructions are the whole plain text instruction name and can be selectively included or excluded.
 
-## Example
-`test.json` files for each of the different supported RISC-V extensions can be found in the `compliance/tests/` directory and ran using the relative path to the file. For example:
-```
-./infra/container-run "riescue_c.py --json compliance/tests/rv_i/rv64i.json
-```
-Will generate self-checking tests for 64-bit I extension instructions.
+## Use Cases
 
-## Finding out more information about extensions, groups and instructions
-More information can be found using the `lib/instr_info/instr_lookup_json.py` script. It contains info on the mapping of Riescue extensions to groups and instructions.
+### 1. Instruction Set Compliance Verification
+- Systematic testing of RISC-V instruction behavior
+- Cross-ISS verification for implementation consistency
+- Extension-specific compliance validation
 
-## Additional Command line options
-Command line options can be viewed using
-```
-./infra/container-run "./riescue_c.py --help"
-```
+### 2. Regression Testing
+- Automated test generation for continuous integration
+- Configurable instruction coverage for targeted testing
+- Scalable test suite generation
+
+### 3. ISS Validation
+- Compare behavior between different instruction set simulators
+- Identify implementation discrepancies
+- Validate new ISS implementations
+
+## Requirements
+- RISC-V GNU toolchain
+- Supported simulators (Spike, Whisper)
+- Python 3.9+
+- RiescueD framework (for test execution)
+
+For detailed installation instructions, see the [main README](../../README.md).

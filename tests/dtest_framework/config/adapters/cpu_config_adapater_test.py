@@ -19,7 +19,7 @@ class CpuConfigAdapterTest(unittest.TestCase):
     def setUp(self):
         self.adapter = CpuConfigAdapter()
         self.rng = RandNum(seed=0)
-        self.builder = FeatMgrBuilder(rng=self.rng)
+        self.builder = FeatMgrBuilder()
         self.temp_dir = tempfile.mkdtemp()
 
     def test_apply_with_valid_config(self):

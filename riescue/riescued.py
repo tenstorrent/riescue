@@ -3,16 +3,16 @@
 
 import shutil
 import sys
-import random
 import logging
 import argparse
 from pathlib import Path
 from typing import Optional, Union
+import os
 
 import riescue.lib.logger as RiescueLogger
 from riescue.lib.json_argparse import JsonArgParser
-from riescue.lib.rand import RandNum
-from riescue.dtest_framework.types import RdInputs, RdGeneratedFiles
+from riescue.lib.rand import RandNum, initial_random_seed
+from riescue.dtest_framework.types import GeneratedFiles
 from riescue.dtest_framework.parser import Parser
 from riescue.dtest_framework.config import FeatMgr, FeatMgrBuilder
 from riescue.dtest_framework.pool import Pool
@@ -45,26 +45,17 @@ class RiescueD(CliBase):
 
     package_path = Path(__file__).parent
 
-    def __init__(
-        self,
-        testfile: Path,
-        cpuconfig: Path = Path("dtest_framework/lib/config.json"),
-        run_dir: Path = Path("."),
-        seed: Optional[int] = None,
-        toolchain: Optional[Toolchain] = None,
-    ):
+    def __init__(self, testfile: Path, cpuconfig: Path = Path("dtest_framework/lib/config.json"), run_dir: Path = Path("."), seed: Optional[int] = None, toolchain: Optional[Toolchain] = None):
         self.run_dir = run_dir.resolve()
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
-        # TODO: review if this is necessary, or if having a central inputs object is better (self.testfile, self.run_dir, self.cpuconfig)
-        self.inputs = RdInputs(
-            testfile=self._resolve_path(testfile),
-            cpuconfig=self._resolve_path(cpuconfig),
-        )
-        self.generated_files = RdGeneratedFiles.from_testname(self.inputs.testname, self.run_dir)
+        self.testfile = self._resolve_path(testfile)
+        self.testname = self.testfile.stem
+        self.cpuconfig = self._resolve_path(cpuconfig if cpuconfig is not None else Path("dtest_framework/lib/config.json"))
+        self.generated_files = GeneratedFiles.from_testname(self.testname, self.run_dir)
 
         if seed is None:
-            seed = random.randrange(2**32)
+            seed = initial_random_seed()
         self.rng = RandNum(seed)
 
         if toolchain is None:
@@ -75,8 +66,8 @@ class RiescueD(CliBase):
         log.info(f"Initialized RiescueD with seed: {self.rng.get_seed()}")
         log.debug("Initializing pool")
         self.pool = Pool()
-        self.pool.testname = self.inputs.testname
-        parser = Parser(self.inputs.testfile, pool=self.pool)
+        self.pool.testname = self.testname
+        parser = Parser(self.testfile, pool=self.pool)
 
         self.parsed_data = parser
 
@@ -97,14 +88,14 @@ class RiescueD(CliBase):
         parser.add_argument("--testname", type=Path, help="Legacy switch to be deprecated, use --testfile instead.")
         parser.add_argument("--run_dir", "-rd", type=Path, default="./", help="Run directory where the test will be run")
         parser.add_argument("--seed", type=int, help="Seed for the test")
-        parser.add_argument("--cpuconfig", type=Path, default="dtest_framework/lib/config.json", help="Path to cpu feature configuration")
+        parser.add_argument("--cpuconfig", type=Path, default=None, help="Path to cpu feature configuration. Defaults to dtest_framework/lib/config.json")
 
         run_args = parser.add_argument_group("Run Control", "Arguments that modify the run flow - runnning simulators, compilers, excluding OS code")
         run_args.add_argument("--elaborate_only", action="store_true", default=None, help="Only elaborate the test but dont attempt to call external compiler or simulator")
         run_args.add_argument("--run_iss", action="store_true", default=None, help="Run ISS with the test. Default ISS is Whisper, but can be run with any other ISS using --iss <iss>")
 
         FeatMgrBuilder.add_arguments(parser)
-        RiescueLogger.add_args(parser)
+        RiescueLogger.add_arguments(parser)
         Toolchain.add_arguments(parser)
 
     @classmethod
@@ -124,6 +115,13 @@ class RiescueD(CliBase):
         else:
             print(" ".join(sys.argv))
 
+        return cls.from_clargs(cl_args, **kwargs)
+
+    @classmethod
+    def from_clargs(cls, cl_args, **kwargs):
+        """
+        Create a RiescueD instance from command line arguments.
+        """
         testname = cl_args.testname
         testfile = cl_args.testfile
         if testname and testfile:
@@ -139,7 +137,7 @@ class RiescueD(CliBase):
             cpuconfig=cl_args.cpuconfig,
             run_dir=cl_args.run_dir,
             seed=cl_args.seed,
-            toolchain=Toolchain.from_args(cl_args),
+            toolchain=Toolchain.from_clargs(cl_args),
         )
         rd.run(
             cl_args,
@@ -148,7 +146,7 @@ class RiescueD(CliBase):
         )
         return rd
 
-    def run(self, cl_args: argparse.Namespace, elaborate_only: bool = False, run_iss: bool = False) -> RdGeneratedFiles:
+    def run(self, cl_args: argparse.Namespace, elaborate_only: bool = False, run_iss: bool = False) -> GeneratedFiles:
         """
         Run RiescueD configuration, generation, and compilation. Simulate if requested.
 
@@ -156,8 +154,8 @@ class RiescueD(CliBase):
         """
 
         # Ideally this is done in constructor
-        test_logfile = self.run_dir / f"{self.inputs.testname}.testlog"
-        RiescueLogger.from_args(args=cl_args, default_logger_file=test_logfile)
+        test_logfile = self.run_dir / f"{self.testname}.testlog"
+        RiescueLogger.from_clargs(args=cl_args, default_logger_file=test_logfile)
 
         featmgr = self.configure(args=cl_args)
         generator = self.generate(featmgr)
@@ -167,7 +165,9 @@ class RiescueD(CliBase):
 
         self.build(featmgr, generator)
         if run_iss:
-            self.simulate(featmgr, self.generated_files, whisper_config_json_override=cl_args.whisper_config_json)
+            if self.toolchain.simulator is None:
+                raise ValueError("No ISS selected. Provide ISS in toolchain configuration")
+            self.simulate(featmgr, iss=self.toolchain.simulator, whisper_config_json_override=cl_args.whisper_config_json)
 
         return self.generated_files
 
@@ -181,12 +181,12 @@ class RiescueD(CliBase):
         """
 
         log.debug("Initializing FeatMgr")
-        featmgr_builder = FeatMgrBuilder(rng=self.rng)
+        featmgr_builder = FeatMgrBuilder()
         featmgr_builder.with_test_header(self.parsed_data.test_header)
-        featmgr_builder.with_cpu_json(self.inputs.cpuconfig)
+        featmgr_builder.with_cpu_json(self.cpuconfig)
         if args is not None:
             featmgr_builder.with_args(args)
-        return featmgr_builder.build()
+        return featmgr_builder.build(rng=self.rng)
 
     def generate(self, featmgr: FeatMgr) -> Generator:
         """
@@ -195,7 +195,7 @@ class RiescueD(CliBase):
 
         # Copy test s file to current directory
         try:
-            shutil.copy(self.inputs.testfile, self.run_dir)
+            shutil.copy(self.testfile, self.run_dir)
         except shutil.SameFileError:
             pass
 
@@ -212,7 +212,7 @@ class RiescueD(CliBase):
 
         # Call various generators
         test_gen = Generator(rng=self.rng, pool=self.pool, featmgr=featmgr, run_dir=self.run_dir)
-        test_gen.generate(file_in=self.inputs.testfile, assembly_out=self.generated_files.assembly)
+        test_gen.generate(file_in=self.testfile, assembly_out=self.generated_files.assembly)
         return test_gen
 
     def build(self, featmgr: FeatMgr, generator: Generator):
@@ -223,7 +223,7 @@ class RiescueD(CliBase):
 
         :param featmgr: ``FeatMgr`` object
         :param generator: ``Generator`` object
-        :param generated_files: ``RdGeneratedFiles`` object
+        :param generated_files: ``GeneratedFiles`` object
         """
 
         compiler = self.toolchain.compiler
@@ -238,6 +238,10 @@ class RiescueD(CliBase):
         if featmgr.big_endian:
             compiler_args.append("-mbig-endian")
 
+        if featmgr.cfiles is not None:
+            for cfile in featmgr.cfiles:
+                compiler_args.append(f"{str(self._resolve_path(cfile))}")
+
         compiler.run(cwd=self.run_dir, args=compiler_args)
 
         # Generate Disassembly
@@ -245,12 +249,11 @@ class RiescueD(CliBase):
         disassembler_args = ["-D", str(self.generated_files.elf), "-M", "numeric"]
         disassembler.run(output_file=self.generated_files.dis, cwd=self.run_dir, args=disassembler_args)
 
-    def simulate(self, featmgr: FeatMgr, generated_files: RdGeneratedFiles, whisper_config_json_override: Optional[Path] = None):
+    def simulate(self, featmgr: FeatMgr, iss: Union[Spike, Whisper], whisper_config_json_override: Optional[Path] = None):
         """
         Run test code through ISS
 
         :param featmgr: ``FeatMgr`` object
-        :param generated_files: ``RdGeneratedFiles`` object
         :param whisper_config_json_override: Optional path to whisper config json file to override default
         """
         # In wysiwyg mode, we use a different end-of-test mechanism where we look for x31=0xc001c0de to be written
@@ -260,7 +263,7 @@ class RiescueD(CliBase):
         failed_pc = None
         if featmgr.wysiwyg:
             # Read file <testname>.dis and find <failed>
-            with open(generated_files.dis, "r") as f:
+            with open(self.generated_files.dis, "r") as f:
                 disasm_lines = f.readlines()
             for line in disasm_lines:
                 if "<failed>:" in line:
@@ -272,14 +275,12 @@ class RiescueD(CliBase):
                     failed_pc = int(failed_pc, 16) + 0x10
                     print(f"Setting end-of-sim pc to: {failed_pc:016x}")
 
-        # Run through simulator
-        iss = self.toolchain.simulator
         # Spike ISS path and args
         if isinstance(iss, Spike):
 
             iss.args.append("--priv=msu")
             iss.args.append(f"--pc=0x{featmgr.reset_pc:x}")
-            iss_log = self.run_dir / f"{self.inputs.testname}_spike.log"
+            iss_log = self.run_dir / f"{self.testname}_spike.log"
             if not featmgr.force_alignment:
                 iss.args.append("--misaligned")
 
@@ -295,7 +296,7 @@ class RiescueD(CliBase):
                 iss.args += ["--end-pc", str(hex(failed_pc))]
 
         elif isinstance(iss, Whisper):
-            iss_log = self.run_dir / f"{self.inputs.testname}_whisper.log"
+            iss_log = self.run_dir / f"{self.testname}_whisper.log"
             if whisper_config_json_override is not None:
                 whisper_config_json = whisper_config_json_override
             elif featmgr.secure_mode:
@@ -319,7 +320,7 @@ class RiescueD(CliBase):
         else:
             raise ValueError("No ISS selected. Provide ISS in toolchain configuration")
 
-        iss.run_iss(output_file=iss_log, elf_file=generated_files.elf, cwd=self.run_dir, timeout=120)
+        iss.run_iss(output_file=iss_log, elf_file=self.generated_files.elf, cwd=self.run_dir, timeout=120)
 
         # In wysiwyg mode, we need to parse the log file to find out what was the last value written to the x31
         if featmgr.wysiwyg:

@@ -1,0 +1,23 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+        "vloxei8.v",
+        "vloxei16.v",
+        "vloxei32.v",
+        "vloxei64.v",
+        "vsoxei8.v",
+        "vsoxei16.v",
+        "vsoxei32.v",
+        "vsoxei64.v"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+
+    ],
+    "iss" : "whisper"
+}

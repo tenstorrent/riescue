@@ -1,0 +1,15 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+        "zfh_ext"
+    ],
+    "include_groups" : [ 
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+        "rv32zfh_half_precision_classify"
+    ],
+    "exclude_instrs" : [
+    ]
+}

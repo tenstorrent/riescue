@@ -7,9 +7,9 @@
         },
         "io": {
             "htif": {"address": "0x9000_0000", "size": "0x10"},
-            "pcie_sub0_mmio": {"address": "0x100_0000_0000", "size": "0x100_0000_0000", "test_access": "available"},
-            "pcie_sub1_mmio": {"address": "0x200_0000_0000", "size": "0x100_0000_0000", "test_access": "available"},
-            "pcie_sub2_mmio": {"address": "0x300_0000_0000", "size": "0x100_0000_0000", "test_access": "available"}
+            "pcie_sub0_mmio": {"address": "0x100_0000_0000", "size": "0x100_0000_0000", "test_access": true},
+            "pcie_sub1_mmio": {"address": "0x200_0000_0000", "size": "0x100_0000_0000", "test_access": true},
+            "pcie_sub2_mmio": {"address": "0x300_0000_0000", "size": "0x100_0000_0000", "test_access": true}
         }
     },
     "isa": ["c"],
