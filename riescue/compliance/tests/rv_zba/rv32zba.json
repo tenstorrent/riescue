@@ -1,0 +1,17 @@
+{
+    "arch" : "rv32",
+    "include_extensions" : [
+	"zba_ext"
+    ],
+    "include_groups" : [
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "spike"
+}
+
+

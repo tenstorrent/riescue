@@ -1,12 +1,11 @@
-Compliance Testing with riescuec
+RiescueC - Getting Started
 =================================
 
 Learn how to run compliance tests and validate RISC-V implementations using the riescuec framework.
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
    riescue_c_brief
    bringup_mode_tutorial
-   test_plan_intro
-   first_compliance_test
+   test_plan_tutorial

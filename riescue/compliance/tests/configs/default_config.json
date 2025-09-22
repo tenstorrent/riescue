@@ -1,0 +1,1634 @@
+{
+        "extensions" : {
+                "i_ext" : {
+                        "configs" : {
+                        },
+                        "groups" : {
+                                "rv32i_control_transfer_conditional" : {
+                                        "configs" : {
+                                                "branch_outcome" : ["taken","not_taken"],
+                                                "cacheline_size" : ["64"]
+                                        },
+                                        "instrs"  : {
+                                                "beq" : { "configs" : {} },
+                                                "bne" : { "configs" : {} },
+                                                "blt" : { "configs" : {} },
+                                                "bge" : { "configs" : {} },
+                                                "bltu" : { "configs" : {} },
+                                                "bgeu" : { "configs" : {} }
+                                        }
+                                },
+                                "rv32i_control_transfer_unconditional" : {
+                                        "configs" : {},
+                                        "instrs" : {
+                                                "jalr" : { "configs" : {} },
+                                                "jal" : { "configs" : {} }
+                                        }
+                                },
+                                "do_not_test" : {
+                                        "configs" : {},
+                                        "instrs" : {
+                                                "lui" : { "configs" : {} },
+                                                "auipc" : { "configs" : {} }
+                                        }
+                                },
+                                "rv32i_compute_register_immediate" : {
+                                        "configs" : {},
+                                        "instrs" : {
+                                                "addi" : { "configs" : {} },
+                                                "slti" : { "configs" : {} },
+                                                "xori" : { "configs" : {} },
+                                                "andi" : { "configs" : {} },
+                                                "ori" : { "configs" : {} },
+                                                "sltiu" : { "configs" : {} }
+                                        }
+                                },
+                                "rv32i_compute_register_register" : {
+                                        "configs" : {},
+                                        "instrs" : {
+                                                "add" : { "configs" : {} },
+                                                "sub" : { "configs" : {} },
+                                                "sll" : { "configs" : {} },
+                                                "slt" : { "configs" : {} },
+                                                "xor" : { "configs" : {} },
+                                                "srl" : { "configs" : {} },
+                                                "sra" : { "configs" : {} },
+                                                "and" : { "configs" : {} },
+                                                "sltu" : { "configs" : {} },
+                                                "or" : { "configs" : {} }
+                                        }
+                                },
+                                "rv32i_load_store" : {
+                                        "configs" : {},
+                                        "instrs" : {
+                                                "lb" : { "configs" : {} },
+                                                "lh" : { "configs" : {} },
+                                                "lw" : { "configs" : {} },
+                                                "lbu" : { "configs" : {} },
+                                                "lhu" : { "configs" : {} },
+                                                "sb" : { "configs" : {} },
+                                                "sh" : { "configs" : {} },
+                                                "sw" : { "configs" : {} }
+                                        }
+                                }
+
+                        }
+                },
+                "rv32d-zfh" : {
+                        "configs" : {
+                                "frm" : ["RTZ","RNE","RDN","RUP","RMM"],
+                                "dynamic_rm" : ["static","dynamic"],
+                                "rs1sign" : ["Pos", "Neg"],
+                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"],
+                                "rdsign" : ["Pos", "Neg"],
+                                "rdtype" : ["Zero", "Inf", "NaN", "Subnormal", "Normal"]
+                        },
+                        "groups" : {
+                                "rv32d_zfh_half_double_conversion" : {
+                                        "configs" : {},
+                                        "instrs" : {
+                                                "fcvt.h.d" : { "configs" : {} }
+                                        }
+                                }
+                        }
+                },
+                "rv_zfbfmin" : {
+                        "configs" : {
+                                "frm" : ["RTZ","RNE","RDN","RUP","RMM"],
+                                "dynamic_rm" : ["dynamic"],
+                                "rdsign" : ["Pos", "Neg"],
+                                "rdtype" : ["Zero", "Inf", "NaN", "Subnormal", "Normal"]
+                        },
+                        "groups" : {
+                                "rv_zfbfmin_conversion" : {
+                                        "configs" : {
+                                        },
+                                        "instrs" : {
+                                                "fcvt.s.bf16": {"configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]}
+                                                },
+                                                "fcvt.bf16.s": {"configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]}
+                                                }
+                                        }
+                                }
+                        }
+                },
+                "zfh_ext" : {
+                        "configs" : {
+                                "frm" : ["RTZ","RNE","RDN","RUP","RMM"],
+                                "dynamic_rm" : ["static","dynamic"],
+                                "rdsign" : ["Pos", "Neg"],
+                                "rdtype" : ["Zero", "Inf", "NaN", "Subnormal", "Normal"]
+                        },
+                        "groups" : {
+                                "rv32zfh_half_precision_reg_reg" : {
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Normal"],
+                                                "rs2sign" : ["Pos", "Neg"],
+                                                "rs2type" : ["Zero", "Normal"]
+                                        },
+                                        "instrs" : {
+                                                "fadd.h":{ "configs" : {} },
+                                                "fsub.h":{ "configs" : {} },
+                                                "fmul.h":{ "configs" : {} },
+                                                "fdiv.h":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32zfh_half_precision_reg_reg_reg" : {
+                                        "configs" : {
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Normal"],
+                                                "rs2sign" : ["Pos", "Neg"],
+                                                "rs2type" : ["Zero", "Normal"],
+                                                "rs3sign" : ["Pos", "Neg"],
+                                                "rs3type" : ["Zero", "Normal"]
+                                         },
+                                        "instrs" : { 
+                                                "fnmsub.h":{ "configs" : {} },
+                                                "fnmadd.h":{ "configs" : {} },
+                                                "fmadd.h":{ "configs" : {} },
+                                                "fmsub.h":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32zfh_half_precision_reg" : {
+                                        "configs" : {
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Normal"]
+                                        },
+                                        "instrs" : {
+                                                "fsqrt.h":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32zfh_half_precision_compare":{
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Normal"],
+                                                "rs2sign" : ["Pos", "Neg"],
+                                                "rs2type" : ["Zero", "Normal"]
+                                        },
+                                        "instrs" : {
+                                                "fle.h":{ "configs" : {} },
+                                                "flt.h":{ "configs" : {} },
+                                                "feq.h":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32zfh_half_precision_convert_move":{
+                                        "configs" : {},
+                                        "instrs" : {
+                                                "fcvt.h.w":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.w.h":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Normal"]
+                                                } },
+                                                "fcvt.wu.h":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Normal"]
+                                                } },
+                                                "fcvt.h.wu":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.h.s":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.s.h":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Normal"]
+                                                } },
+                                                "fmv.x.h":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Normal"]
+                                                } },
+                                                "fmv.h.x":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } }
+                                        }
+                                },
+                                "rv32zfh_half_precision_load_store":{
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Normal"]
+                                        },
+                                        "instrs":{
+                                                "flh":{ "configs" : {} },
+                                                "fsh":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32zfh_half_precision_classify":{
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Normal"]
+                                        },
+                                        "instrs":{
+                                                "fclass.h":{ "configs": {} }
+                                        }
+                                },
+                                "rv64zfh_half_conversion":{
+                                        "configs":{},
+                                        "instrs":{
+                                                "fcvt.h.lu":{ "configs": {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.h.l":{ "configs": {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.lu.h":{ "configs": {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Normal"]
+                                                } },
+                                                "fcvt.l.h":{ "configs": {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Normal"]
+                                                } }
+                                        }
+                                }
+                        }
+                },
+                "d_ext" : {
+                        "configs" : { 
+                                "frm" : ["RTZ","RNE","RDN","RUP","RMM"],
+                                "dynamic_rm" : ["static","dynamic"],
+                                "rdsign" : ["Pos", "Neg"],
+                                "rdtype" : ["Zero", "Inf", "NaN", "Subnormal", "Normal"]
+                        },
+                        "groups" : {
+                                "rv32d_double_precision_reg_reg" : {
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"],
+                                                "rs2sign" : ["Pos", "Neg"],
+                                                "rs2type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs" : {
+                                                "fadd.d":{ "configs" : {} },
+                                                "fsub.d":{ "configs" : {} },
+                                                "fmul.d":{ "configs" : {} },
+                                                "fdiv.d":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32d_double_precision_reg_reg_reg" : {  
+                                        "configs" : {
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"],
+                                                "rs2sign" : ["Pos", "Neg"],
+                                                "rs2type" : ["Zero", "Inf", "NaN", "Normal"],
+                                                "rs3sign" : ["Pos", "Neg"],
+                                                "rs3type" : ["Zero", "Inf", "NaN", "Normal"]
+                                         },
+                                        "instrs" : { 
+                                                "fnmsub.d":{ "configs" : {} },
+                                                "fnmadd.d":{ "configs" : {} },
+                                                "fmadd.d":{ "configs" : {} },
+                                                "fmsub.d":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32d_double_precision_reg" : {
+                                        "configs" : {
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs" : {
+                                                "fsqrt.d":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32d_double_precision_compare":{
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"],
+                                                "rs2sign" : ["Pos", "Neg"],
+                                                "rs2type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs" : {
+                                                "fle.d":{ "configs" : {} },
+                                                "flt.d":{ "configs" : {} },
+                                                "feq.d":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32d_double_precision_convert_move":{
+                                        "configs" : {
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs" : {
+                                                "fcvt.s.d" : { "configs" : {} },
+                                                "fcvt.w.d" : { "configs" : {} },
+                                                "fcvt.wu.d" : { "configs" : {} }
+                                        }
+                                },
+                                "rv64d_double_precision_convert_move":
+                                {
+                                        "configs" : {},
+                                        "instrs" : {
+                                                "fcvt.l.d" : { "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.lu.d" :  { "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fmv.x.d" : { "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.d.l" : { "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.d.lu" : { "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fmv.d.x" : { "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } }
+                                        }
+                                },
+                                "rv32d_double_precision_load_store":{
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs":{
+                                                "fld":{ "configs" : {} },
+                                                "fsd":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32d_double_precision_classify":{
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs":{
+                                                "fclass.d":{ "configs": {} }
+                                        }
+                                }
+                        }
+                },
+                "f_ext" : {
+                        "configs" : { 
+                                "frm" : ["RTZ","RNE","RDN","RUP","RMM"],
+                                "dynamic_rm" : ["static","dynamic"],
+                                "rdsign" : ["Pos", "Neg"],
+                                "rdtype" : ["Zero", "Inf", "NaN", "Subnormal", "Normal"]
+                        },
+                        "groups" : {
+                                "rv32f_single_precision_reg_reg" : {
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"],
+                                                "rs2sign" : ["Pos", "Neg"],
+                                                "rs2type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs" : {
+                                                "fadd.s":{ "configs" : {} },
+                                                "fsub.s":{ "configs" : {} },
+                                                "fmul.s":{ "configs" : {} },
+                                                "fdiv.s":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32f_single_precision_reg_reg_reg" : {
+                                        "configs" : {
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"],
+                                                "rs2sign" : ["Pos", "Neg"],
+                                                "rs2type" : ["Zero", "Inf", "NaN", "Normal"],
+                                                "rs3sign" : ["Pos", "Neg"],
+                                                "rs3type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs" : { 
+                                                "fnmsub.s":{ "configs" : {} },
+                                                "fnmadd.s":{ "configs" : {} },
+                                                "fmadd.s":{ "configs" : {} },
+                                                "fmsub.s":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32f_single_precision_reg" : {
+                                        "configs" : {
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs" : {
+                                                "fsqrt.s":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32f_single_precision_compare":{
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"],
+                                                "rs2sign" : ["Pos", "Neg"],
+                                                "rs2type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs" : {
+                                                "fle.s":{ "configs" : {} },
+                                                "flt.s":{ "configs" : {} },
+                                                "feq.s":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32f_single_precision_convert_move":{
+                                        "configs" : {},
+                                        "instrs" : {
+                                                "fmv.x.w":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fmv.w.x":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.s.w":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.w.s":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.wu.s":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.s.wu":{ "configs" : {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } }
+                                        }
+                                },
+                                "rv32f_single_precision_load_store":{
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs":{
+                                                "flw":{ "configs" : {} },
+                                                "fsw":{ "configs" : {} }
+                                        }
+                                },
+                                "rv32f_single_precision_classify":{
+                                        "configs":{
+                                                "rs1sign" : ["Pos", "Neg"],
+                                                "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                        },
+                                        "instrs":{
+                                                "fclass.s":{ "configs": {} }
+                                        }
+                                },
+                                "rv64f_single_conversion":{
+                                        "configs":{},
+                                        "instrs":{
+                                                "fcvt.s.lu":{ "configs": {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.s.l":{ "configs": {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.lu.s":{ "configs": {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } },
+                                                "fcvt.l.s":{ "configs": {
+                                                        "rs1sign" : ["Pos", "Neg"],
+                                                        "rs1type" : ["Zero", "Inf", "NaN", "Normal"]
+                                                } }
+                                        }
+                                }
+                        }
+                },
+                "v_ext" : {
+                        "configs" : {
+                                "vlmul" : ["m1","m2","m4","m8","mf2","mf4","mf8"],
+                                "vsew"  : ["8","16","32","64"],
+                                "vta"   : ["0","1"],
+                                "vma"   : ["0","1"],
+                                "vset_instr" : ["vsetvl", "vsetvli", "vsetivli"],
+                                "avl"   : ["vlmax", "zero"],
+                                "masking" : ["mask", "nomask"]
+                        },
+                        "groups" : {
+                                "vector_load_fault_only_first":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vle8ff.v" : {"configs":{}},
+                                               "vle16ff.v" : {"configs":{}},
+                                               "vle32ff.v" : {"configs":{}},
+                                               "vle64ff.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_load_fault_only_first_segmented":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                                "vlseg2e8ff.v" : {"configs":{}},
+                                                "vlseg2e16ff.v" : {"configs":{}},
+                                                "vlseg2e32ff.v" : {"configs":{}},
+                                                "vlseg2e64ff.v" : {"configs":{}},
+                                                "vlseg3e8ff.v" : {"configs":{}},
+                                                "vlseg3e16ff.v" : {"configs":{}},
+                                                "vlseg3e32ff.v" : {"configs":{}},
+                                                "vlseg3e64ff.v" : {"configs":{}},
+                                                "vlseg4e8ff.v" : {"configs":{}},
+                                                "vlseg4e16ff.v" : {"configs":{}},
+                                                "vlseg4e32ff.v" : {"configs":{}},
+                                                "vlseg4e64ff.v" : {"configs":{}},
+                                                "vlseg5e8ff.v" : {"configs":{}},
+                                                "vlseg5e16ff.v" : {"configs":{}},
+                                                "vlseg5e32ff.v" : {"configs":{}},
+                                                "vlseg5e64ff.v" : {"configs":{}},
+                                                "vlseg6e8ff.v" : {"configs":{}},
+                                                "vlseg6e16ff.v" : {"configs":{}},
+                                                "vlseg6e32ff.v" : {"configs":{}},
+                                                "vlseg6e64ff.v" : {"configs":{}},
+                                                "vlseg7e8ff.v" : {"configs":{}},
+                                                "vlseg7e16ff.v" : {"configs":{}},
+                                                "vlseg7e32ff.v" : {"configs":{}},
+                                                "vlseg7e64ff.v" : {"configs":{}},
+                                                "vlseg8e8ff.v" : {"configs":{}},
+                                                "vlseg8e16ff.v" : {"configs":{}},
+                                                "vlseg8e32ff.v" : {"configs":{}},
+                                                "vlseg8e64ff.v": {"configs":{}}
+                                        }
+                                },
+                                "vector_load_unit_stride":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vlm.v" : {"configs":{}},
+                                               "vle8.v" : {"configs":{}},
+                                               "vle16.v" : {"configs":{}},
+                                               "vle32.v" : {"configs":{}},
+                                               "vle64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_store_unit_stride":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vsm.v" : {"configs":{}},
+                                               "vse8.v" : {"configs":{}},
+                                               "vse16.v" : {"configs":{}},
+                                               "vse32.v" : {"configs":{}},
+                                               "vse64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_load_unit_stride_segmented":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vlseg2e8.v" : {"configs":{}},
+                                               "vlseg2e16.v" : {"configs":{}},
+                                               "vlseg2e32.v" : {"configs":{}},
+                                               "vlseg2e64.v" : {"configs":{}},
+                                               "vlseg3e8.v" : {"configs":{}},
+                                               "vlseg3e16.v" : {"configs":{}},
+                                               "vlseg3e32.v" : {"configs":{}},
+                                               "vlseg3e64.v" : {"configs":{}},
+                                               "vlseg4e8.v" : {"configs":{}},
+                                               "vlseg4e16.v" : {"configs":{}},
+                                               "vlseg4e32.v" : {"configs":{}},
+                                               "vlseg4e64.v" : {"configs":{}},
+                                               "vlseg5e8.v" : {"configs":{}},
+                                               "vlseg5e16.v" : {"configs":{}},
+                                               "vlseg5e32.v" : {"configs":{}},
+                                               "vlseg5e64.v" : {"configs":{}},
+                                               "vlseg6e8.v" : {"configs":{}},
+                                               "vlseg6e16.v" : {"configs":{}},
+                                               "vlseg6e32.v" : {"configs":{}},
+                                               "vlseg6e64.v" : {"configs":{}},
+                                               "vlseg7e8.v" : {"configs":{}},
+                                               "vlseg7e16.v" : {"configs":{}},
+                                               "vlseg7e32.v" : {"configs":{}},
+                                               "vlseg7e64.v" : {"configs":{}},
+                                               "vlseg8e8.v" : {"configs":{}},
+                                               "vlseg8e16.v" : {"configs":{}},
+                                               "vlseg8e32.v" : {"configs":{}},
+                                               "vlseg8e64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_store_unit_stride_segmented":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vsseg2e8.v" : {"configs":{}},
+                                               "vsseg2e16.v" : {"configs":{}},
+                                               "vsseg2e32.v" : {"configs":{}},
+                                               "vsseg2e64.v" : {"configs":{}},
+                                               "vsseg3e8.v" : {"configs":{}},
+                                               "vsseg3e16.v" : {"configs":{}},
+                                               "vsseg3e32.v" : {"configs":{}},
+                                               "vsseg3e64.v" : {"configs":{}},
+                                               "vsseg4e8.v" : {"configs":{}},
+                                               "vsseg4e16.v" : {"configs":{}},
+                                               "vsseg4e32.v" : {"configs":{}},
+                                               "vsseg4e64.v" : {"configs":{}},
+                                               "vsseg5e8.v" : {"configs":{}},
+                                               "vsseg5e16.v" : {"configs":{}},
+                                               "vsseg5e32.v" : {"configs":{}},
+                                               "vsseg5e64.v" : {"configs":{}},
+                                               "vsseg6e8.v" : {"configs":{}},
+                                               "vsseg6e16.v" : {"configs":{}},
+                                               "vsseg6e32.v" : {"configs":{}},
+                                               "vsseg6e64.v" : {"configs":{}},
+                                               "vsseg7e8.v" : {"configs":{}},
+                                               "vsseg7e16.v" : {"configs":{}},
+                                               "vsseg7e32.v" : {"configs":{}},
+                                               "vsseg7e64.v" : {"configs":{}},
+                                               "vsseg8e8.v" : {"configs":{}},
+                                               "vsseg8e16.v" : {"configs":{}},
+                                               "vsseg8e32.v" : {"configs":{}},
+                                               "vsseg8e64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_load_indexed_unordered":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vluxei8.v" : {"configs":{}},
+                                               "vluxei16.v" : {"configs":{}},
+                                               "vluxei32.v" : {"configs":{}},
+                                               "vluxei64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_store_indexed_unordered":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vsuxei8.v" : {"configs":{}},
+                                               "vsuxei16.v" : {"configs":{}},
+                                               "vsuxei32.v" : {"configs":{}},
+                                               "vsuxei64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_load_indexed_ordered":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                                "vloxei8.v"  : {"configs":{}},
+                                                "vloxei16.v" : {"configs":{}},
+                                                "vloxei32.v" : {"configs":{}},
+                                                "vloxei64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_store_indexed_ordered":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                                "vsoxei8.v"  : {"configs":{}},
+                                                "vsoxei16.v" : {"configs":{}},
+                                                "vsoxei32.v" : {"configs":{}},
+                                                "vsoxei64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_load_indexed_segmented":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                                "vloxseg2ei8.v"  : {"configs":{}},
+                                                "vloxseg2ei16.v" : {"configs":{}},
+                                                "vloxseg2ei32.v" : {"configs":{}},
+                                                "vloxseg2ei64.v" : {"configs":{}},
+                                                "vloxseg3ei8.v"  : {"configs":{}},
+                                                "vloxseg3ei16.v" : {"configs":{}},
+                                                "vloxseg3ei32.v" : {"configs":{}},
+                                                "vloxseg3ei64.v" : {"configs":{}},
+                                                "vloxseg4ei8.v"  : {"configs":{}},
+                                                "vloxseg4ei16.v" : {"configs":{}},
+                                                "vloxseg4ei32.v" : {"configs":{}},
+                                                "vloxseg4ei64.v" : {"configs":{}},
+                                                "vloxseg5ei8.v"  : {"configs":{}},
+                                                "vloxseg5ei16.v" : {"configs":{}},
+                                                "vloxseg5ei32.v" : {"configs":{}},
+                                                "vloxseg5ei64.v" : {"configs":{}},
+                                                "vloxseg6ei8.v"  : {"configs":{}},
+                                                "vloxseg6ei16.v" : {"configs":{}},
+                                                "vloxseg6ei32.v" : {"configs":{}},
+                                                "vloxseg6ei64.v" : {"configs":{}},
+                                                "vloxseg7ei8.v"  : {"configs":{}},
+                                                "vloxseg7ei16.v" : {"configs":{}},
+                                                "vloxseg7ei32.v" : {"configs":{}},
+                                                "vloxseg7ei64.v" : {"configs":{}},
+                                                "vloxseg8ei8.v"  : {"configs":{}},
+                                                "vloxseg8ei16.v" : {"configs":{}},
+                                                "vloxseg8ei32.v" : {"configs":{}},
+                                                "vloxseg8ei64.v" : {"configs":{}},
+                                                "vluxseg2ei8.v"  : {"configs":{}},
+                                                "vluxseg2ei16.v" : {"configs":{}},
+                                                "vluxseg2ei32.v" : {"configs":{}},
+                                                "vluxseg2ei64.v" : {"configs":{}},
+                                                "vluxseg3ei8.v"  : {"configs":{}},
+                                                "vluxseg3ei16.v" : {"configs":{}},
+                                                "vluxseg3ei32.v" : {"configs":{}},
+                                                "vluxseg3ei64.v" : {"configs":{}},
+                                                "vluxseg4ei8.v"  : {"configs":{}},
+                                                "vluxseg4ei16.v" : {"configs":{}},
+                                                "vluxseg4ei32.v" : {"configs":{}},
+                                                "vluxseg4ei64.v" : {"configs":{}},
+                                                "vluxseg5ei8.v"  : {"configs":{}},
+                                                "vluxseg5ei16.v" : {"configs":{}},
+                                                "vluxseg5ei32.v" : {"configs":{}},
+                                                "vluxseg5ei64.v" : {"configs":{}},
+                                                "vluxseg6ei8.v"  : {"configs":{}},
+                                                "vluxseg6ei16.v" : {"configs":{}},
+                                                "vluxseg6ei32.v" : {"configs":{}},
+                                                "vluxseg6ei64.v" : {"configs":{}},
+                                                "vluxseg7ei8.v"  : {"configs":{}},
+                                                "vluxseg7ei16.v" : {"configs":{}},
+                                                "vluxseg7ei32.v" : {"configs":{}},
+                                                "vluxseg7ei64.v" : {"configs":{}},
+                                                "vluxseg8ei8.v"  : {"configs":{}},
+                                                "vluxseg8ei16.v" : {"configs":{}},
+                                                "vluxseg8ei32.v" : {"configs":{}},
+                                                "vluxseg8ei64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_store_indexed_segmented":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                                "vsoxseg2ei8.v" : {"configs":{}},
+                                                "vsoxseg2ei16.v" : {"configs":{}},
+                                                "vsoxseg2ei32.v" : {"configs":{}},
+                                                "vsoxseg2ei64.v" : {"configs":{}},
+                                                "vsoxseg3ei8.v" : {"configs":{}},
+                                                "vsoxseg3ei16.v" : {"configs":{}},
+                                                "vsoxseg3ei32.v" : {"configs":{}},
+                                                "vsoxseg3ei64.v" : {"configs":{}},
+                                                "vsoxseg4ei8.v" : {"configs":{}},
+                                                "vsoxseg4ei16.v" : {"configs":{}},
+                                                "vsoxseg4ei32.v" : {"configs":{}},
+                                                "vsoxseg4ei64.v" : {"configs":{}},
+                                                "vsoxseg5ei8.v" : {"configs":{}},
+                                                "vsoxseg5ei16.v" : {"configs":{}},
+                                                "vsoxseg5ei32.v" : {"configs":{}},
+                                                "vsoxseg5ei64.v" : {"configs":{}},
+                                                "vsoxseg6ei8.v" : {"configs":{}},
+                                                "vsoxseg6ei16.v" : {"configs":{}},
+                                                "vsoxseg6ei32.v" : {"configs":{}},
+                                                "vsoxseg6ei64.v" : {"configs":{}},
+                                                "vsoxseg7ei8.v" : {"configs":{}},
+                                                "vsoxseg7ei16.v" : {"configs":{}},
+                                                "vsoxseg7ei32.v" : {"configs":{}},
+                                                "vsoxseg7ei64.v" : {"configs":{}},
+                                                "vsoxseg8ei8.v" : {"configs":{}},
+                                                "vsoxseg8ei16.v" : {"configs":{}},
+                                                "vsoxseg8ei32.v" : {"configs":{}},
+                                                "vsoxseg8ei64.v" : {"configs":{}},
+                                                "vsuxseg2ei8.v" : {"configs":{}},
+                                                "vsuxseg2ei16.v" : {"configs":{}},
+                                                "vsuxseg2ei32.v" : {"configs":{}},
+                                                "vsuxseg2ei64.v" : {"configs":{}},
+                                                "vsuxseg3ei8.v" : {"configs":{}},
+                                                "vsuxseg3ei16.v" : {"configs":{}},
+                                                "vsuxseg3ei32.v" : {"configs":{}},
+                                                "vsuxseg3ei64.v" : {"configs":{}},
+                                                "vsuxseg4ei8.v" : {"configs":{}},
+                                                "vsuxseg4ei16.v" : {"configs":{}},
+                                                "vsuxseg4ei32.v" : {"configs":{}},
+                                                "vsuxseg4ei64.v" : {"configs":{}},
+                                                "vsuxseg5ei8.v" : {"configs":{}},
+                                                "vsuxseg5ei16.v" : {"configs":{}},
+                                                "vsuxseg5ei32.v" : {"configs":{}},
+                                                "vsuxseg5ei64.v" : {"configs":{}},
+                                                "vsuxseg6ei8.v" : {"configs":{}},
+                                                "vsuxseg6ei16.v" : {"configs":{}},
+                                                "vsuxseg6ei32.v" : {"configs":{}},
+                                                "vsuxseg6ei64.v" : {"configs":{}},
+                                                "vsuxseg7ei8.v" : {"configs":{}},
+                                                "vsuxseg7ei16.v" : {"configs":{}},
+                                                "vsuxseg7ei32.v" : {"configs":{}},
+                                                "vsuxseg7ei64.v" : {"configs":{}},
+                                                "vsuxseg8ei8.v" : {"configs":{}},
+                                                "vsuxseg8ei16.v" : {"configs":{}},
+                                                "vsuxseg8ei32.v" : {"configs":{}},
+                                                "vsuxseg8ei64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_load_strided":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vlse8.v" : {"configs":{}},
+                                               "vlse16.v" : {"configs":{}},
+                                               "vlse32.v" : {"configs":{}},
+                                               "vlse64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_store_strided":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vsse8.v" : {"configs":{}},
+                                               "vsse16.v" : {"configs":{}},
+                                               "vsse32.v" : {"configs":{}},
+                                               "vsse64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_load_strided_segmented":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vlsseg2e8.v"  : {"configs":{}},
+                                               "vlsseg2e16.v" : {"configs":{}},
+                                               "vlsseg2e32.v" : {"configs":{}},
+                                               "vlsseg2e64.v" : {"configs":{}},
+                                               "vlsseg3e8.v"  : {"configs":{}},
+                                               "vlsseg3e16.v" : {"configs":{}},
+                                               "vlsseg3e32.v" : {"configs":{}},
+                                               "vlsseg3e64.v" : {"configs":{}},
+                                               "vlsseg4e8.v"  : {"configs":{}},
+                                               "vlsseg4e16.v" : {"configs":{}},
+                                               "vlsseg4e32.v" : {"configs":{}},
+                                               "vlsseg4e64.v" : {"configs":{}},
+                                               "vlsseg5e8.v"  : {"configs":{}},
+                                               "vlsseg5e16.v" : {"configs":{}},
+                                               "vlsseg5e32.v" : {"configs":{}},
+                                               "vlsseg5e64.v" : {"configs":{}},
+                                               "vlsseg6e8.v"  : {"configs":{}},
+                                               "vlsseg6e16.v" : {"configs":{}},
+                                               "vlsseg6e32.v" : {"configs":{}},
+                                               "vlsseg6e64.v" : {"configs":{}},
+                                               "vlsseg7e8.v"  : {"configs":{}},
+                                               "vlsseg7e16.v" : {"configs":{}},
+                                               "vlsseg7e32.v" : {"configs":{}},
+                                               "vlsseg7e64.v" : {"configs":{}},
+                                               "vlsseg8e8.v"  : {"configs":{}},
+                                               "vlsseg8e16.v" : {"configs":{}},
+                                               "vlsseg8e32.v" : {"configs":{}},
+                                               "vlsseg8e64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_store_strided_segmented":{
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs": {
+                                               "vssseg2e8.v" : {"configs":{}},
+                                               "vssseg2e16.v" : {"configs":{}},
+                                               "vssseg2e32.v" : {"configs":{}},
+                                               "vssseg2e64.v" : {"configs":{}},
+                                               "vssseg3e8.v" : {"configs":{}},
+                                               "vssseg3e16.v" : {"configs":{}},
+                                               "vssseg3e32.v" : {"configs":{}},
+                                               "vssseg3e64.v" : {"configs":{}},
+                                               "vssseg4e8.v" : {"configs":{}},
+                                               "vssseg4e16.v" : {"configs":{}},
+                                               "vssseg4e32.v" : {"configs":{}},
+                                               "vssseg4e64.v" : {"configs":{}},
+                                               "vssseg5e8.v" : {"configs":{}},
+                                               "vssseg5e16.v" : {"configs":{}},
+                                               "vssseg5e32.v" : {"configs":{}},
+                                               "vssseg5e64.v" : {"configs":{}},
+                                               "vssseg6e8.v" : {"configs":{}},
+                                               "vssseg6e16.v" : {"configs":{}},
+                                               "vssseg6e32.v" : {"configs":{}},
+                                               "vssseg6e64.v" : {"configs":{}},
+                                               "vssseg7e8.v" : {"configs":{}},
+                                               "vssseg7e16.v" : {"configs":{}},
+                                               "vssseg7e32.v" : {"configs":{}},
+                                               "vssseg7e64.v" : {"configs":{}},
+                                               "vssseg8e8.v" : {"configs":{}},
+                                               "vssseg8e16.v" : {"configs":{}},
+                                               "vssseg8e32.v" : {"configs":{}},
+                                               "vssseg8e64.v" : {"configs":{}}
+                                        }
+                                },
+                                "vector_int_arithmetic":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vadd.vx" : {"configs":{}},
+                                                "vsub.vx" : {"configs":{}},
+                                                "vrsub.vx": {"configs":{}},
+                                                "vminu.vx": {"configs":{}},
+                                                "vmin.vx" : {"configs":{}},
+                                                "vmaxu.vx": {"configs":{}},
+                                                "vmax.vx" : {"configs":{}},
+                                                "vand.vx" : {"configs":{}},
+                                                "vor.vx"  : {"configs":{}},
+                                                "vxor.vx" : {"configs":{}},
+                                                "vrgather.vx" : {"configs":{}},
+                                                "vslideup.vx" : {"configs":{}},
+                                                "vslidedown.vx" : {"configs":{}}
+                                        }
+                                },
+                                "vector_opivv":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vadd.vv" : {"configs":{}},
+                                                "vsub.vv" : {"configs":{}},
+                                                "vminu.vv": {"configs":{}},
+                                                "vmin.vv" : {"configs":{}},
+                                                "vmaxu.vv": {"configs":{}},
+                                                "vmax.vv" : {"configs":{}},
+                                                "vand.vv" : {"configs":{}},
+                                                "vor.vv"  : {"configs":{}},
+                                                "vxor.vv" : {"configs":{}},
+                                                "vrgather.vv" : {"configs":{}},
+                                                "vrgatherei16.vv" : {"configs":{}}
+                                        }
+                                },
+                                "vector_opivi":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vadd.vi" : {"configs":{}},
+                                                "vrsub.vi" : {"configs":{}},
+                                                "vand.vi" : {"configs":{}},
+                                                "vor.vi"  : {"configs":{}},
+                                                "vxor.vi" : {"configs":{}},
+                                                "vrgather.vi" : {"configs":{}},
+                                                "vslideup.vi" : {"configs":{}},
+                                                "vslidedown.vi" : {"configs":{}}
+                                        }
+                                },
+                                "vector_opivx_2_data_processing":{
+                                        "configs":{},
+                                        "instrs":{
+                                                "vadc.vxm" : {"configs":{}},
+                                                "vmadc.vxm" : {"configs":{}},
+                                                "vmadc.vx" : {"configs":{"masking":["nomask"]}},
+                                                "vsbc.vxm" : {"configs":{}},
+                                                "vmsbc.vxm" : {"configs":{}},
+                                                "vmsbc.vx" : {"configs":{"masking":["nomask"]}},
+                                                "vmv.v.x" : {"configs":{}},
+                                                "vmseq.vx" : {"configs":{}},
+                                                "vmsne.vx" : {"configs":{}},
+                                                "vmsltu.vx" : {"configs":{}},
+                                                "vmslt.vx" : {"configs":{}},
+                                                "vmsleu.vx" : {"configs":{}},
+                                                "vmsle.vx" : {"configs":{}},
+                                                "vmsgtu.vx" : {"configs":{}},
+                                                "vmsgt.vx" : {"configs":{}}
+                                        }
+                                },
+                                "rvv_whole_vec_reg_move":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vmv1r.v" : {"configs":{}},
+                                                "vmv2r.v" : {"configs":{}},
+                                                "vmv4r.v" : {"configs":{}},
+                                                "vmv8r.v" : {"configs":{}}
+                                        }
+                                },
+                                "rvv_vec_int_extension":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vzext.vf2" : {"configs":{}},
+                                                "vsext.vf2" : {"configs":{}},
+                                                "vzext.vf4" : {"configs":{}},
+                                                "vsext.vf4" : {"configs":{}},
+                                                "vzext.vf8" : {"configs":{}},
+                                                "vsext.vf8" : {"configs":{}}
+                                        }
+                                },
+                                "rvv_vec_single_width_shift":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vsll.vv" : {"configs":{}},
+                                                "vsrl.vv" : {"configs":{}},
+                                                "vsra.vv" : {"configs":{}},
+                                                "vsll.vx" : {"configs":{}},
+                                                "vsrl.vx" : {"configs":{}},
+                                                "vsra.vx" : {"configs":{}},
+                                                "vsll.vi" : {"configs":{}},
+                                                "vsrl.vi" : {"configs":{}},
+                                                "vsra.vi" : {"configs":{}}
+                                        }
+                                },
+                                "rvv_vec_single_width_integer_fma":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vnmsac.vv" : {"configs":{}},
+                                                "vnmsac.vx" : {"configs":{}},
+                                                "vmadd.vv" : {"configs":{}},
+                                                "vmadd.vx" : {"configs":{}},
+                                                "vnmsub.vv" : {"configs":{}},
+                                                "vnmsub.vx" : {"configs":{}}
+                                        }
+
+                                },
+                                "rvv_vec_integer_merge": {
+                                        "configs":{},
+                                        "instrs": {
+                                                "vmerge.vvm" : {"configs":{}},
+                                                "vmerge.vxm" : {"configs":{}},
+                                                "vmerge.vim" : {"configs":{}}
+                                        }
+                                },
+                               "vector_opivv_2_data_processing":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vadc.vvm" : {"configs":{}},
+                                                "vmadc.vvm" : {"configs":{}},
+                                                "vmadc.vv" : {"configs":{}},
+                                                "vsbc.vvm" : {"configs":{}},
+                                                "vmsbc.vvm" : {"configs":{}},
+                                                "vmsbc.vv" : {"configs":{}},
+                                                "vmv.v.v" : {"configs":{}},
+                                                "vmseq.vv" : {"configs":{}},
+                                                "vmsne.vv" : {"configs":{}},
+                                                "vmsltu.vv" : {"configs":{}},
+                                                "vmslt.vv" : {"configs":{}},
+                                                "vmsleu.vv" : {"configs":{}},
+                                                "vmsle.vv" : {"configs":{}}
+                                        }
+                               },
+                               "vector_opivi_2_data_processing":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vadc.vim" : {"configs":{}},
+                                                "vmadc.vim" : {"configs":{}},
+                                                "vmadc.vi" : {"configs":{}},
+                                                "vmv.v.i" : {"configs":{}},
+                                                "vmseq.vi" : {"configs":{}},
+                                                "vmsne.vi" : {"configs":{}},
+                                                "vmsleu.vi" : {"configs":{}},
+                                                "vmsle.vi" : {"configs":{}},
+                                                "vmsgtu.vi" : {"configs":{}},
+                                                "vmsgt.vi" : {"configs":{}}
+                                        }
+                                },
+                               "vector_opmvv_2_data_processing":{
+                                        "configs":{"masking":["nomask"]},
+                                        "instrs": {
+                                                "vcompress.vm" : {"configs":{}},
+                                                "vmandn.mm" : {"configs":{}},
+                                                "vmand.mm" : {"configs":{}},
+                                                "vmor.mm" : {"configs":{}},
+                                                "vmxor.mm" : {"configs":{}},
+                                                "vmorn.mm" : {"configs":{}},
+                                                "vmnand.mm" : {"configs":{}},
+                                                "vmnor.mm" : {"configs":{}},
+                                                "vmxnor.mm" : {"configs":{}}
+                                        }
+                                },
+                               "vector_opmvv_3_data_processing":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vmsbf.m" : {"configs":{}},
+                                                "vmsof.m" : {"configs":{}},
+                                                "vmsif.m" : {"configs":{}},
+                                                "viota.m" : {"configs":{}}
+                                        }
+                                },
+                               "vector_opmvv_vid":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vid.v" : {"configs":{}}
+                                        }
+                                },
+                               "vector_opmvv_3_a_data_processing":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vcpop.m" : {"configs":{}},
+                                                "vfirst.m" : {"configs":{}}
+                                        }
+                                },
+                               "vector_opmvv_4_data_processing":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vdivu.vv" : {"configs":{}},
+                                                "vdiv.vv" : {"configs":{}},
+                                                "vremu.vv" : {"configs":{}},
+                                                "vrem.vv" : {"configs":{}},
+                                                "vmulhu.vv" : {"configs":{}},
+                                                "vmul.vv" : {"configs":{}},
+                                                "vmulhsu.vv" : {"configs":{}},
+                                                "vmulh.vv" : {"configs":{}}
+                                        }
+                                },
+                               "vector_opmvv_macc":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vmacc.vv" : {"configs":{}}
+                                        }
+                                },
+                               "vector_opmvx_1_data_processing":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vslide1up.vx" : {"configs":{}},
+                                                "vslide1down.vx" : {"configs":{}},
+                                                "vdivu.vx" : {"configs":{}},
+                                                "vdiv.vx" : {"configs":{}},
+                                                "vremu.vx" : {"configs":{}},
+                                                "vrem.vx" : {"configs":{}},
+                                                "vmulhu.vx" : {"configs":{}},
+                                                "vmul.vx" : {"configs":{}},
+                                                "vmulhsu.vx" : {"configs":{}},
+                                                "vmulh.vx" : {"configs":{}}                                        }
+                                },
+                               "vector_opmvx_macc":{
+                                        "configs":{},
+                                        "instrs": {
+                                                "vmacc.vx" : {"configs":{} }
+                                        }
+                                },
+                                "rv_v_fp_convert":{
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs": {
+                                                "vfcvt.f.x.v": {"configs":{} },
+                                                "vfcvt.f.xu.v": {"configs":{} },
+                                                "vfcvt.rtz.x.f.v": {"configs":{} },
+                                                "vfcvt.rtz.xu.f.v": {"configs":{} },
+                                                "vfcvt.x.f.v": {"configs":{} },
+                                                "vfcvt.xu.f.v": {"configs":{} },
+                                                "vfncvt.f.f.w": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfncvt.f.x.w": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfncvt.f.xu.w": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfncvt.rod.f.f.w": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfncvt.rtz.x.f.w": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfncvt.rtz.xu.f.w": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfncvt.x.f.w": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfncvt.xu.f.w": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfwcvt.f.f.v": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfwcvt.f.x.v": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfwcvt.f.xu.v": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfwcvt.rtz.x.f.v": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfwcvt.rtz.xu.f.v": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfwcvt.x.f.v": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} },
+                                                "vfwcvt.xu.f.v": {"configs":{"vlmul":["mf8", "mf4", "mf2", "m1", "m2", "m4"]} }
+                                        }
+                                },
+                                "rv_v_fp_fma_s":{
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs": {
+                                                "vfmacc.vf": {"configs":{} },
+                                                "vfmacc.vv": {"configs":{} },
+                                                "vfnmacc.vf": {"configs":{} },
+                                                "vfnmacc.vv": {"configs":{} },
+                                                "vfmsac.vf": {"configs":{} },
+                                                "vfmsac.vv": {"configs":{} },
+                                                "vfnmsac.vf": {"configs":{} },
+                                                "vfnmsac.vv": {"configs":{} },
+                                                "vfmadd.vf": {"configs":{} },
+                                                "vfmadd.vv": {"configs":{} },
+                                                "vfnmadd.vf": {"configs":{} },
+                                                "vfnmadd.vv": {"configs":{} },
+                                                "vfmsub.vf": {"configs":{} },
+                                                "vfmsub.vv": {"configs":{} },
+                                                "vfnmsub.vf": {"configs":{} },
+                                                "vfnmsub.vv": {"configs":{} }
+                                        }
+                                },
+                                "rv_v_fp_muldiv":{
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs": {
+                                                "vfmul.vf": {"configs":{} },
+                                                "vfmul.vv": {"configs":{} },
+                                                "vfdiv.vf": {"configs":{} },
+                                                "vfdiv.vv": {"configs":{} },
+                                                "vfrdiv.vf": {"configs":{} }
+                                        }
+                                },
+                                "rv_v_fp_minmax":{
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs": {
+                                                "vfmin.vf": {"configs":{} },
+                                                "vfmin.vv": {"configs":{} },
+                                                "vfmax.vf": {"configs":{} },
+                                                "vfmax.vv": {"configs":{} }
+                                        }
+                                },
+                                "rv_v_fp_signinj":{
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs": {
+                                                "vfsgnj.vv" :{"configs":{} },
+                                                "vfsgnj.vf" :{"configs":{} },
+                                                "vfsgnjn.vv":{"configs":{} },
+                                                "vfsgnjn.vf":{"configs":{} },
+                                                "vfsgnjx.vv":{"configs":{} },
+                                                "vfsgnjx.vf":{"configs":{} }
+                                        }
+                                },
+                                "rv_v_fp_class":{
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs": {
+                                                "vfclass.v" :{"configs":{} }
+                                        }
+                                },
+                                "rv_v_fp_merge":{
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs": {
+                                                "vfmerge.vfm" :{"configs":{} }
+                                        }
+                                },
+                                "rv_v_fp_move":{
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs": {
+                                                "vfmv.v.f" :{"configs":{} }
+                                        }
+                                },
+                                "rv_v_fp_addsub_s": {
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs":{
+                                                "vfadd.vv" :{"configs": {}},
+                                                "vfadd.vf" :{"configs": {}},
+                                                "vfsub.vv" :{"configs": {}},
+                                                "vfsub.vf" :{"configs": {}},
+                                                "vfrsub.vf":{"configs": {}}
+                                        }
+                                },
+                                "rvv_fixed_point_saturation_add_sub": {
+                                        "configs":{"vxrm":["rnu", "rne", "rdn", "rod"]},
+                                        "instrs":{
+                                                "vsaddu.vv" : {"configs":{}}, 
+                                                "vsaddu.vx" : {"configs":{}}, 
+                                                "vsaddu.vi" : {"configs":{}}, 
+                                                "vsadd.vv"  : {"configs":{}}, 
+                                                "vsadd.vx"  : {"configs":{}}, 
+                                                "vsadd.vi"  : {"configs":{}}, 
+                                                "vssubu.vv" : {"configs":{}}, 
+                                                "vssubu.vx" : {"configs":{}}, 
+                                                "vssub.vv"  : {"configs":{}}, 
+                                                "vssub.vx"  : {"configs":{}}
+                                        }
+                                },
+                                "rvv_fixed_point_averaging_add_sub": {
+                                        "configs":{"vxrm":["rnu", "rne", "rdn", "rod"]},
+                                        "instrs":{
+                                                "vaaddu.vv" : {"configs":{}},
+                                                "vaaddu.vx" : {"configs":{}},
+                                                "vaadd.vv"  : {"configs":{}},
+                                                "vaadd.vx"  : {"configs":{}},
+                                                "vasubu.vv" : {"configs":{}},
+                                                "vasubu.vx" : {"configs":{}},
+                                                "vasub.vv"  : {"configs":{}},
+                                                "vasub.vx"  : {"configs":{}}
+                                        }
+                                },
+                                "rvv_fixed_point_multiply_saturating_rounding": { 
+                                        "configs":{"vxrm":["rnu", "rne", "rdn", "rod"]},
+                                        "instrs":{
+                                                "vsmul.vv" : {"configs":{}},   
+                                                "vsmul.vx" : {"configs":{}}
+                                        }
+                                },
+                                "rvv_fixed_point_scaling_shift": {
+                                        "configs":{"vxrm":["rnu", "rne", "rdn", "rod"]},
+                                        "instrs":{
+                                                "vssrl.vv" : {"configs":{}}, 
+                                                "vssrl.vx" : {"configs":{}}, 
+                                                "vssrl.vi" : {"configs":{}}, 
+                                                "vssra.vv" : {"configs":{}}, 
+                                                "vssra.vx" : {"configs":{}}, 
+                                                "vssra.vi" : {"configs":{}}
+                                        }
+                                },
+                                "rvv_fixed_point_narrowing_clip": { 
+                                      "configs":{"vsew":["8", "16", "32"], "vlmul":["m1", "m2", "m4", "mf2", "mf4", "mf8"],"vxrm":["rnu", "rne", "rdn", "rod"]},
+                                      "instrs":{
+                                                "vnclipu.wv" : {"configs":{}}, 
+                                                "vnclipu.wx" : {"configs":{}}, 
+                                                "vnclipu.wi" : {"configs":{}}, 
+                                                "vnclip.wv"  : {"configs":{}}, 
+                                                "vnclip.wx"  : {"configs":{}}, 
+                                                "vnclip.wi"  : {"configs":{}}     
+                                      }
+                                },
+                                "rvv_int_narrowing_right_shift": { 
+                                      "configs":{"vsew" : ["8", "16", "32"], "vlmul" : ["m1", "m2", "m4", "mf2", "mf4", "mf8"]},
+                                      "instrs":{
+                                                "vnsra.wv" : {"configs":{}}, 
+                                                "vnsra.wi" : {"configs":{}}, 
+                                                "vnsra.wx" : {"configs":{}}, 
+                                                "vnsrl.wv"  : {"configs":{}}, 
+                                                "vnsrl.wi"  : {"configs":{}}, 
+                                                "vnsrl.wx"  : {"configs":{}}     
+                                      } 
+                                },
+                                "rvv_int_widening_add_sub": {
+                                      "configs":{},
+                                      "instrs":{
+                                                "vwaddu.vv" : {"configs":{}}, 
+                                                "vwaddu.vx" : {"configs":{}}, 
+                                                "vwsubu.vv" : {"configs":{}}, 
+                                                "vwsubu.vx" : {"configs":{}}, 
+                                                "vwaddu.wv" : {"configs":{}},
+                                                "vwaddu.wx" : {"configs":{}},
+                                                "vwsubu.wv" : {"configs":{}},
+                                                "vwsubu.wx" : {"configs":{}},
+                                                "vwadd.vv"  : {"configs":{}},
+                                                "vwadd.vx"  : {"configs":{}},
+                                                "vwsub.vv"  : {"configs":{}},
+                                                "vwsub.vx"  : {"configs":{}},
+                                                "vwadd.wv"  : {"configs":{}},
+                                                "vwadd.wx"  : {"configs":{}},
+                                                "vwsub.wv"  : {"configs":{}},
+                                                "vwsub.wx"  : {"configs":{}}
+                                      }
+                                },
+                                "rvv_int_widening_mul": {
+                                      "configs":{},
+                                      "instrs":{
+                                                "vwmul.vv"   : {"configs":{}},
+                                                "vwmul.vx"   : {"configs":{}},
+                                                "vwmulu.vv"  : {"configs":{}},
+                                                "vwmulu.vx"  : {"configs":{}},
+                                                "vwmulsu.vv" : {"configs":{}}, 
+                                                "vwmulsu.vx" : {"configs":{}} 
+                                      }
+                                },
+                                "rvv_fp_sqrt": {
+                                      "configs":{"vsew":["16", "32", "64"]},
+                                      "instrs":{
+                                                "vfsqrt.v"   : {"configs":{}}
+                                      }
+                                },
+                                "rvv_fp_rec_sqrt_est": {
+                                      "configs":{"vsew":["16", "32", "64"]},
+                                      "instrs":{
+                                                "vfrsqrt7.v"   : {"configs":{}}
+                                      }
+                                },
+                                "rvv_fp_rec_est": {
+                                      "configs":{"vsew":["16", "32", "64"]},
+                                      "instrs":{
+                                                "vfrec7.v"   : {"configs":{}}
+                                      }
+                                },
+                                "rvv_fp_compare": {
+                                      "configs":{"vsew":["16", "32", "64"]},
+                                      "instrs":{
+                                                "vmfeq.vf" : {"configs":{}},
+                                                "vmfle.vf" : {"configs":{}},
+                                                "vmflt.vf" : {"configs":{}},
+                                                "vmfne.vf" : {"configs":{}},
+                                                "vmfgt.vf" : {"configs":{}},
+                                                "vmfge.vf" : {"configs":{}},
+                                                "vmfeq.vv" : {"configs":{}},       
+                                                "vmfle.vv" : {"configs":{}},       
+                                                "vmflt.vv" : {"configs":{}},       
+                                                "vmfne.vv" : {"configs":{}}       
+                                      }
+                                },
+                                "rvv_fp_widening_add_sub": {
+                                      "configs":{"vsew":["16", "32"], "vlmul":["m1", "m2", "m4", "mf2", "mf4", "mf8"]},
+                                      "instrs":{ 
+                                                "vfwadd.vf" : {"configs":{}},     
+                                                "vfwsub.vf" : {"configs":{}},     
+                                                "vfwadd.wf" : {"configs":{}},     
+                                                "vfwsub.wf" : {"configs":{}},     
+                                                "vfwadd.vv" : {"configs":{}},     
+                                                "vfwsub.vv" : {"configs":{}},     
+                                                "vfwadd.wv" : {"configs":{}},     
+                                                "vfwsub.wv" : {"configs":{}}     
+                                      }
+                                },
+                                "rvv_fp_widening_mul": {
+                                      "configs":{"vsew":["16", "32"], "vlmul":["m1", "m2", "m4", "mf2", "mf4", "mf8"]},
+                                      "instrs":{ 
+                                                "vfwmul.vv" : {"configs":{}},
+                                                "vfwmul.vf" : {"configs":{}}
+                                      }
+                                },
+                                "rvv_fp_widening_mac": {
+                                      "configs":{"vsew":["16", "32"], "vlmul":["m1", "m2", "m4", "mf2", "mf4", "mf8"]},
+                                      "instrs":{ 
+                                                "vfwmacc.vf"  : {"configs":{}},   
+                                                "vfwnmacc.vf" : {"configs":{}},    
+                                                "vfwmsac.vf"  : {"configs":{}},   
+                                                "vfwnmsac.vf" : {"configs":{}},    
+                                                "vfwmacc.vv"  : {"configs":{}},   
+                                                "vfwnmacc.vv" : {"configs":{}},    
+                                                "vfwmsac.vv"  : {"configs":{}},   
+                                                "vfwnmsac.vv" : {"configs":{}}    
+                                      }
+                                },
+                                "rvv_fp_slides": {
+                                      "configs":{"vsew":["16", "32", "64"]},
+                                      "instrs":{ 
+                                          "vfslide1up.vf"   : {"configs":{}}, 
+                                          "vfslide1down.vf" : {"configs":{}} 
+                                      }
+                                },
+                                "zvbb":{
+                                        "configs":{},
+                                        "instrs":{
+                                                "vandn.vv":{"configs":{}},
+                                                "vandn.vx":{"configs":{}},
+                                                "vbrev.v":{"configs":{}},
+                                                "vbrev8.v":{"configs":{}},
+                                                "vrev8.v":{"configs":{}},
+                                                "vclz.v":{"configs":{}},
+                                                "vctz.v":{"configs":{}},
+                                                "vcpop.v":{"configs":{}},
+                                                "vrol.vv":{"configs":{}},
+                                                "vrol.vx":{"configs":{}},
+                                                "vror.vv":{"configs":{}},
+                                                "vror.vx":{"configs":{}},
+                                                "vror.vi":{"configs":{}},
+                                                "vwsll.vv":{"configs":{
+                                                        "vlmul" : ["mf4", "mf8", "mf2", "m1", "m2", "m4"],
+                                                        "vsew" : ["8", "16", "32"]}},
+                                                "vwsll.vx":{"configs":{
+                                                        "vlmul" : ["mf4", "mf8", "mf2", "m1", "m2", "m4"],
+                                                        "vsew" : ["8", "16", "32"]}},
+                                                "vwsll.vi":{"configs":{
+                                                        "vlmul" : ["mf4", "mf8", "mf2", "m1", "m2", "m4"],
+                                                        "vsew" : ["8", "16", "32"]}}
+                                        }
+                                },
+                                "vector_load_whole_reg": {
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs":{
+                                                "vl1r.v":{"configs":{}},
+                                                "vl1re16.v":{"configs":{}},
+                                                "vl1re32.v":{"configs":{}},
+                                                "vl1re64.v":{"configs":{}},
+                                                "vl1re8.v":{"configs":{}},
+                                                "vl2r.v":{"configs":{}},
+                                                "vl2re16.v":{"configs":{}},
+                                                "vl2re32.v":{"configs":{}},
+                                                "vl2re64.v":{"configs":{}},
+                                                "vl2re8.v":{"configs":{}},
+                                                "vl4r.v":{"configs":{}},
+                                                "vl4re16.v":{"configs":{}},
+                                                "vl4re32.v":{"configs":{}},
+                                                "vl4re64.v":{"configs":{}},
+                                                "vl4re8.v":{"configs":{}},
+                                                "vl8r.v":{"configs":{}},
+                                                "vl8re16.v":{"configs":{}},
+                                                "vl8re32.v":{"configs":{}},
+                                                "vl8re64.v":{"configs":{}},
+                                                "vl8re8.v":{"configs":{}}
+                                        }
+                                },
+                                "vector_store_whole_reg": {
+                                        "configs" : {"vstart" : ["zero", "nonzero"]},
+                                        "instrs":{
+                                                "vs1r.v":{"configs":{}},
+                                                "vs2r.v":{"configs":{}},
+                                                "vs4r.v":{"configs":{}},
+                                                "vs8r.v":{"configs":{}}
+                                        }
+                                },
+                                "rv_zvfbfmin":{
+                                        "configs":{"vsew":["16"], "vlmul" : ["mf4", "mf8", "mf2", "m1", "m2", "m4"]},
+                                        "instrs":{
+                                                "vfncvtbf16.f.f.w" : {"configs":{}},
+                                                "vfwcvtbf16.f.f.v" : {"configs":{}}
+                                        }
+                                },
+                                "rv_zvfbfwma":{
+                                        "configs":{"vsew":["16"], "vlmul" : ["mf4", "mf8", "mf2", "m1", "m2", "m4"]},
+                                        "instrs":{
+                                                "vfwmaccbf16.vf" : {"configs":{}},
+                                                "vfwmaccbf16.vv" : {"configs":{}}
+                                        }
+                                },
+                                "zvbc": {
+                                        "configs":{"vsew":["64"]},
+                                        "instrs":{
+                                          "vclmul.vv" : {"configs":{}},
+                                          "vclmul.vx" : {"configs":{}},
+                                          "vclmulh.vv": {"configs":{}},
+                                          "vclmulh.vx": {"configs":{}} 
+                                        }
+                                },
+                                "zvkg": {
+                                        "configs":{
+                                                "vset_instr" : ["vsetvl"],
+                                                "vsew":["32"],
+                                                "vlmul":["m1", "m2", "m4", "m8", "mf2"],
+                                                "masking":["nomask"]},
+                                        "instrs":{ 
+                                          "vgmul.vv" : {"configs":{}},
+                                          "vghsh.vv" : {"configs":{}}
+                                        }
+                                },
+                                "vec_fp_single_width_reductions": {
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs": {
+                                                "vfredmax.vs" : {"configs":{}},
+                                                "vfredmin.vs" : {"configs":{}},
+                                                "vfredosum.vs" : {"configs":{}},
+                                                "vfredusum.vs" : {"configs":{}}
+                                        }
+                                },
+                                "vec_fp_widening_reductions": {
+                                        "configs":{"vsew":["16", "32"], "vlmul":["m1", "m2", "m4", "mf2", "mf4", "mf8"]},
+                                        "instrs": {
+                                                "vfwredosum.vs" : {"configs":{}},
+                                                "vfwredusum.vs" : {"configs":{}}
+                                        }
+                                },
+                                "vec_aes_block_cipher": {
+                                        "configs":{                                                "vset_instr" : ["vsetvl"],
+                                                "vsew":["32"],
+                                                "vlmul":["m1", "m2", "m4", "m8", "mf2"],
+                                                "masking":["nomask"]
+                                        },
+                                        "instrs": {
+                                                "vaesef.vv" : {"configs":{}},
+                                                "vaesef.vs" : {"configs":{}},
+                                                "vaesem.vv" : {"configs":{}},
+                                                "vaesem.vs" : {"configs":{}},
+                                                "vaesdf.vv" : {"configs":{}},
+                                                "vaesdf.vs" : {"configs":{}},
+                                                "vaesdm.vv" : {"configs":{}},
+                                                "vaesdm.vs" : {"configs":{}},
+                                                "vaeskf1.vi" : {"configs":{}},
+                                                "vaeskf2.vi" : {"configs":{}},
+                                                "vaesz.vs" : {"configs":{}}
+                                        }
+                                },
+                                "vec_scalar_move":{
+                                        "configs":{"masking":["nomask"]},
+                                        "instrs": {
+                                                "vmv.s.x" : {"configs":{}},
+                                                "vmv.x.s" : {"configs":{}}
+                                        }
+                                },
+                                "vec_int_single_width_reductions": {
+                                        "configs":{},
+                                        "instrs": {
+                                                "vredsum.vs" : {"configs":{}},
+                                                "vredand.vs" : {"configs":{}},
+                                                "vredor.vs" : {"configs":{}},
+                                                "vredxor.vs" : {"configs":{}},
+                                                "vredminu.vs" : {"configs":{}},
+                                                "vredmin.vs" : {"configs":{}},
+                                                "vredmaxu.vs" : {"configs":{}},
+                                                "vredmax.vs" : {"configs":{}}
+                                        }
+                                },
+                                "vec_int_widening_reductions": {
+                                        "configs":{"vsew":["8", "16", "32"], "vlmul":["m1", "m2", "m4", "mf2", "mf4", "mf8"]},
+                                        "instrs": {
+                                                "vwredsumu.vs" : {"configs":{}},
+                                                "vwredsum.vs" : {"configs":{}}
+                                        }
+                                },
+                                "vec_int_widening_multiply_add": {
+                                        "configs":{"vsew":["8", "16", "32"], "vlmul":["m1", "m2", "m4", "mf2", "mf4", "mf8"]},
+                                        "instrs": {
+                                                "vwmacc.vv" : {"configs":{}},
+                                                "vwmacc.vx" : {"configs":{}},
+                                                "vwmaccsu.vv" : {"configs":{}},
+                                                "vwmaccsu.vx" : {"configs":{}},
+                                                "vwmaccu.vv" : {"configs":{}},
+                                                "vwmaccu.vx" : {"configs":{}},
+                                                "vwmaccus.vx" : {"configs":{}}
+                                        }
+                                },
+                                "vec_fp_scalar_move":{
+                                        "configs":{"vsew":["16", "32", "64"]},
+                                        "instrs": {
+                                                "vfmv.f.s" : {"configs":{}},
+                                                "vfmv.s.f" : {"configs":{}}
+                                        }
+                                }
+                        }
+                },
+                "Xsfvqdotq_ext" : {
+                        "configs" : {
+                                "vlmul" : ["m1", "m2", "m4", "m8", "mf2", "mf4", "mf8"],
+                                "vsew"  : ["32"],
+                                "vta"   : ["0","1"],
+                                "vma"   : ["0","1"],
+                                "vset_instr" : ["vsetvl", "vsetvli", "vsetivli"],
+                                "avl"   : ["vlmax"],
+                                "masking" : ["mask", "nomask"]
+                        },
+                        "groups" : {
+                                "vec_int_quad_widening_4d_dot_prod" : {
+                                        "configs" : {
+                                        },
+                                        "instrs" : {
+                                                "vqdot.vv" : {"configs":{}},
+                                                "vqdot.vx" : {"configs":{}},
+                                                "vqdotu.vv" : {"configs":{}},
+                                                "vqdotu.vx" : {"configs":{}},
+                                                "vqdotsu.vv" : {"configs":{}},
+                                                "vqdotsu.vx" : {"configs":{}},
+                                                "vqdotus.vx" : {"configs":{}}
+                                        }
+                                }
+                        }
+                },
+                "zvknhb":{
+                        "configs" : {
+                                "vlmul" : ["m1", "m2", "m4", "m8", "mf2", "mf4", "mf8"],
+                                "vsew"  : ["32", "64"],
+                                "vta"   : ["0","1"],
+                                "vma"   : ["0","1"],
+                                "vset_instr" : ["vsetvl", "vsetvli"],
+                                "avl"   : ["vlmax"],
+                                "masking" : ["mask", "nomask"]
+                        },
+                        "groups" : {
+                                "vector_sha2_secure_hash" : {
+                                        "configs" : {
+                                        },
+                                        "instrs" : {
+                                                "vsha2ch.vv" : {"configs":{}},
+                                                "vsha2cl.vv" : {"configs":{}},
+                                                "vsha2ms.vv" : {"configs":{}}
+                                        }
+                                }
+                        }
+                }
+        },
+        "test" : {
+                "configs" : {
+                    "paging_mode" : ["disable", "sv39", "sv48", "sv57"],
+                    "privilege_mode" : ["machine", "super", "user"],
+                    "test_environment" : ["bare_metal", "virtualized bare_metal"]
+                }
+        }
+}

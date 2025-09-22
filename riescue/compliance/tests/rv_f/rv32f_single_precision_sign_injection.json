@@ -1,0 +1,15 @@
+{
+    "arch" : "rv32",
+    "include_extensions" : [
+    ],
+    "include_groups" : [ 
+        "rv32f_single_precision_sign_injection"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+        "fcvt.s.w","fcvt.s.wu","fmv.w.x"
+    ]
+}

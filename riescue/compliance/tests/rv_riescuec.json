@@ -1,0 +1,304 @@
+{
+    "tests": {
+        "rv32m": {
+            "src": "@riescue_repo//compliance/tests/rv_m:rv32m.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 10
+        },
+        "rv64m": {
+            "src": "@riescue_repo//compliance/tests/rv_m:rv64m.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 10
+        },
+        "rv32f": {
+            "src": "@riescue_repo//compliance/tests/rv_f:rv32f.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 2
+        },
+        "rv32d": {
+            "src": "@riescue_repo//compliance/tests/rv_d:rv32d.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 2
+        },
+        "rv32zfh": {
+            "src": "@riescue_repo//compliance/tests/rv_zfh:rv32zfh.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 2
+        },
+        "rv32i": {
+            "src": "@riescue_repo//compliance/tests/rv_i:rv32i.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 5
+        },
+        "rv64i": {
+            "src": "@riescue_repo//compliance/tests/rv_i:rv64i.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 15
+        },
+        "rv64c": {
+            "src": "@riescue_repo//compliance/tests/rv_c:rv64c.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 10
+        },
+        "rv64cd": {
+            "src": "@riescue_repo//compliance/tests/rv_c:rv64cd.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 10
+        },
+        "rv64fdzfh": {
+            "src": "@riescue_repo//compliance/tests/rv_zfh:rv64fdzfh.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 1
+        },
+        "rv64zb": {
+            "src": "@riescue_repo//compliance/tests/rv_zb:rv64zb.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 10
+        },
+        "rv32zba": {
+            "src": "@riescue_repo//compliance/tests/rv_zba:rv32zba.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 10
+        },
+        "rv32zbb": {
+            "src": "@riescue_repo//compliance/tests/rv_zbb:rv32zbb.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 10
+        },
+        "rv32zbc": {
+            "src": "@riescue_repo//compliance/tests/rv_zbc:rv32zbc.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 10
+        },
+        "rv32zbs": {
+            "src": "@riescue_repo//compliance/tests/rv_zbs:rv32zbs.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 10
+        },
+        "rv64a": {
+            "src": "@riescue_repo//compliance/tests/rv_a:rv64a.json",
+            "configs": {},
+            "riescuec-args": "",
+            "category": "",
+            "rpt_cnt": 10
+        },
+        "rv64zfbfmin": {
+            "src": "@riescue_repo//compliance/tests/rv_zfbfmin:rv64zfbfmin.json",
+            "configs": {},
+            "riescuec-args": "--rv_zfbfmin_experimental",
+            "category": "",
+            "rpt_cnt": 10
+        }
+    },
+    "rvv_tests" : {
+        "riescuec_int_add_sub": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_int_add_sub.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json",
+                "lmul2_config": "rvv/vector_lmul2_config.json"
+            },
+            "category": "integer_arithmetic",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_bitwise_logical": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_bitwise_logical.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json",
+                "lmul2_config": "rvv/vector_lmul2_config.json"
+            },
+            "riescuec-args": "",
+            "category": "integer_arithmetic",
+            "rpt_cnt": "default"
+        },
+        "riescuec_int_compare": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_int_compare.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json",
+                "lmul2_config": "rvv/vector_lmul2_config.json"
+            },
+            "category": "integer_arithmetic",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_int_min_max": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_int_min_max.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json",
+                "lmul2_config": "rvv/vector_lmul2_config.json"
+            },
+            "category": "integer_arithmetic",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_single_width_multiply": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_single_width_multiply.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json",
+                "lmul2_config": "rvv/vector_lmul2_config.json"
+            },
+            "category": "integer_arithmetic",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_int_move": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_int_move.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json",
+                "lmul2_config": "rvv/vector_lmul2_config.json"
+            },
+            "category": "integer_arithmetic",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_int_merge": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_int_merge.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json",
+                "lmul2_config": "rvv/vector_lmul2_config.json"
+            },
+            "category": "integer_arithmetic",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_single_width_shift": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_single_width_shift.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json",
+                "lmul2_config": "rvv/vector_lmul2_config.json"
+            },
+            "category": "integer_arithmetic",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_int_extension": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_int_extension.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json",
+                "lmul2_config": "rvv/vector_lmul2_config.json"
+            },
+            "category": "integer_arithmetic",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_whole_register_move": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_whole_register_move.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json"
+            },
+            "riescuec-args": "",
+            "category": "permutation",
+            "rpt_cnt": "default"
+        },
+        "riescuec_int_addwc_subwb": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_int_addwc_subwb.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json"
+            },
+            "category": "integer_arithmetic",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_single_width_int_mul_add": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_single_width_int_mul_add.json",
+            "configs": {
+                "bringup_config": "rvv/vector_bringup_test.json",
+                "complex_config": "rvv/vector_complex_config.json"
+            },
+            "category": "integer_arithmetic",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_single_width_float": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_single_width_float.json",
+            "configs": {
+                "complex_config": "rvv/vector_complex_config.json",
+                "bringup_config": "rvv/vector_bringup_test.json"
+            },
+            "category": "Floating",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_unit_stride_load": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_unit_stride_load.json",
+            "configs": {
+                "complex_config": "rvv/vector_complex_config.json",
+                "bringup_config": "rvv/vector_bringup_test.json"
+            },
+            "category": "load_store",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_unit_stride_store": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_unit_stride_store.json",
+            "configs": {
+                "complex_config": "rvv/vector_complex_config.json",
+                "bringup_config": "rvv/vector_bringup_test.json"
+            },
+            "category": "load_store",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_mask_instruction": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_mask_instr.json",
+            "configs": {
+                "complex_config": "rvv/vector_complex_config.json",
+                "bringup_config": "rvv/vector_bringup_test.json"
+            },
+            "category": "mask",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        },
+        "riescuec_single_width_float_cnvt": {
+            "src": "@riescue_repo//compliance/tests/rvv:rvv_single_width_float_convert.json",
+            "configs": {
+                "complex_config": "rvv/vector_complex_config.json",
+                "bringup_config": "rvv/vector_bringup_test.json"
+            },
+            "category": "Floating",
+            "riescuec-args": "",
+            "rpt_cnt": "default"
+        }
+    }
+}

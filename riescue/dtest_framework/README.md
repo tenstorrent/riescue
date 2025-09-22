@@ -140,7 +140,7 @@ Example `cpu_config.json`:
 ## Requirements
 - RISC-V GNU toolchain
 - Supported simulators (whisper, spike)
-- Python 3.6+
+- Python 3.9+
 
 For detailed installation instructions, see the [main README](../../README.md).
 

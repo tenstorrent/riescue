@@ -1,0 +1,29 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+
+    ],
+    "include_groups" : [
+        "rvv_vec_single_width_shift","rvv_vec_int_extension","rvv_vec_integer_merge","rv_v_fp_addsub_s",
+        "rv_v_fp_fma_s","rv_v_fp_minmax","rv_v_fp_signinj","rv_v_fp_class","rv_v_fp_merge","rv_v_fp_move",
+        "rvv_whole_vec_reg_move"
+
+    ],
+    "include_instrs" : [
+
+        "vrsub.vx","vsub.vv","vrsub.vi","vadd.vx","vadd.vv","vadd.vi","vsub.vx",
+        "vxor.vv","vxor.vx","vxor.vi","vor.vv","vor.vx","vor.vi","vand.vv","vand.vx","vand.vi",
+        "vmseq.vx" , "vmseq.vv", "vmseq.vi","vmsne.vx" , "vmsne.vv", "vmsne.vi","vmsltu.vx","vmsltu.vv","vmslt.vx","vmslt.vv","vmsleu.vx" , "vmsleu.vv", "vmsleu.vi","vmsle.vx" , "vmsle.vv", "vmsle.vi","vmsgtu.vx","vmsgtu.vi","vmsgt.vx","vmsgt.vi",
+        "vmin.vv","vmax.vv","vmin.vx","vmax.vx","vminu.vv","vmaxu.vv","vminu.vx","vmaxu.vx",
+        "vmul.vv","vmul.vx","vmulh.vv","vmulh.vx","vmulhu.vv","vmulhu.vx","vmulhsu.vv","vmulhsu.vx",
+        "vmacc.vv","vmacc.vx","vmadd.vv","vmadd.vx","vnmsac.vv","vnmsac.vx","vnmsub.vv","vnmsub.vx",
+        "vmv.v.v","vmv.v.x","vmv.v.i",
+        "vfmul.vf","vfmul.vv"
+
+
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ]
+}

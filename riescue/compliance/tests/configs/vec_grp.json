@@ -1,0 +1,8 @@
+{
+         "config" : {
+                 "vector_opivv": {
+                         "vlmul" : ["mf8", "m8"],
+                         "vsew" : ["8", "64"]
+                 }
+         }
+}

@@ -1,0 +1,30 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+        "vfmacc.vf",
+        "vfmacc.vv",
+        "vfnmacc.vf",
+        "vfnmacc.vv",
+        "vfmsac.vf",
+        "vfmsac.vv",
+        "vfnmsac.vf",
+        "vfnmsac.vv",
+        "vfmadd.vf",
+        "vfmadd.vv",
+        "vfnmadd.vf",
+        "vfnmadd.vv",
+        "vfmsub.vf",
+        "vfmsub.vv",
+        "vfnmsub.vf",
+        "vfnmsub.vv"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}

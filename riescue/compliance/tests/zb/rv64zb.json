@@ -1,0 +1,15 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+        "zba_ext","zbb_ext","zbs_ext"
+    ],
+    "include_groups" : [  
+    ],
+    "include_instrs" : [    
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+        "wfi", "ebreak", "mret", "sret", "ecall", "fence", "fence.i", "c.ebreak"
+    ]
+}

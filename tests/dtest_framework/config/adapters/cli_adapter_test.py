@@ -23,7 +23,7 @@ class CliAdapterTest(unittest.TestCase):
         add_arguments(self.parser)
 
         self.rng = RandNum(seed=0)
-        self.builder = FeatMgrBuilder(rng=self.rng)
+        self.builder = FeatMgrBuilder()
         self.temp_dir = tempfile.mkdtemp()
 
     def test_num_cpus_override(self):

@@ -123,6 +123,9 @@ Riescue invokes the following Instruction Set Simulators:
 
 Like toolchains, simulators can be set with a command line switch, environment variable, or added to the `PATH`.
 
+### `riscv-coretp`
+RiescueC uses the [`riscv-coretp`](https://github.com/tenstorrent/riscv-coretp) project, which contains python data structures, test plans, and a basic RISC-V instruction API for generating instructions. It's an external dependncy that isn't on `pip` yet, but is included in the `pyproject.toml`. For more information see the [Install and Setup guide](https://docs.tenstorrent.com/riescue/tutorials/install.html) on the docs.
+
 
 ## Getting Started
 See the [RiescueD Getting Started Guide](https://docs.tenstorrent.com/riescue/tutorials/index.html) for more information on setting up RiescueD and running tests.

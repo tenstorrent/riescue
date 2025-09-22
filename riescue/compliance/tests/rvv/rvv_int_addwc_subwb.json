@@ -1,0 +1,25 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+
+        "vadc.vvm","vadc.vxm","vadc.vim",
+        "vmadc.vvm","vmadc.vxm","vmadc.vim",
+        "vmadc.vv","vmadc.vx","vmadc.vi",
+        "vsbc.vvm","vsbc.vxm",
+        "vmsbc.vvm","vmsbc.vxm",
+        "vmsbc.vv","vmsbc.vx"
+
+
+
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+
+    ],
+    "iss" : "whisper"
+}

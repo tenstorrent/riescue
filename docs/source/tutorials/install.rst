@@ -127,6 +127,18 @@ With all dependencies sourced, users should be able to run the ``python3 -m ries
 **What next?** See the :doc:`/user_guides/riescued_user_guide` page for information on getting started with RiESCUE.
 
 
+
+``riscv-coretp``
+~~~~~~~~~~~~~~~~
+.. rubric:: Configuring ``coretp``
+
+``coretp`` is an external dependency used by RiescueC TestPlan mode. It's not on `pip` yet, but is included in the `pyproject.toml`. By default this is included when installing using ``pip install -e .`` or using the singularity container.
+
+.. note::
+
+    For active development on ``coretp``, users should clone the repo and install it using ``pip install -e .`` or using the singularity container. Instructions can be found in the `riscv-coretp README <https://github.com/tenstorrent/riscv-coretp?tab=readme-ov-file#installation>`_.
+
+
 Developing
 -------------------------------------
 

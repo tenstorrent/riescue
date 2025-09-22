@@ -1,0 +1,14 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [ 
+    ],
+    "include_instrs" : [
+        "fmadd.d", "fadd.d", "fmul.d"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ]
+}

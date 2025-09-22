@@ -1,0 +1,92 @@
+{
+    "config":{
+        "v_ext" : {
+            "vlmul" : ["m1","m2","m4","m8"],
+            "vsew" : ["64"],
+            "vset_instr" : ["vsetvl"],
+            "vta" : ["1"],
+            "vma" : ["1"],
+            "avl" : ["vlmax"]
+        },
+        "vector_int_arithmetic" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vector_opmvx_1_data_processing" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfmul.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfmacc.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfnmacc.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfmsac.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfnmsac.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfmadd.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfnmadd.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfmsub.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfnmsub.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfmin.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfmax.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfsgnj.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfsgnjn.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        },
+        "vfsgnjx.vf" : {
+            "configs" : {
+                "vlmul" : ["m1","m2","m4"]
+            }
+        }
+    } 
+}

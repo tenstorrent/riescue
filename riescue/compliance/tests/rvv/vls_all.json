@@ -1,0 +1,23 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [
+        "vector_load_unit_stride",
+        "vector_load_strided",
+        "vector_load_indexed_unordered",
+        "vector_load_indexed_ordered",
+        "vector_load_fault_only_first",
+        "vector_store_unit_stride",
+        "vector_store_strided",
+        "vector_store_indexed_unordered",
+        "vector_store_indexed_ordered"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}

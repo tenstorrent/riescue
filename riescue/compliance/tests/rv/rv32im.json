@@ -1,0 +1,16 @@
+{
+    "arch" : "rv32",
+    "include_extensions" : [
+        "i_ext","m_ext"
+    ],
+    "include_groups" : [ 
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+        "rv32i_mem_order","rv32i_control_transfer_unconditional"
+    ],
+    "exclude_instrs" : [
+        "wfi", "ebreak", "mret", "sret", "ecall", "fence", "fence.i", "c.ebreak"
+    ]
+}

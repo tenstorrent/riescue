@@ -26,7 +26,20 @@ class Page:
     Also, a page belongs to one or more PagingMap
     """
 
-    def __init__(self, name, phys_name, pool: Pool, featmgr: FeatMgr, addrgen: AddrGen, maps=[], pagesize=RV.RiscvPageSizes.S4KB, gstage_pagesize=RV.RiscvPageSizes.S4KB, alias=False, no_pbmt_ncio=0):
+    def __init__(
+        self,
+        name,
+        phys_name,
+        pool: Pool,
+        featmgr: FeatMgr,
+        addrgen: AddrGen,
+        maps=[],
+        pagesize=RV.RiscvPageSizes.S4KB,
+        gstage_pagesize=RV.RiscvPageSizes.S4KB,
+        in_private_map=False,
+        alias=False,
+        no_pbmt_ncio=0,
+    ):
         self.pool = pool
         self.featmgr = featmgr
         self.addrgen = addrgen
@@ -49,6 +62,7 @@ class Page:
         self.lin_addr = None
         self.phys_addr = None
         self.alias = alias  # used for aliasing the page to another page
+        self.in_private_map = in_private_map
         self.no_pbmt_ncio = no_pbmt_ncio
 
         self.attrs = {
@@ -344,10 +358,13 @@ class Page:
     def __str__(self):
         s = f"Page: {self.name}:\n"
         s += f"    phys_name: {self.phys_name}\n"
-        s += f"    lin_addr: {self.lin_addr:016x}\n"
-        s += f"    phys_addr: {self.phys_addr:016x}\n"
+        if self.lin_addr is not None:
+            s += f"    lin_addr: {self.lin_addr:016x}\n"
+        if self.phys_addr is not None:
+            s += f"    phys_addr: {self.phys_addr:016x}\n"
         s += f"    size: {self.size:x}\n"
         s += f"    pagesize: {self.pagesize}\n"
+        s += f"    in_private_map: {self.in_private_map}\n"
 
         s += "    "
         for attr, val in self.attrs.items():

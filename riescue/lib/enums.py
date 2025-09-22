@@ -159,8 +159,8 @@ class RiscvInterruptCause(MyEnum):
 
 
 class RiscvBaseArch(MyEnum):
-    ARCH_RV32I = auto()
-    ARCH_RV64I = auto()
+    ARCH_RV32I = "rv32"
+    ARCH_RV64I = "rv64"
 
 
 class RiscvPageSizes(MyEnum):

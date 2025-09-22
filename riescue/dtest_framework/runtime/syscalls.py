@@ -24,12 +24,11 @@ class SysCalls(AssemblyGenerator):
         self.syscall_table_label = self.featmgr.syscall_table_label
         self.check_exception_label = self.featmgr.check_exception_label
         # Pick correct CSRs based on delegation
+        self.xret = "j excp_exit"
         if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.MACHINE:
             self.xepc = "mepc"
-            self.xret = "mret"
         else:
             self.xepc = "sepc"
-            self.xret = "sret"
 
         self.priv_mode = self.featmgr.priv_mode
         self.paging_mode = self.featmgr.paging_mode
@@ -46,6 +45,8 @@ class SysCalls(AssemblyGenerator):
         code += self.os_fn_f0001003()  # Switch priv to user
         code += self.os_fn_f0001004()  # Switch priv to original test privilege
         code += self.os_get_hartdid()  # Used to get hartid
+        if self.featmgr.cfiles is not None:
+            code += self.os_fn_70003001()  # Memory allocation API
         code += self.ret_from_os_fn()  # return
 
         return code
@@ -94,6 +95,13 @@ class SysCalls(AssemblyGenerator):
             beq x31, t0, os_get_hartdid
 
         """
+        if self.featmgr.cfiles is not None:
+            code += """
+                li t0, 0x70003001   # memmap
+                beq x31, t0, os_fn_70003001
+
+            """
+
         return code
 
     def os_fn_f0001001(self) -> str:
@@ -231,6 +239,28 @@ class SysCalls(AssemblyGenerator):
 
             {self.return_from_syscall()}
         """
+        return code
+
+    def os_fn_70003001(self) -> str:
+        """
+        70003001 : memmap
+        """
+        code = f"""
+        os_fn_70003001:
+            ld a0, 80(x30)
+            ld a1, 88(x30)
+            ld a2, 96(x30)
+            jal os_memmap
+            sd a0, 80(x30)
+            csrr t0, {self.xepc}
+            addi t0, t0, 4
+            j ret_from_os_fn
+        .weak os_memmap
+        os_memmap:
+            li a0, -1
+            ret
+        """
+
         return code
 
     def mstatus_mpp_update(self, switch_to_priv: str) -> str:

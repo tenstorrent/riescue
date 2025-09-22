@@ -1,0 +1,67 @@
+{
+    "config":{
+        "v_ext" : {
+            "vlmul" : ["m1"],
+            "vsew" : ["64"],
+            "vset_instr" : ["vsetvl"],
+            "vta" : ["1"],
+            "vma" : ["1"],
+            "avl" : ["vlmax"]
+        },
+        "f_ext" : {
+            "configs" : {
+                "frm" : ["RTZ","RNE","RDN","RUP","RMM"],
+                "dynamic_rm" : ["static","dynamic"]
+            }
+        },
+        "rv32f_single_precision_reg_reg" : {
+            "configs" : {}
+        },
+            "fadd.s":{ "configs" : {} },
+            "fsub.s":{ "configs" : {} },
+            "fmul.s":{ "configs" : {} },
+            "fdiv.s":{ "configs" : {} },
+        "rv32f_single_precision_reg_reg_reg" : {
+            "configs" : {}
+        },
+            "fnmsub.s":{ "configs" : {} },
+            "fnmadd.s":{ "configs" : {} },
+            "fmadd.s":{ "configs" : {} },
+            "fmsub.s":{ "configs" : {} },
+        "rv32f_single_precision_reg" : {
+            "configs" : {}
+        },
+            "fsqrt.s":{ "configs" : {} },
+        "rv32f_single_precision_compare":{
+            "configs":{}
+        },
+            "fle.s":{ "configs" : {} },
+            "flt.s":{ "configs" : {} },
+            "feq.s":{ "configs" : {} },
+        "rv32f_single_precision_convert_move":{
+            "configs" : {}
+        },
+            "fmv.x.w":{ "configs" : {} },
+            "fmv.w.x":{ "configs" : {} },
+            "fcvt.s.w":{ "configs" : {} },
+            "fcvt.w.s":{ "configs" : {} },
+            "fcvt.wu.s":{ "configs" : {} },
+            "fcvt.s.wu":{ "configs" : {} },
+        "rv32f_single_precision_load_store":{
+            "configs":{}
+        },
+            "flw":{ "configs" : {} },
+            "fsw":{ "configs" : {} },
+        "rv32f_single_precision_classify":{
+            "configs":{}
+        },
+            "fclass.s":{ "configs": {} },
+        "rv64f_single_conversion":{
+            "configs":{}
+        },
+            "fcvt.s.lu":{ "configs": {} },
+            "fcvt.s.l":{ "configs": {} },
+            "fcvt.lu.s":{ "configs": {} },
+            "fcvt.l.s":{ "configs": {} }
+    }
+} 

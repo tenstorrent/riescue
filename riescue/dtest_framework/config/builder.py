@@ -49,7 +49,6 @@ class FeatMgrBuilder:
     ```
     """
 
-    rng: RandNum  # required to choose candidates
     featmgr: FeatMgr = field(default_factory=FeatMgr)
 
     features: list[str] = field(default_factory=list)
@@ -57,8 +56,15 @@ class FeatMgrBuilder:
     # randomized fields
     # Test options
     priv_mode: Candidate[RV.RiscvPrivileges] = field(default_factory=lambda: Candidate.from_enum(RV.RiscvPrivileges))
-    paging_mode: Candidate[RV.RiscvPagingModes] = field(default_factory=lambda: Candidate.from_enum(RV.RiscvPagingModes))
-    paging_g_mode: Candidate[RV.RiscvPagingModes] = field(default_factory=lambda: Candidate.from_enum(RV.RiscvPagingModes))
+    paging_mode: Candidate[RV.RiscvPagingModes] = field(
+        default_factory=lambda: Candidate(
+            RV.RiscvPagingModes.DISABLE,
+            RV.RiscvPagingModes.SV39,
+            RV.RiscvPagingModes.SV48,
+            RV.RiscvPagingModes.SV57,
+        )
+    )
+    paging_g_mode: Candidate[RV.RiscvPagingModes] = field(default_factory=lambda: Candidate(RV.RiscvPagingModes.DISABLE))
     env: Candidate[RV.RiscvTestEnv] = field(default_factory=lambda: Candidate.from_enum(RV.RiscvTestEnv))
     arch: Candidate[RV.RiscvBaseArch] = field(default_factory=lambda: Candidate(RV.RiscvBaseArch.ARCH_RV64I))
     secure_mode: Candidate[RV.RiscvSecureModes] = field(default_factory=lambda: Candidate(RV.RiscvSecureModes.NON_SECURE))
@@ -98,9 +104,11 @@ class FeatMgrBuilder:
         """
         return CliAdapter().apply(self, args)
 
-    def build(self) -> FeatMgr:
+    def build(self, rng: RandNum) -> FeatMgr:
         """
         Where randomization happens. Verbose, but allows for easier debugging
+
+        :param rng: The ``RandNum`` generator should be using randomization.
 
         :returns: A ``FeatMgr`` object with the randomization applied
         """
@@ -116,23 +124,23 @@ class FeatMgrBuilder:
         # is pbmt_ncio_randomization supposed to be pbmt_ncio_probability?
         feature_discovery = featmgr.cpu_config.features
         if feature_discovery.is_feature_supported("svpbmt") and feature_discovery.get_feature_randomize("svpbmt") > 0:
-            if self.rng.with_probability_of(feature_discovery.get_feature_randomize("svpbmt")):
+            if rng.with_probability_of(feature_discovery.get_feature_randomize("svpbmt")):
                 featmgr.pbmt_ncio = True
         if feature_discovery.is_feature_supported("svadu") and feature_discovery.get_feature_randomize("svadu") > 0:
-            if self.rng.with_probability_of(feature_discovery.get_feature_randomize("svadu")):
+            if rng.with_probability_of(feature_discovery.get_feature_randomize("svadu")):
                 featmgr.svadu = True
 
         # Randomization
-        featmgr.priv_mode = self.priv_mode.choose(self.rng)
-        featmgr.paging_mode = self.paging_mode.choose(self.rng)
-        featmgr.paging_g_mode = self.paging_g_mode.choose(self.rng)
-        featmgr.env = self.env.choose(self.rng)
-        featmgr.secure_mode = self.secure_mode.choose(self.rng)
-        featmgr.arch = self.arch.choose(self.rng)
-        featmgr.mp = self.mp.choose(self.rng)
-        featmgr.mp_mode = self.mp_mode.choose(self.rng)
-        featmgr.parallel_scheduling_mode = self.parallel_scheduling_mode.choose(self.rng)
-        featmgr.deleg_excp_to = self.deleg_excp_to.choose(self.rng)
+        featmgr.priv_mode = self.priv_mode.choose(rng)
+        featmgr.paging_mode = self.paging_mode.choose(rng)
+        featmgr.paging_g_mode = self.paging_g_mode.choose(rng)
+        featmgr.env = self.env.choose(rng)
+        featmgr.secure_mode = self.secure_mode.choose(rng)
+        featmgr.arch = self.arch.choose(rng)
+        featmgr.mp = self.mp.choose(rng)
+        featmgr.mp_mode = self.mp_mode.choose(rng)
+        featmgr.parallel_scheduling_mode = self.parallel_scheduling_mode.choose(rng)
+        featmgr.deleg_excp_to = self.deleg_excp_to.choose(rng)
 
         if featmgr.secure_mode:
             featmgr.setup_pmp = True

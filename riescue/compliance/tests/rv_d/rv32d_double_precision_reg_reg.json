@@ -1,0 +1,14 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [ 
+        "rv32d_double_precision_reg_reg"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ]
+}

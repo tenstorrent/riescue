@@ -211,7 +211,7 @@ class TestConfigAdapterTest(unittest.TestCase):
 
     def test_apply_method_with_minimal_valid_header(self):
         """Test the apply method with minimal valid ParsedTestHeader"""
-        builder = FeatMgrBuilder(rng=self.rng)
+        builder = FeatMgrBuilder()
         valid_header = ParsedTestHeader(cpus="1", arch="rv64", env="bare_metal", priv="machine")
 
         result_builder = self.adapter.apply(builder, valid_header)

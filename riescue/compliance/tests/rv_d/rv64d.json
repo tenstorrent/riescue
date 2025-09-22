@@ -1,0 +1,15 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+        "d_ext"
+    ],
+    "include_groups" : [ 
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+        "rv32d_double_precision_classify"
+    ],
+    "exclude_instrs" : [
+    ]
+}

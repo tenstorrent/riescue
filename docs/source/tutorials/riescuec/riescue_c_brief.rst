@@ -1,144 +1,97 @@
 RiescueC Framework Overview
-===========================
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+RiescueC generates RISC-V compliance tests automatically. You provide a JSON configuration file specifying which instructions you want to test, and it creates self-checking assembly tests that run on instruction set simulators.
 
-RiescueC is a comprehensive RISC-V compliance test generation framework designed to create self-checking tests for various RISC-V instruction set extensions. The framework operates through multiple sophisticated modules to generate, execute, and validate RISC-V assembly tests.
+What RiescueC Does
+==================
 
-Core Architecture
-=================
+RiescueC creates randomized RISC-V assembly tests for compliance verification. It provides different avenues for verification, through instruction and architectural compliance scenarios. RiescueC provides differnt modes for each of these avenues.
 
-**Main Entry Point**: ``RiescueC`` class in ``riescuec.py`` serves as the top-level orchestrator with three primary execution modes:
+RiescueC Modes
+==============
 
-- **Compliance Mode**: Full test generation and validation pipeline
-- **Test Plan Mode**: Specialized test generation using test plans
-- **Microprobe Mode**: (Not yet implemented)
+RiescueC operates in three distinct modes, each designed for different verification scenarios.
 
-**Resource Management**: Central ``Resource`` class manages shared state, configuration, and instruction tracking across all modules.
+1. Bringup Mode
 
-Beginner Features
-=================
+**Purpose**: Quick test generation for instruction and extension bringup.
 
-Basic Test Generation
----------------------
+**How to run**:
 
-The framework accepts JSON configuration files specifying:
+.. code-block:: bash
 
-- Instruction extensions to include/exclude (``I``, ``M``, ``F``, ``D``, ``V``, etc.)
-- Specific instruction groups or individual instructions
-- Test parameters and constraints
+   python riescuec --mode bringup --json my_config.json
 
-Simple Workflow
----------------
+**What you get**: Focused tests for specific instructions or extensions with minimal overhead.
 
-1. **Configuration**: Load test specification from JSON file
-2. **Generation**: Create randomized instruction sequences
-3. **Execution**: Run tests on instruction set simulators
-4. **Validation**: Compare results between different simulators
 
-Command Line Interface
-----------------------
+2. Test Plan Mode
 
-Extensive command-line options via ``cmdline.json`` including:
+**Purpose**: Generate tests from ``coretp`` test plans through self-checking architectural scenarios.
 
-- Test file specification (``--json``)
-- Output formatting (``--output_file``)
-- Configuration overrides (``--user_config``, ``--default_config``)
-- Execution modes (``--mode``) (bringup, test_plan, compliance)
 
-Advanced Features
-=================
+3. Compliance Mode
 
-Multi-Pass Test Generation
----------------------------
+**Purpose**: Full compliance test suite generation with comprehensive coverage.
 
-**Two-Pass Architecture**:
 
-- **Pass 1**: Initial test generation and execution to gather runtime information
-- **Pass 2**: Enhanced test generation using Pass 1 results for improved coverage
 
-Sophisticated Instruction Management
-------------------------------------
+Getting Started
+===============
 
-**InstrGenerator**: Handles complex instruction generation with:
+Bringup Mode
+--------------------------------
 
-- Configuration-driven randomization
-- Repeat count management
-- Line count tracking for test size control
-- Shuffled instruction ordering to avoid bias
+Run RiescueC Bringup mode with a Bringup Test JSON file:
 
-**InstrBuilder**: Creates instruction class templates from instruction records
+.. code-block:: bash
 
-**InstrOrganizer**: Performs intelligent shuffling of instruction sequences
+   python riesceuc --mode bringup --json my_test.json -o my_test
 
-Advanced Configuration System
-------------------------------
+Example JSON configuration:
 
-**Multi-Level Configuration**:
+.. literalinclude:: ../../../../riescue/compliance/tests/rv_i/rv64i.json
+    :language: json
 
-- Default configurations for standard setups
-- User-defined overrides for customization
-- Floating-point specific configurations
-- Extension-specific parameter files
 
-Simulator Integration
----------------------
+Configuration
+=============
 
-**Dual ISS Support**:
+- ``arch``: Architecture (rv32/rv64)
+- ``include_extensions``: Extensions to test
+- ``include_groups``: Instruction groups to include
+- ``include_instrs``: Specific instructions to include
+- ``exclude_groups``: Instruction groups to exclude
+- ``exclude_instrs``: Specific instructions to exclude
 
-- **Whisper**: Primary instruction set simulator
-- **Spike**: Alternative simulator for cross-validation
-- **Comparator**: Automated result comparison between simulators
+Here
+Example bringup test files are in ``riescue/compliance/tests/``.
 
-Test Plan Integration
----------------------
 
-**TestPlanRunner**: Advanced test generation using structured test plans:
+Two-Pass Generation
+===================
 
-- Memory management tests (paging, SVADU, SINVAL)
-- Configurable test environments
-- Randomized test scenario generation
+RiescueC uses a two-pass approach:
 
-Resource Optimization
-----------------------
+1. **First Pass**: Generates initial test and runs it on Spike simulator to gather execution data
+2. **Second Pass**: Uses first pass results to create enhanced self-checking tests
 
-**Smart Resource Management**:
+What You Get
+============
 
-- Instruction line counting to prevent oversized tests
-- Early bailout mechanisms for efficiency
-- Configurable maximum instructions per file
-- Memory-conscious instruction tracking
+RiescueC produces a a handful of files as part of the generation flow. Use ``--run_dir`` to specify a directory to place output files.
+The final test ELF will have the name of the Bringup Test JSON file combined with ``_1`` and ``_2`` for their respective passes. ``_2`` includes the self-checking instructions.
 
-Extensibility Framework
------------------------
+You can also use ``-o`` to specify an output filename. E.g. ``-o my_test`` will produce a test ELF file ``my_test``. Along with the ELF you can find a handful of other files.
 
-**Modular Design**:
+- ``.s`` files: Generated assembly tests
+- ``.log`` files: Simulation results
+- ``.dis`` files: Disassembled output for debugging
 
-- Plugin-based extension support
-- Configurable parser extensions
-- Flexible toolchain integration (Compiler, Disassembler, Spike, Whisper)
 
-Technical Implementation Details
-================================
+Next Steps
+==========
 
-Core Modules
-------------
-
-- **TestGenerator**: Manages multi-pass test creation with header generation and state tracking
-- **Runner**: Wraps RiescueD framework for test execution with experimental configuration support
-- **Comparator**: Performs sophisticated log comparison between different ISS runs
-
-Configuration Management
--------------------------
-
-The framework uses a hierarchical configuration system with JSON files for:
-
-- Architecture-specific defaults (``rv64_IMFV.json``)
-- Extension-specific parameters (``rv_d_f_zfh.json``)
-- User customizations and overrides
-- Floating-point instruction configurations
-
-Output Formats
---------------
-
-Supports multiple output formats including assembly (``.s``), disassembly (``.dis``), logs (``.log``), and preprocessed assembly (``.S``).
-
-The framework provides both beginner-friendly JSON-based configuration and advanced programmatic control for sophisticated test generation scenarios, making it suitable for both basic compliance testing and complex verification workflows.
+- Try the bringup mode tutorial for hands-on examples
+- Check the configuration examples for your target extensions
+- Use test plan mode for advanced verification scenarios

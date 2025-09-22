@@ -1,0 +1,16 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [ 
+        "rvv_vec_int_extension"       
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+
+    ],
+    "iss" : "whisper"
+}

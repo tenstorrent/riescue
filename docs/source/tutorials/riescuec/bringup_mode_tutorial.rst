@@ -1,67 +1,48 @@
 Bringup Mode Tutorial
 =====================
 
-Bringup mode provides a simplified testing approach for initial RISC-V core validation and feature enablement.
+Bringup mode provides a self-checking testing for RISC-V instructions and extensions. It requires a Bringup Test JSON file and a CPU configuration file.
 
-What is Bringup Mode?
----------------------
-
-Bringup mode is designed for early-stage RISC-V implementation validation. It focuses on:
-
-* Basic instruction execution verification
-* Progressive feature enablement
-* Simplified test generation with minimal configuration
-* Quick validation cycles for hardware bringup
-
-Key characteristics:
-
-* Reduced complexity compared to full compliance mode
-* Targeted instruction subset testing
-* Streamlined configuration requirements
-* Fast iteration for debugging
 
 Configuring Bringup Mode
 -------------------------
 
-To run in bringup mode, specify ``--mode bringup`` in your command line:
+To run in bringup mode, write a Bringup Test JSON file, like this one:
 
+.. literalinclude:: ../../../../riescue/compliance/tests/rv_i/rv64i.json
+    :language: json
+
+Running a bringup test
+----------------------
 .. code-block:: bash
 
    riescue_c.py --mode bringup --json basic_test.json
 
-Basic JSON configuration for bringup mode:
 
-.. code-block:: json
 
-   {
-       "arch": "rv64",
-       "include_extensions": ["i_ext"],
-       "include_instrs": ["addi", "add", "sub", "lui", "auipc"],
-       "exclude_instrs": ["wfi", "ebreak", "mret", "sret", "ecall"],
-       "max_instructions": 100
-   }
+All fields above are mandatory and it'll raise an error if any are missing.
 
-Bringup Test Workflow
-----------------------
+Arch can be ``rv32`` or ``rv64`` and controls the set of instructions selected for a test.
 
-The bringup workflow follows these steps:
+.. warning::
 
-1. **Minimal Configuration**: Start with basic integer instructions
-2. **Test Generation**: Generate small, focused test cases
-3. **Execution**: Run tests on target simulator or hardware
-4. **Validation**: Verify expected behavior
-5. **Incremental Expansion**: Add more instructions/features
+   Note that ``rv32`` *only* selects instructions supported by the 32-bit instruction set. ``rv64`` selects both 32-bit and 64-bit instructions.
 
-Example workflow:
+   This doesn't mean that tests are running on an ``XLEN`` of 32. Currently only ``XLEN`` of 64 is supported. Future support will add 32-bit ``XLEN`` support.
 
-.. code-block:: bash
 
-   # Start with basic integer instructions
-   riescue_c.py --mode bringup --json rv64i_basic.json
+**include_groups**: List of instruction groups to include in testing. Groups organize related instructions together for easier test configuration.
 
-   # Add memory operations
-   riescue_c.py --mode bringup --json rv64i_memory.json
+**include_instrs**: List of specific instruction names to include in the test generation. Use this for precise control over which instructions are tested.
 
-   # Include control flow
-   riescue_c.py --mode bringup --json rv64i_branches.json
+**exclude_groups**: List of instruction groups to exclude from testing. Useful for removing entire categories of instructions.
 
+**exclude_instrs**: List of specific instruction names to exclude from testing. Common exclusions include system instructions like ``wfi``, ``ebreak``, ``mret``, ``sret``, and ``ecall`` that do not have any architecture behavior in an ISS.
+
+
+
+Next Steps
+----------
+
+- Learn more about CPU configuration in :doc:`../cpu_configuration`
+- Learn about Test Plan Mode in :doc:`test_plan_tutorial`

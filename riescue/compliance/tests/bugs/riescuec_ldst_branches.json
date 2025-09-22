@@ -1,0 +1,22 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [ 
+        "rv64i_load_store",
+        "rv64i_compute_register_register",
+        "rv64i_compute_register_immediate",
+        "rv64i_shift",
+        "rv32i_load_store",
+        "rv32i_compute_register_register",
+        "rv32i_compute_register_immediate",
+        "rv32i_control_transfer_conditional",
+        "rv32i_control_transfer_unconditional"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ]
+}

@@ -1,0 +1,16 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [
+        "vector_opmvv_4_data_processing",
+        "vector_opmvv_macc"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}
