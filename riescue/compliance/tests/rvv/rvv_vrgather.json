@@ -1,0 +1,19 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+        "vrgather.vv",
+        "vrgatherei16.vv",
+        "vrgather.vi",
+        "vrgather.vx"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+
+    ],
+    "iss" : "whisper"
+}

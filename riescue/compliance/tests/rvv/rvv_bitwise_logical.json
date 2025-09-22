@@ -1,0 +1,24 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+        "vand.vv",        
+        "vand.vx",        
+        "vand.vi",       
+        "vor.vv",         
+        "vor.vx",         
+        "vor.vi",        
+        "vxor.vv",       
+        "vxor.vx",        
+        "vxor.vi"       
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+
+    ],
+    "iss" : "whisper"
+}

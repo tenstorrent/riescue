@@ -1,0 +1,2 @@
+#!/bin/sh
+./riescue_c.py --json compliance/tests/rvv/rvv.json --max_instrs=100

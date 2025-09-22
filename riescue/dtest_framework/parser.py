@@ -39,7 +39,6 @@ class Parser:
         self.reserve_memory = dict()
         self.random_data = dict()
         self.random_addrs = dict()
-        self.page_mappings = dict()
         self.test_header = ParsedTestHeader()
         self.discrete_tests = dict()
 
@@ -303,117 +302,22 @@ class Parser:
         line = line.replace(gstage_vs_nonleaf_pagesize_str, "")
         line = line.replace(pagemap_str, "")
         match = re.match(pattern, line)
-        fixed_addr_specified = False
         if match:
             ppm_inst = ParsedPageMapping()
+            ppm_inst.__setattr__("source_line", line)
+            generate_time_process_args = []
             args = match.group(2).replace(" ", "")
             args = args.split(",")
             args = list(filter(None, args))
             for arg in args:
-                # print(f'arg: {arg}')
                 var = arg.split("=")[0]
                 val = arg.split("=")[1]
-                if re.match(r"lin_name", var):
-                    # Do additional check if we have linked page_mappings
-                    match = re.search(r"(\w+)\+(\w+)", val)
-                    if match:
-                        # Find the parent parsedpagemap instance
-                        parent = match.group(1)
-                        parent_ppm_inst = self.pool.get_parsed_page_mapping(parent)
-                        parent_ppm_inst.linked_page_mappings.append(ppm_inst)
-                        parent_ppm_inst.has_linked_ppms = True
-                        ppm_inst.is_linked = True
-                        # The text after + in lin_name has the starting offset for the linked ppm
-                        ppm_inst.linked_ppm_offset = int(match.group(2), 16)
 
-                if re.match(r"lin_addr|phys_addr", var):
-                    if common.is_number(val):
-                        if var == "lin_addr":
-                            ppm_inst.lin_name = f"__auto_lin_{val}"
-                        elif var == "phys_addr":
-                            ppm_inst.phys_name = f"__auto_phys_{val}"
-                        fixed_addr_specified = True
-                    else:
-                        suggestion = ""
-                        if val == "&random":
-                            suggestion = f"Maybe you should use phys_name={val}\n"
-                        raise ValueError(f"{var}={val} must be a number for entry:\n \t{line}\n {suggestion}")
-                    if var == "lin_addr":
-                        ppm_inst.lin_addr_specified = True
-                    elif var == "phys_addr":
-                        ppm_inst.phys_addr_specified = True
-
-                # Match all the gstage_vs_* attributes
-                if not (re.match(r"lin_name|phys_name|lin_addr|phys_addr|pagesize|g_(.+)|v_(.+)|a_(.+)|d_(.+)|u_(.+)|w_(.+)|r_(.+)|x_(.+)|page_maps|secure", var)):
+                if var == "lin_name" or var == "phys_name" or var == "lin_addr" or var == "phys_addr":
+                    generate_time_process_args.append([var, val])
+                elif not (re.match(r"pagesize|g_(.+)|v_(.+)|a_(.+)|d_(.+)|u_(.+)|w_(.+)|r_(.+)|x_(.+)|page_maps|secure", var)):
                     val = int(val, 0)
 
-                # if (re.match(r'pagesize', var)):
-                #     # pagesize argument looks like pagesize=['4kb', '2mb', '1gb']
-                #     # Match everything between [] from args an process entire list here and remove the
-                #     # entire pagesize argument with value from args
-                #     pagesizes = re.search(r'\[(.+)\]', line).group(1).replace(' ', '')
-                #     print(f'var: {val}')
-
-                #     extract = re.findall(r"pagesize=\[.*?\]", line)[0]
-                #     line = line.replace(extract, "")
-                #     extract = extract.replace('[', "")
-                #     extract = extract.replace(']', "")
-
-                #     print(f'extract: {extract}')
-
-                #     # ps = re.findall("\'(.*?)\'", val)[0]
-                #     # This is very stupid logic, sorry about that
-                #     # The first time we hit pagesize=['4kb', as the arg, we need to collect all
-                #     # the elements from the pagesize array defined in the line
-                #     # At the same time, we also need to remove the entire pagesize=[...] from the line
-                #     # so that we don't have next arg values like '2mb'|'1gb' etc without var
-                #     pagesizes_to_set = list()
-                #     for _pagesize in pagesizes.split(','):
-                #         # We still get quotes around the value, so remove them
-                #         pagesize = re.sub('\W+', '', _pagesize)
-                #         # setattr(ppm_inst, f'_{pagesize}', True)
-                #         pagesizes_to_set.append(pagesize)
-                #         for item in args:
-                #             if pagesize in item:
-                #                 args.pop(args.index(item))
-                #     if var == 'pagesize':
-                #         ppm_inst.pagesizes = pagesizes_to_set
-                #     elif var == 'page_maps':
-                #         ppm_inst.page_maps = pagesizes_to_set
-
-                # if (re.match(r'page_maps', var)):
-                #     # pagesize argument looks like pagesize=['4kb', '2mb', '1gb']
-                #     # Match everything between [] from args an process entire list here and remove the
-                #     # entire pagesize argument with value from args
-                #     pagesizes = re.search(r'\[(.+)\]', line).group(1).replace(' ', '')
-                #     print(f'pagemap: {pagesizes}')
-                #     # This is very stupid logic, sorry about that
-                #     # The first time we hit pagesize=['4kb', as the arg, we need to collect all
-                #     # the elements from the pagesize array defined in the line
-                #     # At the same time, we also need to remove the entire pagesize=[...] from the line
-                #     # so that we don't have next arg values like '2mb'|'1gb' etc without var
-                #     pagesizes_to_set = list()
-                #     for _pagesize in pagesizes.split(','):
-                #         # We still get quotes around the value, so remove them
-                #         pagesize = re.sub('\W+', '', _pagesize)
-                #         # setattr(ppm_inst, f'_{pagesize}', True)
-                #         pagesizes_to_set.append(pagesize)
-                #         for item in args:
-                #             if pagesize in item:
-                #                 args.pop(args.index(item))
-                #     if var == 'pagesize':
-                #         ppm_inst.pagesizes = pagesizes_to_set
-                #     elif var == 'page_maps':
-                #         ppm_inst.page_maps = pagesizes_to_set
-
-                if var == "phys_name":
-                    if val == "&random":
-                        ppm_inst.resolve_priority = 20
-                    # Check if phys_name exists in any value instance in ppm
-                    exists = any(ppm.phys_name == val for ppm in self.pool.get_parsed_page_mappings().values())
-                    if exists:
-                        log.debug(f"phys_name {val} already exists in another page mapping, marking as alias case")
-                        ppm_inst.alias = True
                 ppm_inst.__setattr__(var, val)
 
             # Refactor following code
@@ -634,10 +538,6 @@ class Parser:
                 # Remove spaces, quotes and convert to python list
                 extracted = re.findall(r"(\d+)", secure_str)[0].replace(" ", "").replace("'", "").split(",")
                 ppm_inst.secure = bool(int(extracted[0]))
-                # Also find the corrosponding physical address instance and mark it secure there
-                phys_name = ppm_inst.phys_name
-                phys_inst = self.pool.get_parsed_addr(phys_name)
-                phys_inst.secure = True
 
             if pagemap_str != "":
                 # Extract actual sizes from "pagesize=['4kb', '2mb', '1gb', '512gb', '256tb', 'any'])"
@@ -645,12 +545,9 @@ class Parser:
                 extracted = re.findall(r"\[(.*?)\]", pagemap_str)[0].replace(" ", "").replace("'", "").split(",")
                 ppm_inst.page_maps = extracted
 
-            if fixed_addr_specified:
-                ppm_inst.resolve_priority = 15
-
-            if not ppm_inst.is_linked:
-                self.page_mappings[ppm_inst.lin_name] = [ppm_inst]
-                self.pool.add_parsed_page_mapping(ppm_inst)
+            ppm_inst.__setattr__("pagemap_str", pagemap_str)
+            ppm_inst.__setattr__("gen_time_proc", generate_time_process_args)
+            self.pool.add_raw_parsed_page_mapping(ppm_inst)
 
     def parse_page_maps(self, line):
         pattern = r"^;#(page_map)\((.+)\)"
@@ -687,9 +584,33 @@ class Parser:
             self.discrete_tests[testname] = testname
             self.pool.add_parsed_discrete_test(testname)
 
+    @staticmethod
+    def separate_lin_name_map(line):
+        lin_name_maps = re.findall(r"@(.+)", line)[0]
+        lin_name_maps_sep = lin_name_maps.split(":")
+        ret = []
+        if len(lin_name_maps_sep) == 1:
+            ret.append(lin_name_maps.strip())
+            ret.append([])
+        else:
+            ret.append(lin_name_maps_sep[0].strip())
+            maps = lin_name_maps_sep[1].split(",")
+            for i in range(0, len(maps)):
+                maps[i] = maps[i].strip()
+            ret.append(maps)
+        return ret
+
     def parse_init_mem(self, line):
         lin_name = re.findall(r"@(.+)", line)[0]
-        self.pool.add_parsed_init_mem_addr(lin_name)
+        lin_name_maps = self.separate_lin_name_map(line)
+        if len(lin_name_maps[1]) == 0:
+            lin_name = lin_name_maps[0]
+            self.pool.add_parsed_init_mem_addr(lin_name)
+        else:
+            lin_name = lin_name_maps[0].strip()
+            maps = lin_name_maps[1]
+            for m in maps:
+                self.pool.add_parsed_init_mem_addr(f"{lin_name}_{m.strip()}")
 
     def parse_sections(self, line):
         section_name = re.findall(r".section .(\w+)", line)[0]
@@ -824,6 +745,7 @@ class ParsedRandomAddress:
 class ParsedPageMapping:
     lin_name: str = ""
     phys_name: str = ""
+    in_private_map: bool = False
     v: bool = True
     v_leaf: bool = True
     v_nonleaf: bool = True
@@ -943,7 +865,7 @@ class ParsedTestHeader:
     secure_mode: str = ""
     cpus: str = ""
     paging: str = ""
-    paging_g: str = "disable"
+    paging_g: str = ""
     arch: str = ""
     group: str = ""
     features: str = ""

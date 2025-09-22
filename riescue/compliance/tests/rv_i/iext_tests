@@ -1,0 +1,3 @@
+#!/bin/sh
+./riescue_c.py --json compliance/tests/rv_i/rv32i.json --max_instrs=1000  
+./riescue_c.py --json compliance/tests/rv_i/rv64i.json --max_instrs=1000

@@ -1,0 +1,131 @@
+{
+        "config":{
+                "rv_v_fp_convert": {
+                        "configs":{
+                        "vlmul" : ["mf2", "m1", "m2"],
+                        "vsew" : ["8","16","32","64"]
+                        }
+                },
+                "rv_v_fp_muldiv": {
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2"],
+                                "vsew" : ["16", "32", "64"]
+                                }
+                },
+                "rv_v_fp_fma_s": {
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2"],
+                                "vsew" : ["16", "32", "64"]
+                                }
+                },
+                "rv_v_fp_minmax": {
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2"],
+                                "vsew" : ["16", "32", "64"]
+                                }
+                },
+                "rv_v_fp_signinj":{
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2"],
+                                "vsew" : ["16", "32", "64"]
+                                }
+                },
+                "rv_v_fp_class":{
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2"],
+                                "vsew" : ["16", "32", "64"]
+                                }
+                },
+                "rv_v_fp_merge":{
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2"],
+                                "vsew" : ["16", "32", "64"]
+                                }
+                },
+                "rv_v_fp_move":{
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2"],
+                                "vsew" : ["16", "32", "64"]
+                                }
+                },
+                "rv_v_fp_addsub_s": {
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2"],
+                                "vsew" : ["16", "32", "64"]
+                                }
+                },
+                "rvv_fp_sqrt": {
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2"],
+                                "vsew" : ["16", "32", "64"]
+                                }
+                },
+                "rvv_fp_rec_sqrt_est": {
+                  "configs":{
+                          "vlmul" : ["mf2", "m1", "m2"],
+                          "vsew" : ["16", "32", "64"]
+                          }
+                }, 
+                "rvv_fp_rec_est": {
+                  "configs":{
+                          "vlmul" : ["mf2", "m1", "m2"],
+                          "vsew" : ["16", "32", "64"]
+                          }
+                }, 
+                "rvv_fp_compare": {
+                  "configs":{
+                          "vlmul" : ["mf2", "m1", "m2"],
+                          "vsew" : ["16", "32", "64"]
+                          }
+                }, 
+                "rvv_fp_widening_add_sub": {
+                  "configs":{
+                          "vlmul" : ["mf2", "m1", "m2"],
+                          "vsew" : ["16", "32"]
+                          }
+                }, 
+                "rvv_fp_widening_mul": {
+                  "configs":{
+                          "vlmul" : ["mf2", "m1", "m2"],
+                          "vsew" : ["16", "32"]
+                          }
+                }, 
+                "rvv_fp_widening_mac": {
+                  "configs":{
+                          "vlmul" : ["mf2", "m1", "m2"],
+                          "vsew" : ["16", "32"]
+                          }
+                }, 
+                "rvv_fp_slides": {
+                  "configs":{
+                          "vlmul" : ["mf2", "m1", "m2"],
+                          "vsew" : ["16", "32", "64"]
+                          }
+                }, 
+                "zvbb" :
+                {
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2"],
+                                "vsew" : ["8", "16", "32", "64"]
+                                }
+                },
+                "vwsll.vv": {
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2", "m4"],
+                                "vsew" : ["8", "16", "32"]
+                                }
+                },
+                "vwsll.vi": {
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2", "m4"],
+                                "vsew" : ["8", "16", "32"]
+                                }
+                },
+                "vwsll.vx": {
+                        "configs":{
+                                "vlmul" : ["mf2", "m1", "m2", "m4"],
+                                "vsew" : ["8", "16", "32"]
+                                }
+                }
+        }
+} 

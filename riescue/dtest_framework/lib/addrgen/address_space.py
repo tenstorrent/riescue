@@ -127,10 +127,11 @@ class AddressSpace:
         self.rng.shuffle(_list)
         for i in _list:
             cluster = self.clusters[i]
-            log.debug(f"Trying to generate address with cluster: {cluster.cluster_id}")
-            log.debug(f"Pre allocation cluster details:\n {cluster}")
-            log.debug(f"Trying to generate address with cluster: {cluster.cluster_id}")
-            log.debug(f"Pre allocation cluster details:\n {cluster}")
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug(f"Trying to generate address with cluster: {cluster.cluster_id}")
+                log.debug(f"Pre allocation cluster details:\n {cluster}")
+                log.debug(f"Trying to generate address with cluster: {cluster.cluster_id}")
+                log.debug(f"Pre allocation cluster details:\n {cluster}")
 
             # 2. Step 2
             uclusters = cluster.find_ucluster(constraint)
@@ -143,8 +144,8 @@ class AddressSpace:
                     continue
                 log.debug(f"allocated: 0x{addr:016x} - " f"0x{addr+constraint.size-1:016x} " f"in cluster {cluster.cluster_id}")
                 self.total_allocated_address += 1
-                log.debug(f"Post allocation cluster details:\n {cluster}")
-                log.debug(f"Post allocation cluster details:\n {cluster}")
+                if log.isEnabledFor(logging.DEBUG):
+                    log.debug(f"Post allocation cluster details:\n {cluster}")
 
                 return addr
             else:
@@ -167,7 +168,8 @@ class AddressSpace:
 
         # Use random qualifier if no qualifier specified
         sub_clusters = list(self.sub_clusters.keys())
-        log.debug(f"sub_clusters: {sub_clusters}")
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(f"sub_clusters: {sub_clusters}")
 
         if len(qualifiers) == 0:
             if constraint.type == RV.AddressType.PHYSICAL:
@@ -201,11 +203,13 @@ class AddressSpace:
                 raise AddrGenError(f"No compatible clusters found for {constraint}")
 
         cluster_list2 = []
-        log.debug(f"clusters: {clusters}")
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(f"clusters: {clusters}")
         for i in clusters:
             cluster = self.clusters[i]
-            log.debug(f"find cluster: {cluster}")
-            log.debug(f"cluster {i} available_memory: {cluster.available_memory:x}, size: {size:x}")
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug(f"find cluster: {cluster}")
+                log.debug(f"cluster {i} available_memory: {cluster.available_memory:x}, size: {size:x}")
             if cluster.available_memory < size:
                 log.debug(f"cluster {i} available_memory: {cluster.available_memory:x}, size: {size:x}")
                 log.debug(f"not enough memory in cluster {i}")
@@ -245,5 +249,6 @@ class AddressSpace:
             if common.bitn(address_mask, i):
                 possible_clusters.add(i)
 
-        log.debug(f"possible_clusters: {possible_clusters}")
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(f"possible_clusters: {possible_clusters}")
         return possible_clusters

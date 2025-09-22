@@ -1,0 +1,15 @@
+{
+    "arch" : "rv32",
+    "include_extensions" : [
+        "c_ext"
+    ],
+    "include_groups" : [ 
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+        "c.ebreak"
+    ]
+}

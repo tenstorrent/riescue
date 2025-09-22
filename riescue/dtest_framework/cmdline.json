@@ -117,6 +117,18 @@
                     "choices" : ["on", "off", "random"],
                     "help": "Specify secure mode for the test to be forced. e.g. \n\t--test_secure_mode random \nIf random is selected then the probability of secure mode is 20%%"
                 },
+                "private_maps": {
+                    "name": ["--private_maps"],
+                    "action": "store_true",
+                    "help": "Setup isolated page map address spaces"
+                },
+                "cfiles": {
+                    "name": ["--cfile"],
+                    "default": "",
+                    "type": "Path",
+                    "action": "append",
+                    "help": "Use runtime c-files that must be specified with this arg. Can be specified multiple times"
+                },
                 "enable_machine_paging": {
                     "name": ["--enable_machine_paging"],
                     "action": "store_true",

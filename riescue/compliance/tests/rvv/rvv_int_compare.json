@@ -1,0 +1,35 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+        "vmseq.vv", 
+        "vmsne.vv", 
+        "vmsle.vv", 
+        "vmslt.vv",
+        "vmseq.vx",
+        "vmsltu.vv",
+        "vmsleu.vv",
+        "vmsne.vx", 
+        "vmslt.vx", 
+        "vmsle.vx", 
+        "vmsgt.vx",
+        "vmsleu.vx",
+        "vmsltu.vx",
+        "vmsgtu.vx", 
+        "vmseq.vi",
+        "vmsne.vi",
+        "vmsgt.vi",
+        "vmsle.vi", 
+        "vmsleu.vi",
+        "vmsgtu.vi" 
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+
+    ],
+    "iss" : "whisper"
+}

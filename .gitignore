@@ -34,6 +34,7 @@ _build*
 tt_spike/
 spike/
 smoke_out/
+riescue.egg-info/
 
 # Bazel artifacts
 test_info.txt

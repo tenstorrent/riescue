@@ -62,17 +62,17 @@
       "io2": {
         "address" : "0x200_c000",
         "size" : "0x5ff_4000",
-        "test_access" : "available"
+        "test_access": true
       },
       "io3": {
         "address": "0x7000_0010",
         "size": "0xfff_fff0",
-        "test_access" : "available"
+        "test_access": true
       },
       "io4": {
         "address": "0x1a0_c000",
         "size": "0x5f_4000",
-        "test_access" : "available"
+        "test_access": true
       },
       "clint": {
         "address": "0x200_0000",
@@ -85,7 +85,7 @@
       "uart0": {
         "address": "0x200_0000",
         "size": "0x20",
-        "test_access" : "available"
+        "test_access": true
       },
       "maplic": {
         "address": "0x1080_0000",

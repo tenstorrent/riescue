@@ -1,0 +1,17 @@
+{
+  "arch" : "rv64",
+  "include_extensions" : [
+  ],
+  "include_groups" : [        
+    "rvv_fp_sqrt",
+    "rvv_fp_rec_sqrt_est",
+    "rvv_fp_rec_est"
+  ],
+  "include_instrs" : [
+  ],
+  "exclude_groups" : [
+  ],
+  "exclude_instrs" : [
+  ],
+  "iss" : "whisper"
+}

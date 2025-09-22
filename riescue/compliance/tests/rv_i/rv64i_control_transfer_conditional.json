@@ -1,0 +1,15 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [ 
+        "rv32i_control_transfer_conditional",
+        "rv64i_compute_register_register", "rv32i_compute_register_register"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ]
+}

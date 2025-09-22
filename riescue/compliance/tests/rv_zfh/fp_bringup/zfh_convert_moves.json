@@ -1,0 +1,15 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+        
+    ],
+    "include_groups" : [ 
+        "rv32zfh_half_precision_convert_move", "rv32d_zfh_half_double_conversion"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ]
+}

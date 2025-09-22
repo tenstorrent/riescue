@@ -1,0 +1,35 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [        
+    ],
+    "include_instrs" : [
+
+        "vmand.mm",  
+        "vmnand.mm", 
+        "vmandnot.mm", 
+        "vmxor.mm",  
+        "vmor.mm",  
+        "vmnor.mm",  
+        "vmornot.mm",  
+        "vmxnor.mm",
+        "vcpop.m",
+        "vfirst.m",
+        "vmsbf.m" ,
+        "vmsof.m" ,
+        "vmsif.m" ,
+        "viota.m" 
+
+
+
+
+
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+
+    ],
+    "iss" : "whisper"
+}

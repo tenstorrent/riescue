@@ -26,14 +26,42 @@ class InterruptServiceRoutine:
     :param label: Label for the ISR
     :param code: ISR code to execute
     :param indirect: Whether the ISR is indirect (e.g. a function call)
+    :param indirect_pointer: Whether the ISR is indirect (e.g. a function call)
+    :param indirect_pointer_label: Memory pointer to ISR. Used to jump to locations very far away (avoids ``relocation truncated to fit`` error)
     """
 
     def __init__(self, label: str, indirect: bool = False):
         self.label = label
         self.indirect = indirect
+        self.jump_table_label = f"_{self.label}_jump_table"
+        self.interrupt_handler_pointer = f"_{self.label}_handler_pointer"
 
     def interrupt_table_entry(self) -> str:
-        return f"    j {self.label}"
+        if self.indirect:
+            return f"    j {self.jump_table_label}"
+        else:
+            return f"    j {self.label}"
+
+    def indirect_jump_table_entry(self) -> str:
+        """
+        Returns a jump table entry for an indirect ISR.
+        If it's needed this should include a pointer to the ISR in memory, to load into a register and then jump to.
+
+
+        :raises: ValueError if the ISR is not indirect
+        """
+        if not self.indirect:
+            raise ValueError("cannot generate a jump table entry for a non-indirect ISR")
+        # create pointer to ISR and load pointer before jumping. Avoids relocation truncated to fit error.
+        jump_table_entry = [
+            f"{self.interrupt_handler_pointer}:",
+            f"    .dword {self.label}",
+            "\n",
+            f"{self.jump_table_label}:",
+        ]
+        jump_table_entry.append(f"    ld t0, {self.interrupt_handler_pointer}")
+        jump_table_entry.append(f"    jr t0")
+        return "\n".join(jump_table_entry)
 
 
 class InterruptHandler:
@@ -141,6 +169,7 @@ class InterruptHandler:
         code.append(f"{self.trap_entry_label}:")
         code.append(f"    j {self.default_trap_handler_label}")
         code.append(self._generate_interrupt_vector_table())
+        code.append(self._generate_interrupt_jump_table())
         return "\n".join(code)
 
     def _generate_interrupt_equates(self) -> str:
@@ -215,6 +244,21 @@ class InterruptHandler:
         vector_table.extend([self.vector_table[i].interrupt_table_entry() for i in range(1, self.vector_count)])
         return "\n".join(vector_table)
 
+    def _generate_interrupt_jump_table(self) -> str:
+        """
+        Generates the Interrupt Jump Table.
+        User-defined vectors are added to the interrupt table, but might be too far away.
+        Instead need to generate a jump table for each vector, in format ``_{interrupt_handler_name}_jump_table``
+
+        """
+        jump_table = []
+        for vector in self.vector_table.values():
+            if vector.indirect:
+                jump_table.append(vector.indirect_jump_table_entry())
+        # jump_table = [f"{self.indirect_jump_table_entry()}:"]
+        # jump_table.extend([self.vector_table[i].interrupt_jump_table_entry() for i in range(1, self.vector_count)])
+        return "\n" + "\n".join(jump_table)
+
     def _generate_default_isrs(self) -> str:
         """
         Generates default ISRs - clear interrupt bit and return
@@ -256,6 +300,77 @@ class TrapHandler(AssemblyGenerator):
         self.env = self.featmgr.env
         self.paging_mode = self.featmgr.paging_mode
         self.deleg_excp_to = self.featmgr.deleg_excp_to
+        if self.featmgr.cfiles is None:
+            self.save_regs = ""
+            self.restore_regs = ""
+        else:
+            self.save_regs = f"""
+                add sp, sp, -256
+                sd x1, 8(sp)
+                sd x3, 24(sp)
+                sd x4, 32(sp)
+                sd x5, 40(sp)
+                sd x6, 48(sp)
+                sd x7, 56(sp)
+                sd x8, 64(sp)
+                sd x9, 72(sp)
+                sd x10, 80(sp)
+                sd x11, 88(sp)
+                sd x12, 96(sp)
+                sd x13, 104(sp)
+                sd x14, 112(sp)
+                sd x15, 120(sp)
+                sd x16, 128(sp)
+                sd x17, 136(sp)
+                sd x18, 144(sp)
+                sd x19, 152(sp)
+                sd x20, 160(sp)
+                sd x21, 168(sp)
+                sd x22, 176(sp)
+                sd x23, 184(sp)
+                sd x24, 192(sp)
+                sd x25, 200(sp)
+                sd x26, 208(sp)
+                sd x27, 216(sp)
+                sd x28, 224(sp)
+                sd x29, 232(sp)
+                sd x30, 240(sp)
+                sd x31, 248(sp)
+                mv x30, sp
+            """
+            self.restore_regs = f"""
+                    ld x1, 8(sp)
+                    ld x3, 24(sp)
+                    ld x4, 32(sp)
+                    ld x5, 40(sp)
+                    ld x6, 48(sp)
+                    ld x7, 56(sp)
+                    ld x8, 64(sp)
+                    ld x9, 72(sp)
+                    ld x10, 80(sp)
+                    ld x11, 88(sp)
+                    ld x12, 96(sp)
+                    ld x13, 104(sp)
+                    ld x14, 112(sp)
+                    ld x15, 120(sp)
+                    ld x16, 128(sp)
+                    ld x17, 136(sp)
+                    ld x18, 144(sp)
+                    ld x19, 152(sp)
+                    ld x20, 160(sp)
+                    ld x21, 168(sp)
+                    ld x22, 176(sp)
+                    ld x23, 184(sp)
+                    ld x24, 192(sp)
+                    ld x25, 200(sp)
+                    ld x26, 208(sp)
+                    ld x27, 216(sp)
+                    ld x28, 224(sp)
+                    ld x29, 232(sp)
+                    ld x30, 240(sp)
+                    ld x31, 248(sp)
+                    add sp, sp, 256
+            """
 
     def generate(self) -> str:
         self.xcause = "scause"
@@ -269,7 +384,7 @@ class TrapHandler(AssemblyGenerator):
             self.xip = "mip"
 
         for interrupts in self.pool.parsed_vectored_interrupts:
-            self.interrupt_handler.register_vector(interrupts.index, interrupts.label)
+            self.interrupt_handler.register_vector(interrupts.index, interrupts.label, indirect=True)
 
         code = f"""
         .section .text
@@ -277,7 +392,8 @@ class TrapHandler(AssemblyGenerator):
         {self.default_trap_handler(label=self.default_trap_handler_label)}
         .align 2
         excp_entry:
-            nop
+        {self.save_regs}
+        excp_entry_common:
         """
 
         # Call pre handler user code
@@ -324,6 +440,12 @@ class TrapHandler(AssemblyGenerator):
         """
 
         code += f"""
+            excp_exit:
+                {self.restore_regs}
+                {self.xret}
+            """
+
+        code += f"""
         {self.check_exception_label}:
             {self.os_check_excp(return_label='return_to_host', xepc=self.xepc, xret=self.xret)}
 
@@ -355,8 +477,17 @@ class TrapHandler(AssemblyGenerator):
         # Return from exception
         code += f"""
             # Return from exception
-            {self.xret}
         """
+
+        if self.featmgr.cfiles is None:
+            code += f"""
+                {self.xret}
+            """
+        else:
+            code += f"""
+                j excp_exit
+            """
+
         return code
 
     def default_trap_handler(self, label: str):
@@ -366,10 +497,11 @@ class TrapHandler(AssemblyGenerator):
 
         return f"""
             {label}:
+            {self.save_regs}
             csrr t0, {self.xcause}
             li t1, (0x1<<(XLEN-1))              # Isolate interrupt bit
             and t0, t0, t1
-            beq t0, x0, excp_entry              # If the interrupt bit is 0, exception
+            beq t0, x0, excp_entry_common              # If the interrupt bit is 0, exception
 
             {Routines.place_retrieve_hartid(dest_reg="t0", priv_mode=self.handler_priv_mode)} # Get hartid
             bne t0, x0, test_failed                  # FIXME: Only handles interrupts for hartid0
@@ -385,5 +517,5 @@ class TrapHandler(AssemblyGenerator):
             # otherwise need a while loop to get lowest bit to clear
             csrw {self.xip}, t0
 
-            {self.xret}
+            j excp_exit
         """

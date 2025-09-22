@@ -37,6 +37,8 @@ class CliAdapter(Adapter):
             featmgr.force_alignment = cmdline.force_alignment
         if cmdline.c_used is not None:
             featmgr.c_used = cmdline.c_used
+        if cmdline.cfile is not None:
+            featmgr.cfiles = cmdline.cfile
         if cmdline.small_bss is not None:
             featmgr.small_bss = cmdline.small_bss
         if cmdline.big_bss is not None:
@@ -169,6 +171,9 @@ class CliAdapter(Adapter):
         if cmdline.num_cpus is not None:
             featmgr.num_cpus = cmdline.num_cpus
 
+        if cmdline.private_maps is not None:
+            featmgr.private_maps = cmdline.private_maps
+
         # overwritting random Candidates
         def to_candidate(enum: Union[RV.MyEnum, Sequence[RV.MyEnum]]) -> Candidate:
             "Helper function to convert enum to candidate"
@@ -208,7 +213,7 @@ class CliAdapter(Adapter):
             featmgr.setup_pmp = True
         elif cmdline.test_secure_mode == "off":
             builder.secure_mode = to_candidate(RV.RiscvSecureModes.NON_SECURE)
-        elif cmdline.test_secure_mode == "random":
+        elif cmdline.test_secure_mode in ["random", "any"]:
             # Use weighted approach for 20% chance of secure mode
             builder.secure_mode = Candidate.with_weights([(RV.RiscvSecureModes.SECURE, 0.2), (RV.RiscvSecureModes.NON_SECURE, 0.8)])
 

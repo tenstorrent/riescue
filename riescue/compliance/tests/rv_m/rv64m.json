@@ -1,0 +1,16 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+        "i_ext", "m_ext"
+    ],
+    "include_groups" : [
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+        "wfi", "ebreak", "mret", "sret", "ecall", "fence", "fence.i", "c.ebreak"
+
+    ]
+}

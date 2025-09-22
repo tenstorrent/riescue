@@ -1,0 +1,23 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [
+        "vector_opivv"
+    ],
+    "include_instrs" : [
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+        "vid.v",
+        "vcompress.vm",
+        "vmsif.m",
+        "vmsbf.m",
+        "vmsof.m",
+        "vrgather.vi",
+        "vrgather.vx",
+        "vrgather.vv",
+        "vrgatherei16.vv"
+    ]
+}

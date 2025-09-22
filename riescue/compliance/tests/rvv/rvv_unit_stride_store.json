@@ -1,0 +1,19 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [
+    ],
+    "include_instrs" : [
+        "vse8.v", 
+        "vse16.v", 
+        "vse32.v" ,
+        "vse64.v" 
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}
+

@@ -326,7 +326,7 @@ class InstrInfoJson:
             instrs.append(instr_name)
         return instrs
 
-    def search_instruction_names(self, extension_names, group_names, instruction_names, sorted=False, exclude_rules=False) -> list:
+    def search_instruction_names(self, extension_names, group_names, instruction_names, sorted=False, exclude_rules=False) -> list[str]:
         instr_names = set()
         instr_names.update(self.search_instructions_by_extension(extension_names, exclude_rules))
         instr_names.update(self.search_instructions_by_groups(group_names, exclude_rules))

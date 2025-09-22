@@ -1,0 +1,18 @@
+{
+    "arch" : "rv64",
+    "include_extensions" : [
+    ],
+    "include_groups" : [
+    ],
+    "include_instrs" : [
+        "vmv.v.v",
+        "vmv.v.x",
+        "vmv.v.i"
+    ],
+    "exclude_groups" : [
+    ],
+    "exclude_instrs" : [
+    ],
+    "iss" : "whisper"
+}
+

@@ -1,0 +1,10 @@
+{
+        "config" : {
+                "test" : {
+                    "configs" : {
+                        "paging_mode" : ["disable"],
+                        "privilege_mode" : ["machine"]
+                    }
+                }
+        }
+} 
