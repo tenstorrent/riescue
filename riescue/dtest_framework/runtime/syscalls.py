@@ -44,6 +44,8 @@ class SysCalls(AssemblyGenerator):
         code += self.os_fn_f0001002()  # Switch priv to super
         code += self.os_fn_f0001003()  # Switch priv to user
         code += self.os_fn_f0001004()  # Switch priv to original test privilege
+        code += self.os_fn_f0001005()  # Machine mode jump table for CSR R/W
+        code += self.os_fn_f0001006()  # Supervisor mode jump table for CSR R/W
         code += self.os_get_hartdid()  # Used to get hartid
         if self.featmgr.cfiles is not None:
             code += self.os_fn_70003001()  # Memory allocation API
@@ -90,6 +92,12 @@ class SysCalls(AssemblyGenerator):
 
             li t0, 0xf0001004    # Switch to test mode
             beq x31, t0, os_fn_f0001004
+
+            li t0, 0xf0001005    # Machine mode jump table for CSR R/W
+            beq x31, t0, os_fn_f0001005
+
+            li t0, 0xf0001006    # Supervisor mode jump table for CSR R/W
+            beq x31, t0, os_fn_f0001006
 
             li t0, 0xf0002001    # Get hartid
             beq x31, t0, os_get_hartdid
@@ -223,6 +231,64 @@ class SysCalls(AssemblyGenerator):
             {self.return_from_syscall()}
         """
 
+        return code
+
+    def os_fn_f0001005(self) -> str:
+        """
+        f0001005 : Machine mode jump table for CSR R/W
+        Does not return to syscall invocation
+        """
+        code = """
+            os_fn_f0001005:
+                # f0001005 : Machine mode jump table for CSR R/W
+            """
+
+        # Decide the page used for transfering control back to test
+        switch_page = self.featmgr.machine_mode_jump_table_for_csr_rw
+
+        if self.priv_mode == RV.RiscvPrivileges.MACHINE:
+            code += f"""
+                # If already in machine mode, do nothing
+                li t0, {switch_page}
+                j ret_from_os_fn
+            """
+        else:
+            code += self.mstatus_mpp_update(switch_to_priv="machine")
+            code += f"""
+                li t0, {switch_page}
+                j ret_from_os_fn
+            """
+        return code
+
+    def os_fn_f0001006(self) -> str:
+        """
+        f0001006 : Supervisor mode jump table for CSR R/W
+        """
+        code = """
+            os_fn_f0001006:
+                # f0001006 : Supervisor mode jump table for CSR R/W
+
+            """
+
+        switch_page = self.featmgr.supervisor_mode_jump_table_for_csr_rw
+
+        if self.priv_mode == RV.RiscvPrivileges.SUPER:
+            code += f"""
+                # If already in machine mode, do nothing
+                # When switching to supervisor mode, we will need to switch a new page
+                # that has u=0
+                li t0, {switch_page}
+                j ret_from_os_fn
+            """
+        else:
+            code += self.mstatus_mpp_update(switch_to_priv="super")
+            code += f"""
+                sfence.vma
+                # When switching to supervisor mode, we will need to switch a new page
+                # that has u=0
+                li t0, {switch_page}
+                j ret_from_os_fn
+            """
         return code
 
     def os_get_hartdid(self) -> str:

@@ -44,7 +44,7 @@ This allows for both quick bringup for new features and randomized test generati
 With **RiescueD** handling the environment and test harness, test generators using the framework can focus on generating interesting stimulus instead of a complex environment and managing virtual memory.
 Combined with support for multiprocessor testing (MP), this creates an extensible framework for generating complex tests for a range of RISC-V platforms.
 
-For examples on how to write directed tests, see the :doc:`RiescueD User Guide <../user_guides/riescued_user_guide>`.
+For examples on how to write directed tests, see the :doc:`RiescueD Workflow Guide <../user_guides/riescued_user_guide>`.
 
 
 

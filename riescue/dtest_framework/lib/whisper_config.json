@@ -155,11 +155,11 @@
 	    },
 
 	    "cycle" : {
-	        "exists" : "false"
+	        "exists" : "true"
 	    },
 
 	    "instret" : {
-	        "exists" : "false"
+	        "exists" : "true"
 	    },
 
 	    "time" : {

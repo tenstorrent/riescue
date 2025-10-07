@@ -586,7 +586,7 @@ Further Resources
 -----------------
 
 - :doc:`Getting Started </tutorials/index>` - Installation and setup
-- :doc:`API Reference </api/public/RiescueD>` - Complete API documentation
+- :doc:`API Reference </reference/python_api/RiescueD>` - Complete API documentation
 - `GitHub Repository <https://github.com/tenstorrent/riescue>`_ - Source code and examples
 - `Example Tests <https://github.com/tenstorrent/riescue/tree/main/riescue/dtest_framework/tests>`_ - Sample test cases
 
@@ -595,6 +595,6 @@ Need Help?
 
 - Check the `GitHub Issues <https://github.com/tenstorrent/riescue/issues>`_ for known problems
 - Browse `GitHub Discussions <https://github.com/tenstorrent/riescue/discussions>`_ for community support
-- Refer to the :doc:`Internal API </api/internal/internal_api>` for advanced usage
+- Refer to the :doc:`Internal Reference and API </reference/index>` for advanced usage
 
 Happy testing with RiescueD! 🚀

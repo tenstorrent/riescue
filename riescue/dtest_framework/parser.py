@@ -41,6 +41,7 @@ class Parser:
         self.random_addrs = dict()
         self.test_header = ParsedTestHeader()
         self.discrete_tests = dict()
+        self.parsed_csr_id = 1
 
         self.pool = pool
 
@@ -86,6 +87,8 @@ class Parser:
 
             if line.startswith(".section"):
                 self.parse_sections(line)
+            if line.startswith(";#csr_rw"):
+                self.parse_csr_rw(line)
 
     def parse_reserve_memory(self, line):
         pattern = r"^;#(reserve_memory)\((.+)\)"
@@ -539,6 +542,19 @@ class Parser:
                 extracted = re.findall(r"(\d+)", secure_str)[0].replace(" ", "").replace("'", "").split(",")
                 ppm_inst.secure = bool(int(extracted[0]))
 
+                # set secure flag for parsed addresses that's included in page mapping
+                if ppm_inst.secure:
+                    parsed_addrs = self.pool.get_parsed_addrs()
+                    for lin_addr, phys_addr in generate_time_process_args:
+                        if lin_addr in parsed_addrs:
+                            parsed_addr = parsed_addrs[lin_addr]
+                            parsed_addr.secure = True
+                            self.pool.add_parsed_addr(parsed_addr, force_overwrite=True)
+                        if phys_addr in parsed_addrs:
+                            parsed_addr = parsed_addrs[phys_addr]
+                            parsed_addr.secure = True
+                            self.pool.add_parsed_addr(parsed_addr, force_overwrite=True)
+
             if pagemap_str != "":
                 # Extract actual sizes from "pagesize=['4kb', '2mb', '1gb', '512gb', '256tb', 'any'])"
                 # Remove spaces, quotes and convert to python list
@@ -634,6 +650,27 @@ class Parser:
                 vectored_interrupt = ParsedVectoredInterrupt.from_interrupt_name(label=label, name=index)
             log.warning(f"parsed {vectored_interrupt}")
             self.pool.add_parsed_vectored_interrupt(vectored_interrupt)
+
+    def parse_csr_rw(self, line):
+        pattern = r"^;#csr_rw\((?P<csr_name>\w*),\s*(?P<read_or_write>\w*)\)"
+        match = re.match(pattern, line)
+        if match:
+            csr_name = match.group("csr_name")
+            read_or_write = match.group("read_or_write")
+            priv_mode = "user"
+            if csr_name.startswith("m"):
+                priv_mode = "machine"
+            elif csr_name.startswith("s"):
+                priv_mode = "supervisor"
+            elif csr_name.startswith("v"):
+                priv_mode = "virtual"
+            elif csr_name.startswith("h"):
+                priv_mode = "hypervisor"
+
+            label = f"csr_access_{csr_name}_{priv_mode}_key_{self.parsed_csr_id}_{read_or_write}"
+            csr_access = ParsedCsrAccess(csr_name=csr_name, priv_mode=priv_mode, read_or_write=read_or_write, label=label, csr_id=self.parsed_csr_id)
+            self.pool.add_parsed_csr_access(csr_access)
+            self.parsed_csr_id += 1
 
     def process(self):
         """
@@ -898,3 +935,12 @@ class ParsedVectoredInterrupt:
         if index is None:
             raise ValueError(f"No interrupt bit named {name}. Supported names are [{', '.join(i for i in cls.interrupt_index)}]")
         return cls(index=index, name=name, label=label)
+
+
+@dataclass
+class ParsedCsrAccess:
+    csr_name: str
+    priv_mode: str
+    csr_id: int
+    read_or_write: str
+    label: str
