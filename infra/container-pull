@@ -11,9 +11,11 @@ from singularity.container import Container
 Wrapper for Container.build() call
 """
 
+
 def main():
     container = Container()
     container.pull()
+
 
 if __name__ == "__main__":
     main()

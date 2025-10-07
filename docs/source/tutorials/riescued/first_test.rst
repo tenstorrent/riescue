@@ -179,4 +179,4 @@ Now that you've seen a basic test, you can learn about managing memory and test 
 
 
 
-For complete documentation of all available directives, see the :doc:`RiESCUE Directives Reference <../../user_guides/riescue_directives>` and :doc:`Test Headers Reference <../../user_guides/test_headers>`.
+For complete documentation of all available directives, see the :doc:`RiESCUE Directives Reference <../../reference/riescue_test_file/directives_reference>` and :doc:`Test Headers Reference <../../reference/riescue_test_file/test_headers_reference>`.

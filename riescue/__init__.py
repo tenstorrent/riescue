@@ -4,7 +4,10 @@
 import logging
 
 from .riescued import RiescueD
+from riescue.dtest_framework.config import FeatMgr, FeatMgrBuilder
+from .riescuec import RiescueC
+
 
 logging.getLogger("riescue").addHandler(logging.NullHandler())
 
-__all__ = ["RiescueD"]
+__all__ = ["RiescueD", "RiescueC", "FeatMgr", "FeatMgrBuilder"]

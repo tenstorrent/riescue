@@ -77,7 +77,7 @@ A powerful Python library for writing directed tests in assembly with features s
 
 [Learn more about RiescueD](riescue/dtest_framework/README.md)
 
-[Detailed RiescueD User Guide](https://docs.tenstorrent.com/riescue/user_guides/riescued_tutorial.html)
+[Detailed RiescueD User Guide](https://docs.tenstorrent.com/riescue/user_guides/riescued_user_guide.html)
 
 
 ### 2. RiescueC - Compliance Test Generator
@@ -87,7 +87,7 @@ A specialized test generator for RISC-V compliance testing that supports:
 - Configurable test constraints
 - Comprehensive extension support
 
-[Learn more about RiescueC](riescue/compliance/README.md) (Link works when RiescueC is open-sourced)
+[See the RiescueC documentation](https://docs.tenstorrent.com/riescue/tutorials/riescuec/riescue_c_brief.html)
 
 
 # Installation and Usage

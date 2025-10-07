@@ -140,8 +140,21 @@ class ArithmeticAction(Action):
                 rs2.val = self.src2
         if imm is not None:
             if self.imm is None:
-                # Assuming largest immediate is 12 bits. Should probably double check this is true
-                imm.val = ctx.random_n_width_number(12)
+                if (
+                    instruction.name == "slli"
+                    or instruction.name == "srli"
+                    or instruction.name == "srai"
+                    or instruction.name == "slliw"
+                    or instruction.name == "sraiw"
+                    or instruction.name == "srliw"
+                    or instruction.name == "rori"
+                    or instruction.name == "roriw"
+                ):
+                    # FIXME: size limit of immediate should be handled in instruction catalog
+                    imm.val = ctx.random_n_width_number(5)
+                else:
+                    # 11 bits because this is interpreted as number w/o counting sign bit in the generated instruction
+                    imm.val = ctx.random_n_width_number(11)
             else:
                 imm.val = self.imm
 
