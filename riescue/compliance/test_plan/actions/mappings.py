@@ -14,6 +14,7 @@ from coretp.step import (
     AssertEqual,
     AssertNotEqual,
     AssertException,
+    LoadImmediateStep,
 )
 
 from riescue.compliance.test_plan.actions import (
@@ -29,6 +30,7 @@ from riescue.compliance.test_plan.actions import (
     AssertEqualAction,
     AssertNotEqualAction,
     AssertExceptionAction,
+    LiAction,
 )
 
 
@@ -44,4 +46,5 @@ DEFAULT_MAPPINGS: list[tuple[type[TestStep], type[Action]]] = [
     (AssertEqual, AssertEqualAction),
     (AssertNotEqual, AssertNotEqualAction),
     (AssertException, AssertExceptionAction),
+    (LoadImmediateStep, LiAction),
 ]

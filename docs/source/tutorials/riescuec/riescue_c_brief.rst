@@ -20,7 +20,7 @@ RiescueC operates in three distinct modes, each designed for different verificat
 
 .. code-block:: bash
 
-   python riescuec --mode bringup --json my_config.json
+   python3 riescuec --mode bringup --json my_config.json
 
 **What you get**: Focused tests for specific instructions or extensions with minimal overhead.
 
@@ -46,7 +46,7 @@ Run RiescueC Bringup mode with a Bringup Test JSON file:
 
 .. code-block:: bash
 
-   python riesceuc --mode bringup --json my_test.json -o my_test
+   python3 riesceuc --mode bringup --json my_test.json -o my_test
 
 Example JSON configuration:
 

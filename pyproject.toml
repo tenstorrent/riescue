@@ -1,16 +1,16 @@
 [tool.black]
 line-length = 200
 workers = 8
-exclude = "/(.git|riscv-dv|riscv-isa-sim|whisper|fpgen|riescue_config|.*_clone|opensrc.*|.*-scripts)/"
+exclude = "/(.git|riscv-dv|riscv-isa-sim|whisper|fpgen|riescue_config|.*_clone|opensrc.*|.*-scripts|.venv)/"
 
 
 [build-system]
-requires = ["setuptools >= 61.2"]
+requires = ["setuptools >= 61.2", "pip", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "riescue"
-version = "1.0.0"
+version = "1.0.1"
 description = "RISC-V Directed Test Framework and Compliance Suite"
 readme = "README.md"
 requires-python = ">= 3.9"
@@ -25,12 +25,12 @@ dependencies = [
     "sphinx",
     "sphinx-rtd-theme",
     "flake8",
-    "black",
+    "black==25.1.0",
     "intervaltree",
     "coverage",
     "tabulate",
     "pyright[nodejs]",
-    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@cf06ab9e73d03280f8a1427434cd5b773c425309",
+    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@d35772b30d596a00f0e7ecc2b6ab0af3fe7f03b8",
 ]
 
 [tool.setuptools.package-dir]

@@ -7,7 +7,7 @@ Installation and setup for dependencies can be found at the :doc:`/tutorials/ins
 
 **New to Riescue?** Check out the :doc:`/tutorials/riescue_intro_guide` page for a basic introduction to Riescue, it's use cases, and some of the key features.
 
-Once you've completed the tutorials, see the :doc:`/user_guides/index` for detailed reference documentation on directives, test headers, and advanced configuration options.
+Once you've completed the tutorials, see the :doc:`/user_guides/index` for practical how-to guides and the :doc:`/reference/index` for complete syntax reference.
 
 .. toctree::
    :maxdepth: 1

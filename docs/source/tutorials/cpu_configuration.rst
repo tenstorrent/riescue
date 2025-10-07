@@ -99,4 +99,4 @@ If your configuration fails to load, check that all required fields are present 
 Advanced Configuration
 ----------------------
 
-For more complex configurations including secure memory, test generation parameters, and extensive RISC-V feature sets, see the :doc:`CPU Configuration User Guide <../user_guides/cpu_configuration>`.
+For more complex configurations including secure memory, test generation parameters, and extensive RISC-V feature sets, see the :doc:`Configuration Schema Reference <../reference/config/configuration_schema>`.

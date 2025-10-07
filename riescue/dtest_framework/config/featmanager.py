@@ -156,6 +156,10 @@ class FeatMgr:
     skip_instruction_for_unexpected: bool = False
     disable_wfi_wait: bool = False
 
+    # CSR R/W handling
+    machine_mode_jump_table_for_csr_rw: str = "csr_machine_0"
+    supervisor_mode_jump_table_for_csr_rw: str = "csr_super_0"
+
     # PMA / PMP
     setup_pmp: bool = False
     needs_pma: bool = False
@@ -207,8 +211,8 @@ class FeatMgr:
         """
         Returns an array representation of feature presence.
 
-        TODO: Should this be a dataclass with a dedicated generate .equ method?
         """
+        # FIXME: Should this be a dataclass with a dedicated generate .equ method?
         presence = dict()
         priv_mode = self.priv_mode
         presence["PRIV_MODE_MACHINE"] = priv_mode == RV.RiscvPrivileges.MACHINE

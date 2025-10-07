@@ -39,14 +39,19 @@ class FeatMgrBuilder:
         Values that are hardcoded should only be added to the ``FeatMgr`` class.
 
     Usage:
+
     .. code-block:: python
 
+        from riescue import FeatMgrBuilder
+        from riescue.lib.rand import RandNum
+
+        rng = RandNum(seed=42)
         builder = FeatMgrBuilder()
         builder.with_test_header(header)
         builder.with_cpu_json(path)
         builder.with_args(args)
-        featmgr = builder.build()
-    ```
+        featmgr = builder.build(rng=rng)
+
     """
 
     featmgr: FeatMgr = field(default_factory=FeatMgr)
@@ -84,6 +89,9 @@ class FeatMgrBuilder:
         Update builder with test header contents
 
         :param header: The test header to update the builder with
+
+        .. seealso:: :doc:`/reference/riescue_test_file/test_headers_reference` for the support Test Header format.
+
         """
 
         return TestConfigAdapter().apply(self, header)
@@ -93,6 +101,9 @@ class FeatMgrBuilder:
         Update builder with cpu config contents
 
         :param path: The path to the cpu config file
+
+        .. seealso:: :doc:`/reference/config/configuration_schema` for the required JSON format.
+
         """
         return CpuConfigAdapter().apply(self, path)
 
@@ -101,6 +112,9 @@ class FeatMgrBuilder:
         Update builder with command line arguments
 
         :param args: The command line arguments to update the builder with
+
+        .. seealso:: :doc:`/reference/config/cli` for the command line interface.
+
         """
         return CliAdapter().apply(self, args)
 

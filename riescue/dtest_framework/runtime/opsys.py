@@ -51,6 +51,8 @@ class OpSys(AssemblyGenerator):
             "num_harts_ended": "0x0",
             "num_hard_fails": "0x0",
             "excp_ignored_count": "0x0",
+            "machine_csr_jump_table_flags": "0x0",
+            "super_csr_jump_table_flags": "0x0",
         }
     )
 
@@ -151,6 +153,8 @@ class OpSys(AssemblyGenerator):
         code += self.append_os_data()
         # Append the to_from_host addresses
         code += self.append_to_from_host()
+        # Append the csr_rw_jump_table
+        code += self.generate_csr_rw_jump_table()
         return code
 
     def test_passed_failed_labels(self) -> str:
@@ -394,3 +398,100 @@ class OpSys(AssemblyGenerator):
 
         equates += "\n"
         return equates
+
+    def generate_csr_rw_jump_table(self) -> str:
+        machine_code = ""
+        super_code = ""
+        end_machine_label = "end_machine_label"
+        end_super_label = "end_super_label"
+
+        # Build Machine and Super Jump Tables
+        parsed_csr_accesses = self.pool.get_parsed_csr_accesses()
+        for csr in parsed_csr_accesses:
+            write_csr = parsed_csr_accesses[csr].get("write", None)
+            read_csr = parsed_csr_accesses[csr].get("read", None)
+            if write_csr:
+                if write_csr.priv_mode == "machine":
+                    machine_code += "\n"
+                    machine_code += f"\t# Machine Write: {csr}, label: {write_csr.label}\n"
+                    machine_code += f"{write_csr.label}:\n"
+                    machine_code += f"\tcsrw {csr}, t2\n"
+                    machine_code += f"\tj {end_machine_label}\n"
+                elif write_csr.priv_mode == "supervisor":
+                    super_code += "\n"
+                    super_code += f"\t# Supervisor Write: {csr}, label: {write_csr.label}\n"
+                    super_code += f"{write_csr.label}:\n"
+                    super_code += f"\tcsrw {csr}, t2\n"
+                    super_code += f"\tj {end_super_label}\n"
+
+            if read_csr:
+                if read_csr.priv_mode == "machine":
+                    machine_code += "\n"
+                    machine_code += f"\t# Machine Read: {csr}, label: {read_csr.label}\n"
+                    machine_code += f"{read_csr.label}:\n"
+                    machine_code += f"\tcsrr t2, {csr}\n"
+                    machine_code += f"\tj {end_machine_label}\n"
+                elif read_csr.priv_mode == "supervisor":
+                    super_code += "\n"
+                    super_code += f"\t# Supervisor Read: {csr}, label: {read_csr.label}\n"
+                    super_code += f"{read_csr.label}:\n"
+                    super_code += f"\tcsrr t2, {csr}\n"
+                    super_code += f"\tj {end_super_label}\n"
+
+        # CSR Machine Jump Table 1
+        code = """
+        .section .csr_machine_0, "ax"
+        li x31, machine_csr_jump_table_flags
+        ld x31, 0(x31)
+
+"""
+        for csr in parsed_csr_accesses:
+            write_csr = parsed_csr_accesses[csr].get("write", None)
+            read_csr = parsed_csr_accesses[csr].get("read", None)
+            if write_csr:
+                if write_csr.priv_mode == "machine":
+                    code += f"\tli t0, {write_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {write_csr.label}\n"
+            if read_csr:
+                if read_csr.priv_mode == "machine":
+                    code += f"\tli t0, {read_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {read_csr.label}\n"
+        code += f"\tj {end_machine_label}\n"
+        code += machine_code
+
+        # CSR Super Jump Table 1
+        code += f"""
+        {end_machine_label}:
+        li x31, 0xf0001004
+        ecall
+        """
+
+        code += """
+        .section .csr_super_0, "ax"
+        li x31, super_csr_jump_table_flags
+        ld x31, 0(x31)
+
+"""
+        for csr in parsed_csr_accesses:
+            read_csr = parsed_csr_accesses[csr].get("read", None)
+            write_csr = parsed_csr_accesses[csr].get("write", None)
+            if read_csr:
+                if read_csr.priv_mode == "supervisor":
+
+                    code += f"\tli t0, {read_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {read_csr.label}\n"
+            if write_csr:
+                if write_csr.priv_mode == "supervisor":
+                    code += f"\tli t0, {write_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {write_csr.label}\n"
+        code += f"\tj {end_super_label}\n"
+        code += super_code
+
+        code += f"""
+        {end_super_label}:
+        # return to testmode
+        li x31, 0xf0001004
+        ecall
+        """
+
+        return code

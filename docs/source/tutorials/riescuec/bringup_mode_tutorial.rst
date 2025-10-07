@@ -16,7 +16,7 @@ Running a bringup test
 ----------------------
 .. code-block:: bash
 
-   riescue_c.py --mode bringup --json basic_test.json
+   python -m riescuec --mode bringup --json riescue/compliance/tests/rv_i/rv64i.json
 
 
 
