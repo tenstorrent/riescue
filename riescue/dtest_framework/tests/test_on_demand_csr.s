@@ -61,7 +61,7 @@
 # We know that pmcfg30 will take precedence over pmacfg31 and hence will have correct default dram/io ranges
 #
 ;#random_addr(name=lin1p,  type=linear,   size=0x2000, and_mask=0xffffffffffffe000)
-;#random_addr(name=phys1p, type=physical, size=0x2000, and_mask=0xffffffffffffe000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=noncacheable)
+;#random_addr(name=phys1p, type=physical, size=0x2000, and_mask=0xffffffffffffe000, in_pma=1, pma_size=0x1000, pma_read=0, pma_write=0, pma_execute=0)
 ;#page_mapping(lin_name=lin1p, phys_name=phys1p, v=1, r=1, w=1, a=1, d=1)
 
 ;#random_addr(name=lin1_io,  type=linear,   size=0x1000, and_mask=0xfffffffffffff000)
@@ -212,6 +212,12 @@ test01:
     lwu t2, 0(t1)
 
     li t1, 0xc001c0de
+
+    ;#csr_rw(sscratch, read)
+    ;#csr_rw(sscratch, write)
+    ;#csr_rw(mscratch, read)
+    ;#csr_rw(mscratch, write)
+
     # bne t1, t2, failed
 
 # The following code needs some testing to work

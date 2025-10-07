@@ -20,6 +20,7 @@ user_defined_params.json
 # Ignore directories
 __pycache__/
 .vscode/
+.venv/
 quals_output/
 /bazel-*
 /run_dir*
@@ -35,6 +36,8 @@ tt_spike/
 spike/
 smoke_out/
 riescue.egg-info/
+.venv/
+temp/
 
 # Bazel artifacts
 test_info.txt

@@ -501,6 +501,7 @@ class Generator:
         """
 
         lin_addr_name = page_mapping.lin_name
+
         if self.pool.random_addr_exists(lin_addr_name):
             return
         phys_addr_name = "__auto_phys_" + lin_addr_name
@@ -705,6 +706,7 @@ class Generator:
                     phys_random_addr = self.pool.get_parsed_addr(addr_name)
                     secure = phys_random_addr.secure
                     if secure or (self.featmgr.secure_mode and self.rng.with_probability_of(self.featmgr.secure_access_probability)):
+                        log.debug(f"Marking secure for {addr_name}")
                         marked_secure = True
                         addr_q = [RV.AddressQualifiers.ADDRESS_SECURE]
             if random_addr.io:
@@ -1760,6 +1762,10 @@ class Generator:
         num_user_code_pages = 8
         num_machine_code_pages = 8
 
+        # csr pages
+        num_machine_csr_pages = 1
+        num_super_csr_pages = 1
+
         if section == "text":
             alloc_size = 0x1000
             alloc_addr = self.featmgr.reset_pc
@@ -1835,7 +1841,7 @@ class Generator:
                 # First allocate space for ALL the code pages. Then add all the individual pages
                 (lin_addr, phys_addr) = self.add_section_handler(
                     name="code",
-                    size=alloc_size * (num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages),
+                    size=alloc_size * (num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages + num_machine_csr_pages + num_super_csr_pages),
                     iscode=True,
                     phys_name="__section_code",
                     identity_map=True,
@@ -1919,6 +1925,34 @@ class Generator:
                 alloc_addr = lin_addr + alloc_size
                 # Every call to add_section_handler already adds the sections to the pool
                 # self.pool.add_section(section_name=page_name)
+
+            # CSR Jump Table
+            for i in range(num_machine_csr_pages):
+                page_name = f"csr_machine_{i}"
+                page_phys_name = f"__section_{page_name}"
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name=page_name,
+                    size=alloc_size,
+                    iscode=True,
+                    start_addr=alloc_addr,
+                    phys_name=page_phys_name,
+                    identity_map=True,
+                )
+                alloc_addr = lin_addr + alloc_size
+
+            for i in range(num_super_csr_pages):
+                page_name = f"csr_super_{i}"
+                page_phys_name = f"__section_{page_name}"
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name=page_name,
+                    size=alloc_size,
+                    iscode=True,
+                    always_super=True,
+                    start_addr=alloc_addr,
+                    phys_name=page_phys_name,
+                    identity_map=True,
+                )
+                alloc_addr = lin_addr + alloc_size
 
         elif section == "data" or section == "os_data":
             data_page_size = 0x1000
@@ -2231,6 +2265,7 @@ class Generator:
 
     def write_test(self, filename, output_file, single_assembly_file=False, pagetable_includes=""):
         lines = []
+        priority = ["user", "super", "machine"]
         with open(filename, "r") as input_file:
             lines = input_file.readlines()
 
@@ -2338,6 +2373,35 @@ class Generator:
                                 break
                             if found:
                                 break
+            parsed_line = line.strip()
+            if parsed_line.startswith(";#csr_rw"):
+                pattern = r"^;#csr_rw\((?P<csr_name>\w*),\s*(?P<read_or_write>\w*)\)"
+                match = re.match(pattern, parsed_line)
+                if match:
+                    csr_name = match.group("csr_name")
+                    read_or_write = match.group("read_or_write")
+
+                    # get parsed csr val
+                    parsed_csr_val = self.pool.get_parsed_csr_access(csr_name, read_or_write)
+                    priv_mode = "super" if parsed_csr_val.priv_mode == "supervisor" else parsed_csr_val.priv_mode
+                    csr_prio = priority.index(priv_mode)
+                    priv_mode_prio = priority.index(self.featmgr.priv_mode.name.lower())
+                    if priv_mode_prio >= csr_prio:
+                        if read_or_write == "read":
+                            lines[i] = lines[i] + f"\ncsrr t2, {csr_name}\n"
+                        else:
+                            lines[i] = lines[i] + f"\ncsrw {csr_name}, t2\n"
+                    else:
+                        flag_name = "machine_csr_jump_table_flags" if priv_mode == "machine" else "super_csr_jump_table_flags"
+                        code_to_replace = f"li x31, {flag_name}\n"
+                        code_to_replace += f"li t0, {parsed_csr_val.csr_id}\n"
+                        code_to_replace += "sd t0, 0(x31)\n"
+
+                        sys_call = "0xf0001006" if priv_mode == "super" else "0xf0001005"
+                        code_to_replace += f"li x31, {sys_call}\n"
+                        code_to_replace += "ecall\n"
+
+                        lines[i] = lines[i] + "\n" + code_to_replace
 
         if single_assembly_file:
             output_file.write("## equates ##\n")

@@ -11,7 +11,7 @@ Riescue documentation
 
    /tutorials/index
    /user_guides/index
-   /api/index
+   /reference/index
 
 
 
@@ -23,8 +23,8 @@ RISC-V processor verification requires comprehensive testing of architectural fe
 
 RiESCUE consists of two main tools:
 
-- :doc:`RiescueD <api/public/RiescueD>` **- Directed Test Framework**
-- **RiescueC - Compliance Test Generator**
+- :doc:`RiescueD <reference/python_api/RiescueD>` **- Directed Test Framework**
+- :doc:`RiescueC <reference/python_api/RiescueC>` **- Compliance Test Generator**
 
 
 Getting Started
@@ -33,10 +33,10 @@ Getting Started
 New to RiESCUE? Start with:
 
 - :doc:`Getting Started Guide </tutorials/index>` - Set up RiESCUE, learn about RiESCUE's main features, and see some tutorials.
-- :doc:`Riescue User Guides </user_guides/index>` - Learn more in-depth information on how to write directed tests and setup the test environment.
+- :doc:`User Guides </user_guides/index>` - Learn how to accomplish tasks with RiESCUE through step-by-step workflows and best practices.
 
-API Documentation
------------------
+Reference Documentation
+------------------------
 
-RiESCUE provides both **public APIs** (stable, supported) and **internal APIs** (subject to change).
-Use the :doc:`public APIs </api/public/index>` for production code to ensure compatibility across versions.
+Complete reference material for all RiESCUE tools and configuration options.
+The :doc:`reference documentation </reference/index>` includes Python APIs, test language syntax, and configuration schemas.

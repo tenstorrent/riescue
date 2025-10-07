@@ -13,6 +13,47 @@ import sys
 
 # This removes Bases: object from output, not sure how else to do this
 from sphinx.ext import autodoc
+from docutils import nodes
+from docutils.parsers.rst import Directive
+import argparse
+
+
+class ArgparseDirective(Directive):
+    required_arguments = 1  # module.function
+
+    def run(self):
+        # Import the class/module
+        module_path, item_name = self.arguments[0].rsplit(".", 1)
+        module = __import__(module_path, fromlist=[item_name])
+        item = getattr(module, item_name)
+
+        # Create parser and call add_arguments
+        parser = argparse.ArgumentParser()
+        item.add_arguments(parser)
+
+        # Create container
+        container = nodes.container()
+
+        for action in parser._actions:
+            if action.option_strings:
+                # Create definition list item
+                term = nodes.term(text=", ".join(action.option_strings))
+                definition = nodes.definition()
+
+                if action.help:
+                    para = nodes.paragraph(text=action.help)
+                    definition += para
+
+                deflist_item = nodes.definition_list_item()
+                deflist_item += term
+                deflist_item += definition
+
+                deflist = nodes.definition_list()
+                deflist += deflist_item
+
+                container += deflist
+
+        return [container]
 
 
 class MockedClassDocumenter(autodoc.ClassDocumenter):
@@ -87,3 +128,4 @@ sys.path.insert(0, str(repo_path))  # Just need top-level path to avoid import e
 
 def setup(app):
     app.add_css_file("tt_theme.css")
+    app.add_directive("argparse", ArgparseDirective)

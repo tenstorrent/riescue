@@ -43,6 +43,7 @@ class Pool:
         self.parsed_discrete_tests = dict()
         self.parsed_init_mem_addrs = []
         self.parsed_vectored_interrupts = []
+        self.parsed_csr_accesses = {}
         self.parsed_sections = []
 
         # Structures to hold processed data
@@ -100,8 +101,8 @@ class Pool:
 
         return False
 
-    def add_parsed_addr(self, parsed_random_addr):
-        if parsed_random_addr.name in self.parsed_random_addrs:
+    def add_parsed_addr(self, parsed_random_addr, force_overwrite=False):
+        if parsed_random_addr.name in self.parsed_random_addrs and not force_overwrite:
             raise ValueError(f"{parsed_random_addr.name} is already defined")
 
         self.parsed_random_addrs[parsed_random_addr.name] = parsed_random_addr
@@ -178,6 +179,21 @@ class Pool:
     # FIXME: Parser depends on Pool. Can't import types from parser here without circular dependency. Might need to reconsider dependency structure
     def add_parsed_vectored_interrupt(self, parsed_vectored_interrupt):
         self.parsed_vectored_interrupts.append(parsed_vectored_interrupt)
+
+    def add_parsed_csr_access(self, parsed_csr_access):
+        csr_name = parsed_csr_access.csr_name
+        read_or_write = parsed_csr_access.read_or_write
+        if csr_name in self.parsed_csr_accesses and read_or_write in self.parsed_csr_accesses[csr_name]:
+            return
+        if csr_name not in self.parsed_csr_accesses:
+            self.parsed_csr_accesses[parsed_csr_access.csr_name] = {}
+        self.parsed_csr_accesses[parsed_csr_access.csr_name][parsed_csr_access.read_or_write] = parsed_csr_access
+
+    def get_parsed_csr_accesses(self):
+        return self.parsed_csr_accesses
+
+    def get_parsed_csr_access(self, csr, read_or_write):
+        return self.parsed_csr_accesses[csr][read_or_write]
 
     # random structures
     # random_data setters and getters

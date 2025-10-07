@@ -11,7 +11,7 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.27
+    VERSION 1.30
 
 %setup
     set -eux
@@ -32,10 +32,23 @@ Stage: devel
 
     # Python dependencies - install and uninstall riescue to add all dependencies
     python3 -m pip install wheel
-    cd /app
-    pip install -e .
-    pip uninstall riescue -y
-    cd -
+    pip install \
+        sortedcontainers \
+        pyyaml \
+        numpy \
+        pybind11 \
+        pyvsc \
+        csrbox \
+        sphinx \
+        sphinx-rtd-theme \
+        flake8 \
+        black \
+        intervaltree \
+        coverage \
+        tabulate \
+        pyright[nodejs]
+    python3 -m pip install --upgrade pip
+
 
     # non-packaged dependencies
     export NO_SINGULARITY=1
