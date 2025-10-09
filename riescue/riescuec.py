@@ -22,7 +22,6 @@ log = logging.getLogger(__name__)
 
 class ComplianceMode(Enum):
     BRINGUP = "bringup"
-    COMPLIANCE = "compliance"
     TEST_PLAN = "tp"
 
 
@@ -85,16 +84,16 @@ class RiescueC(CliBase):
             logger_file = cl_args.run_dir / f"{cl_args.json.name}.testlog"
             RiescueLogger.from_clargs(args=cl_args, default_logger_file=logger_file)
             riescue_c.run_bringup(bringup_test_json=cl_args.json, seed=seed, run_dir=run_dir, args=cl_args)
-        elif mode == ComplianceMode.COMPLIANCE:
-            riescue_c.run_compliance(seed=seed, run_dir=run_dir)
         elif mode == ComplianceMode.TEST_PLAN:
+            logger_file = Path("riescuec_tp.testlog")
+            RiescueLogger.from_clargs(args=cl_args, default_logger_file=logger_file)
             riescue_c.run_test_plan(args=cl_args, seed=seed, run_dir=run_dir)
         return riescue_c
 
     def run_bringup(
         self,
         bringup_test_json: Path,
-        seed: Optional[int] = None,
+        seed: int,
         run_dir: Path = Path("."),
         args: Optional[Namespace] = None,
     ):
@@ -105,7 +104,6 @@ class RiescueC(CliBase):
         :param seed: The seed to use for the random number generator. Defaults to a random number in range 0 to 2^32
         :param run_dir: The directory to run the test in. Defaults to current directory
         """
-        # TODO: make args optional argument in run_bringup. Only call from_clargs if args are provided
         # Priority of building up cfg is cfg defaults, then run_bringup arguments (bringup_test_json, user_config, etc), then argparse.Namespace args
 
         cfg = BringupCfg()
@@ -124,7 +122,7 @@ class RiescueC(CliBase):
 
     def run_test_plan(
         self,
-        seed: Optional[int] = None,
+        seed: int,
         run_dir: Path = Path("."),
         args: Optional[Namespace] = None,
     ):
@@ -146,11 +144,10 @@ class RiescueC(CliBase):
         )
         test_plan_runner.run()
 
-    def run_compliance(self, seed: Optional[int] = None, run_dir: Path = Path(".")):
-        """
-        Run compliance mode, targeting individual instructions, extensions, and/or groups
 
-        :param seed: The seed to use for the random number generator. Defaults to a random number in range 0 to 2^32q
-        :param run_dir: The directory to run the test in. Defaults to current directory
-        """
-        raise NotImplementedError("Compliance mode is not implemented")
+def main():
+    RiescueC.run_cli()
+
+
+if __name__ == "__main__":
+    main()

@@ -122,7 +122,7 @@ class AddressSpace:
         log.debug(f"clusters: {_list}")
         if not _list:
             # FIXME: This needs better debug and error messages. Should be able to point to exact problem
-            raise AddrGenError(f"No matching clusters found for {constraint}. Likely out of memory ")
+            raise AddrGenError(f"No matching clusters found. Likely out of memory.\n{constraint}")
 
         self.rng.shuffle(_list)
         for i in _list:

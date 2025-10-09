@@ -182,13 +182,6 @@ class Compiler(Tool):
         """
         Overrides march if provided.
         """
-        print(
-            f"Compiler.from_clargs: compiler_path={args.compiler_path}, "
-            f"compiler_opts={args.compiler_opts}, "
-            f"compiler_march={march_override or args.compiler_march}, "
-            f"test_equates={args.test_equates}, "
-            f"abi={getattr(args, 'compiler_mabi', None)}"
-        )
         return cls(
             compiler_path=args.compiler_path,
             compiler_opts=args.compiler_opts,

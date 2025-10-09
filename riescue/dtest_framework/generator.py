@@ -141,6 +141,7 @@ class Generator:
         ]
         if self.featmgr.add_gcc_cstdlib_sections:
             self.c_used_sections += self.gcc_cstdlib_sections
+        self.next_c_section_addr = None
 
         memory = featmgr.memory
 
@@ -721,7 +722,12 @@ class Generator:
                 mask=phys_address_mask,
             )
             log.debug(f"Adding addr: {addr_name}, addr_c: {address_contstaint}")
-            address = self.addrgen.generate_address(constraint=address_contstaint)
+            try:
+                address = self.addrgen.generate_address(constraint=address_contstaint)
+            except Exception as e:
+                log.error(f"Error generating address for {addr_name}")
+                raise e
+
             if marked_secure:
                 address = address | (1 << 55)
             if address is None:
@@ -1982,20 +1988,42 @@ class Generator:
 
         # SUGGESTION tie the size of these sections to the size of the c code compiled sections that more or less use this exclusively.
         elif self.featmgr.c_used and section in self.c_used_sections:
-            num_total_pages = 30
-            if section in ["bss"]:
-                if self.featmgr.big_bss:
-                    num_total_pages = 3080
-                elif self.featmgr.small_bss:
-                    num_total_pages = 200
-                else:
-                    num_total_pages = 2200
-            elif section in ["c_stack"]:
-                num_total_pages = 400
-            elif section in ["rodata"]:
-                num_total_pages = 75
-            elif section in self.gcc_cstdlib_sections:
-                num_total_pages = 1
+
+            def get_page_count(section: str):
+                page_count = 30
+                if section in ["bss"]:
+                    if self.featmgr.big_bss:
+                        page_count = 3080
+                    elif self.featmgr.small_bss:
+                        page_count = 200
+                elif section in ["c_stack"]:
+                    page_count = 400
+                elif section in ["rodata"]:
+                    page_count = 75
+                elif section in self.gcc_cstdlib_sections:
+                    page_count = 1
+                return page_count
+
+            # In order to put all C sections close to each other, we first make a single allocation for all the pages.
+            # Then we add the individual sections. This section can be far from the .text region as all sections used by C tests
+            # are remapped in here.
+            if self.next_c_section_addr is None:
+                # Make first allocation to cover all the pages
+                total_page_count = 0
+                for s in self.c_used_sections:
+                    total_page_count += get_page_count(s)
+
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name="c_sections",
+                    size=0x1000 * total_page_count,
+                    iscode=True,
+                    phys_name="__section_c_sections",
+                    identity_map=True,
+                )
+                # Make the next section address point to the start of the first page
+                self.next_c_section_addr = lin_addr
+
+            num_total_pages = get_page_count(section)
             page_name = section
             is_code = True if "text" in section else False
             phys_page_name = f"__section_{section}"
@@ -2006,9 +2034,11 @@ class Generator:
                 phys_name=phys_page_name,
                 always_user=not is_code,
                 identity_map=True,
+                start_addr=self.next_c_section_addr,
             )
+            self.next_c_section_addr += 0x1000 * num_total_pages
 
-            # add several more pages
+            # add page mapping for all pages
             for i in range(1, num_total_pages):
                 page_name = f"{section}_{i}"
                 phys_page_name = f"__section_{section}_{i}"

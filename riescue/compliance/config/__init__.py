@@ -3,7 +3,7 @@
 
 from .resource import Resource
 from .mode_cfg import ModeCfg
-from .bringup_cfg import BringupCfg
+from .bringup_cfg import BringupCfg, BringupTest
 from .tp_cfg import TpCfg
 
-__all__ = ["Resource", "ModeCfg", "BringupCfg", "TpCfg"]
+__all__ = ["Resource", "ModeCfg", "BringupCfg", "BringupTest", "TpCfg"]
