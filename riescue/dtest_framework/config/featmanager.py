@@ -4,7 +4,7 @@
 from __future__ import annotations
 import logging
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TypeVar, Optional, List
 
 import riescue.lib.enums as RV
@@ -206,6 +206,15 @@ class FeatMgr:
 
     # unused?
     opts: dict[str, str] = field(default_factory=dict)
+
+    def duplicate(self) -> "FeatMgr":
+        """
+        Duplicate / deepcopy a FeatMgr instance.
+        """
+        # reuse CpuConfig, Memory since they are frozen dataclasses
+        new_featmgr = replace(self)
+        new_featmgr.feature = self.feature
+        return new_featmgr
 
     def get_summary(self):
         """

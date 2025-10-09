@@ -4,8 +4,11 @@
 import argparse
 from pathlib import Path
 
-from coretp.plans.test_plan_registry import get_plan, query_plans  # type: ignore # FIXME: remove ignore whenc coretp is properly installed
-from coretp.rv_enums import PagingMode, PrivilegeMode
+try:
+    from coretp.plans.test_plan_registry import get_plan, query_plans
+    from coretp.rv_enums import PagingMode, PrivilegeMode
+except ModuleNotFoundError:
+    raise ImportError("coretp not installed. Run pip install git+https://github.com/tenstorrent/riscv-coretp.git")
 
 from .base import BaseMode
 from riescue.compliance.test_plan.generator import TestPlanGenerator
@@ -28,11 +31,17 @@ class TpMode(BaseMode):
         self.featmgr = cfg.featmgr
         self.toolchain = cfg.toolchain
 
+        try:
+            self.test_plan = get_plan(cfg.test_plan_name)
+        except ValueError as e:
+            raise ValueError(f"Test plan '{cfg.test_plan_name}' not found. Avalailable test plans: {query_plans()}") from e
+
         self.generator = TestPlanGenerator(self.isa, self.rng)
 
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--isa", type=str, default="rv64imfda_zicsr_zk_zicond", help="ISA to use")
+        parser.add_argument("--test_plan", dest="test_plan_name", type=str, default="zicond", help="Test plan to use")
 
     def run(self) -> None:
         """ """
@@ -54,11 +63,7 @@ class TpMode(BaseMode):
         Generate a test from test plan. WIP, will need to be conditional at some point. For now hardcoding it
         """
 
-        test_plan = get_plan("zkt")
-        if test_plan is None:
-            raise ValueError("Test plan 'zkt' not found")
-
-        discrete_tests = self.generator.build(test_plan)
+        discrete_tests = self.generator.build(self.test_plan)
         env = self.generator.solve(discrete_tests)
 
         if env.priv == PrivilegeMode.M:
@@ -81,9 +86,11 @@ class TpMode(BaseMode):
         else:
             raise ValueError(f"Invalid paging mode: {env.paging_mode}")
 
-        test = self.generator.generate(discrete_tests, env, test_plan.name)
+        test = self.generator.generate(discrete_tests, env, self.test_plan.name)
 
-        test_file = Path("tp_test.s")
+        test_file = self.run_dir / "tp_test.s"
+        if not self.run_dir.exists():
+            self.run_dir.mkdir()
         with open(test_file, "w") as f:
             f.write(test)
         return test_file

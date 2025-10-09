@@ -175,7 +175,11 @@ class RiscvPageSizes(MyEnum):
         return self.name[1:]
 
     @classmethod
-    def weights(cls, pagesize):
+    def str_to_enum(cls, pagesize: str):
+        return cls["S" + pagesize.upper()]
+
+    @classmethod
+    def weights(cls, pagesize: RiscvPageSizes):
         """
         Returns the weight of the given pagesize
         """
@@ -195,7 +199,7 @@ class RiscvPageSizes(MyEnum):
             raise ValueError(f"page size: {pagesize} is unrecognized")
 
     @classmethod
-    def memory(cls, pagesize):
+    def memory(cls, pagesize: RiscvPageSizes):
         if pagesize == cls.S4KB:
             return 0x1000
         elif pagesize == cls.S4MB:
@@ -212,7 +216,7 @@ class RiscvPageSizes(MyEnum):
             raise ValueError(f"page size: {pagesize} is unrecognized")
 
     @classmethod
-    def address_mask(cls, pagesize):
+    def address_mask(cls, pagesize: RiscvPageSizes):
         """
         Return the address mask for the given pagesize
         """
@@ -221,7 +225,7 @@ class RiscvPageSizes(MyEnum):
         return 0xFFFFFFFFFFFFFFFF << (common.msb(memory_needed)) & 0xFFFFFFFFFFFFFFFF
 
     @classmethod
-    def pt_leaf_level(cls, pagesize):
+    def pt_leaf_level(cls, pagesize: RiscvPageSizes):
         """
         Return which pagetable level to stop at for the given pagesize
         """

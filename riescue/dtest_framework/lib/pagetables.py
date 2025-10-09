@@ -17,15 +17,18 @@ page
 
 import collections
 import logging
+from typing import TYPE_CHECKING
 
 import riescue.dtest_framework.lib.addrgen as addrgen
 import riescue.lib.common as common
 import riescue.lib.enums as RV
 import riescue.lib.raw_attributes as raw_attributes
 from riescue.lib.rand import RandNum
-from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.lib.addrgen import AddrGen
+
+if TYPE_CHECKING:
+    from riescue.dtest_framework.pool import Pool
 
 log = logging.getLogger(__name__)
 
@@ -432,7 +435,7 @@ class PTEntry:
 
 
 class Pagetables:
-    def __init__(self, page, page_map, pool: Pool, featmgr: FeatMgr, addrgen: AddrGen):
+    def __init__(self, page, page_map, pool: "Pool", featmgr: FeatMgr, addrgen: AddrGen):
         """
         Create pagetables for "page" in given "page_map"
           - return a list of PTEntry(s) with entires at each level

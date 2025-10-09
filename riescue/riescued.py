@@ -276,24 +276,25 @@ class RiescueD(CliBase):
                     print(f"Setting end-of-sim pc to: {failed_pc:016x}")
 
         # Spike ISS path and args
+        iss_args = []
         if isinstance(iss, Spike):
 
-            iss.args.append("--priv=msu")
-            iss.args.append(f"--pc=0x{featmgr.reset_pc:x}")
+            iss_args.append("--priv=msu")
+            iss_args.append(f"--pc=0x{featmgr.reset_pc:x}")
             iss_log = self.run_dir / f"{self.testname}_spike.log"
             if not featmgr.force_alignment:
-                iss.args.append("--misaligned")
+                iss_args.append("--misaligned")
 
             if featmgr.mp_mode_on():
-                iss.args.append(f"-p{featmgr.num_cpus}")
+                iss_args.append(f"-p{featmgr.num_cpus}")
 
             if featmgr.tohost_nonzero_terminate or featmgr.fe_tb:
-                iss.args.append("--tt-tohost-nonzero-terminate")
+                iss_args.append("--tt-tohost-nonzero-terminate")
             if featmgr.big_endian:
-                iss.args.append("--big-endian")
+                iss_args.append("--big-endian")
 
             if featmgr.wysiwyg and failed_pc is not None:
-                iss.args += ["--end-pc", str(hex(failed_pc))]
+                iss_args += ["--end-pc", str(hex(failed_pc))]
 
         elif isinstance(iss, Whisper):
             iss_log = self.run_dir / f"{self.testname}_whisper.log"
@@ -306,7 +307,7 @@ class RiescueD(CliBase):
             iss.whisper_config_json = whisper_config_json
 
             if featmgr.mp_mode_on():
-                iss.args += [
+                iss_args += [
                     "--quitany",
                     "--harts",
                     str(featmgr.num_cpus),
@@ -316,11 +317,11 @@ class RiescueD(CliBase):
                     str(self.rng.get_seed()),
                 ]
             if featmgr.wysiwyg and failed_pc is not None:
-                iss.args += ["--endpc", str(hex(failed_pc))]
+                iss_args += ["--endpc", str(hex(failed_pc))]
         else:
             raise ValueError("No ISS selected. Provide ISS in toolchain configuration")
 
-        iss.run_iss(output_file=iss_log, elf_file=self.generated_files.elf, cwd=self.run_dir, timeout=120)
+        iss.run_iss(output_file=iss_log, elf_file=self.generated_files.elf, cwd=self.run_dir, timeout=120, args=iss_args)
 
         # In wysiwyg mode, we need to parse the log file to find out what was the last value written to the x31
         if featmgr.wysiwyg:
