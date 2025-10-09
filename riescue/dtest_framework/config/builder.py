@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from argparse import Namespace
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 
 import riescue.lib.enums as RV
@@ -174,3 +174,11 @@ class FeatMgrBuilder:
             featmgr.deleg_excp_to = RV.RiscvPrivileges.SUPER
 
         return featmgr
+
+    def duplicate(self) -> "FeatMgrBuilder":
+        """
+        Used to duplicate a FeatMgrBuilder for each test case.
+        """
+        new_builder = replace(self)
+        new_builder.featmgr = self.featmgr.duplicate()
+        return new_builder

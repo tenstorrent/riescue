@@ -92,9 +92,7 @@ class Page(AssemblyBase):
 
         # Calculate total memory requirements
         total_memory_needed = page_size_bytes * pages_to_generate
-        print(f"mem_name: {self.name}")
-        print(f"total_memory_needed: {total_memory_needed:#x}")
-        print(f"self.size: {self.size:#x}")
+
         # Validate that total memory requirements don't exceed physical memory size
         if total_memory_needed > self.size:
             raise ValueError(

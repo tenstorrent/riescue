@@ -8,14 +8,18 @@ create pagetables for every page inside the page_map
 """
 
 import logging
+from typing import TYPE_CHECKING
 
 import riescue.dtest_framework.lib.addrgen as addrgen
 import riescue.lib.enums as RV
 import riescue.dtest_framework.lib.pagetables as pagetables
 from riescue.lib.address import Address
-from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.lib.addrgen import AddrGen
+
+if TYPE_CHECKING:
+    from riescue.dtest_framework.pool import Pool
+
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +34,7 @@ class Page:
         self,
         name,
         phys_name,
-        pool: Pool,
+        pool: "Pool",
         featmgr: FeatMgr,
         addrgen: AddrGen,
         maps=[],
@@ -405,7 +409,7 @@ class Page:
 
 
 class PageMap:
-    def __init__(self, name, paging_mode, pool: Pool, featmgr: FeatMgr, addrgen: AddrGen, g_map=False):
+    def __init__(self, name, paging_mode, pool: "Pool", featmgr: FeatMgr, addrgen: AddrGen, g_map=False):
         self.name = name
         self.paging_mode = paging_mode
         self.g_map = g_map
@@ -418,7 +422,7 @@ class PageMap:
         self.max_levels = RV.RiscvPagingModes.max_levels(self.paging_mode)
 
         # Store the pages related to this map
-        self.pages = dict()  # 'name' -> Page()
+        self.pages: dict[str, Page] = dict()  # 'name' -> Page()
         # Dict to hold pages that are used for modifying the pagetable pages
         # These pages are merged to self.pages once the self.create_pagetables() is called
         self.pt_pages = dict()

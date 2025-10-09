@@ -121,7 +121,7 @@ class BringupCfg(ModeCfg):
         resource = dataclasses.replace(self.resource)
         resource.with_rng(rng)
         resource.run_dir = run_dir
-        resource.fpgen_on = resource.fpgen_on or bool(os.getenv("FPGEN_ENABLED", False))
+        resource.fpgen_on = resource.fpgen_on or bool(int(os.getenv("FPGEN_ENABLED", "0")))
 
         # resolve paths to config files - needed to find files relative to riescue directory, prioritizes riescue-relative over cwd-relative
         resource.fp_config = self.find_config(resource.fp_config)
@@ -334,3 +334,10 @@ class BringupCfg(ModeCfg):
             resource.fpgen_on = args.fpgen_on
 
         return self.resource
+
+    def duplicate(self) -> "BringupCfg":
+        new_cfg = BringupCfg()
+        new_cfg.resource = dataclasses.replace(self.resource)
+        new_cfg.featmgr_builder = self.featmgr_builder.duplicate()
+        new_cfg.toolchain = self.toolchain
+        return new_cfg

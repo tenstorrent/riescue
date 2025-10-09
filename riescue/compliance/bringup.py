@@ -164,7 +164,13 @@ class BringupMode(BaseMode):
         generator = rd.generate(self.resource_db.featmgr)
         rd.build(self.resource_db.featmgr, generator)
         for simulator in iss:
-            rd.simulate(self.resource_db.featmgr, iss=self.get_iss(simulator))
+            # raise Exception(self.resource_db.toolchain.whisper.whisper_config_json, rd.toolchain.whisper.whisper_config_json)
+            if self.resource_db.toolchain.whisper is not None:
+                whisper_config_json_override = self.resource_db.toolchain.whisper.whisper_config_json.resolve()
+            else:
+                whisper_config_json_override = None
+
+            rd.simulate(self.resource_db.featmgr, iss=self.get_iss(simulator), whisper_config_json_override=whisper_config_json_override)
         return rd
 
     def find_config(self, file: Optional[str]) -> Optional[Path]:

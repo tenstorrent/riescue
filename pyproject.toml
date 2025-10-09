@@ -5,12 +5,12 @@ exclude = "/(.git|riscv-dv|riscv-isa-sim|whisper|fpgen|riescue_config|.*_clone|o
 
 
 [build-system]
-requires = ["setuptools >= 61.2", "pip", "wheel"]
+requires = ["setuptools >= 64.0.3", "pip", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "riescue"
-version = "1.0.1"
+version = "1.0.2"
 description = "RISC-V Directed Test Framework and Compliance Suite"
 readme = "README.md"
 requires-python = ">= 3.9"
@@ -19,18 +19,14 @@ dependencies = [
     "sortedcontainers",
     "pyyaml",
     "numpy",
-    "pybind11",
-    "pyvsc",
-    "csrbox",
     "sphinx",
     "sphinx-rtd-theme",
     "flake8",
     "black==25.1.0",
     "intervaltree",
     "coverage",
-    "tabulate",
     "pyright[nodejs]",
-    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@d35772b30d596a00f0e7ecc2b6ab0af3fe7f03b8",
+    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@147da7eed4784417705dfb30eb8922957ba60574",
 ]
 
 [tool.setuptools.package-dir]
@@ -49,6 +45,7 @@ include = [
     #"riescue/dtest_framework",
     "riescue/dtest_framework/config",
     "tests/dtest_framework",
+    "riescue/dtest_framework/pool.py",
 
     # RiescueC files
     "riescue/compliance/*.py",
