@@ -62,13 +62,6 @@ class StoreAction(Action):
         if self.offset % 4 != 0:
             print("not byte aligned?", self.memory)
 
-        # if self.memory is None:
-        #     random_size = ctx.random_n_width_number(16) & 0xFFFFF000
-        #     mem = MemoryAction(step_id=ctx.new_memory_id(), size=random_size, page_size=PageSize.SIZE_4K, flags=PageFlags.READ)
-        #     self.memory = mem.step_id
-        #     new_actions.append(mem)
-        #     return new_actions
-
         if self.memory is None:
             random_size = ctx.random_n_width_number(32, 12) & 0xFFFFF000
             # Allocate memory page, place in memory registry

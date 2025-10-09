@@ -29,7 +29,7 @@ class BaseMem(ABC):
 
     @classmethod
     @abstractmethod
-    def from_dict(cls, cfg: dict[str, Any]) -> BaseMem:
+    def from_dict(cls, cfg: dict[str, Any], name: str = "") -> BaseMem:
         """
         Method to create a Range object from a dictionary.
         """
@@ -128,14 +128,16 @@ class DramRange(BaseMem):
     start: int = 0
     size: int = 0
     secure: bool = False
+    name: str = ""
 
     @classmethod
-    def from_dict(cls, cfg: dict[str, Union[str, int, bool]]) -> DramRange:
+    def from_dict(cls, cfg: dict[str, Union[str, int, bool]], name: str = "") -> DramRange:
         start, size = cls.range_from_dict(cfg)
-        return cls(start=start, size=size, secure=cls.get_bool(cfg, "secure", False))
+        return cls(name=name, start=start, size=size, secure=cls.get_bool(cfg, "secure", False))
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "name": self.name,
             "address": self.start,
             "size": self.size,
             "secure": self.secure,
@@ -166,14 +168,16 @@ class IoRange(BaseMem):
     start: int = 0
     size: int = 0
     test_access: bool = False
+    name: str = ""
 
     @classmethod
-    def from_dict(cls, cfg: Mapping[str, Union[str, int, bool]]) -> IoRange:
+    def from_dict(cls, cfg: Mapping[str, Union[str, int, bool]], name: str = "") -> IoRange:
         start, size = cls.range_from_dict(cfg)
-        return cls(start=start, size=size, test_access=cls.get_bool(cfg, "test_access", False))
+        return cls(name=name, start=start, size=size, test_access=cls.get_bool(cfg, "test_access", False))
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "name": self.name,
             "address": self.start,
             "size": self.size,
             "test_access": self.test_access,
@@ -263,7 +267,7 @@ class Memory:
         dram_ranges, secure_ranges = cls._split_dram_ranges_by_secure(dram)
         log.debug(f"DRAM ranges: {dram_ranges}")
         log.debug(f"Secure ranges: {secure_ranges}")
-        all_io_ranges = [IoRange.from_dict(value) for _, value in cfg.get("io", {}).items()]
+        all_io_ranges = [IoRange.from_dict(value, name) for name, value in cfg.get("io", {}).items()]
         io_ranges, reserved_ranges = cls._split_io_ranges_by_test_access(all_io_ranges)
         log.debug(f"IO ranges: {io_ranges}")
 
@@ -285,7 +289,7 @@ class Memory:
         secure_ranges: list[DramRange] = []
         dram_ranges: list[DramRange] = []
         for name, value in dram_dict.items():
-            dram_range = DramRange.from_dict(value)
+            dram_range = DramRange.from_dict(value, name)
             if name.startswith("secure") or dram_range.secure:
                 secure_ranges.append(dram_range)
             else:
@@ -303,3 +307,9 @@ class Memory:
             else:
                 reserved_ranges.append(io_range)
         return test_access_ranges, reserved_ranges
+
+    def get_dram_size(self) -> int:
+        """
+        Returns the size of the DRAM.
+        """
+        return sum(dram.size for dram in self.dram_ranges)

@@ -3,13 +3,15 @@
 
 import re
 import logging
-from typing import List, Optional
+from typing import Optional, TYPE_CHECKING
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import riescue.lib.common as common
 import riescue.lib.enums as RV
-from riescue.dtest_framework.pool import Pool
+
+if TYPE_CHECKING:
+    from riescue.dtest_framework.pool import Pool
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ class Parser:
     e.g.
     """
 
-    def __init__(self, filename: Path, pool: Pool):
+    def __init__(self, filename: Path, pool: "Pool"):
         self.filename = filename
         self.reserve_memory = dict()
         self.random_data = dict()
@@ -858,10 +860,10 @@ class ParsedPageMapping:
     pbmt: int = 0
     n: bool = False
     secure: bool = False
-    page_maps: List[str] = field(default_factory=list)
-    pagesizes: List[str] = field(default_factory=list)
-    gstage_vs_leaf_pagesizes: List[str] = field(default_factory=list)
-    gstage_vs_nonleaf_pagesizes: List[str] = field(default_factory=list)
+    page_maps: list[str] = field(default_factory=list)
+    pagesizes: list[str] = field(default_factory=list)
+    gstage_vs_leaf_pagesizes: list[str] = field(default_factory=list)
+    gstage_vs_nonleaf_pagesizes: list[str] = field(default_factory=list)
 
     _4kb: bool = True
     _2mb: bool = False
@@ -877,7 +879,7 @@ class ParsedPageMapping:
     modify_pt: bool = False
     address_size: int = 0x1000
     address_mask: int = 0xFFFFFFFFFFFFF000
-    linked_page_mappings: List["ParsedPageMapping"] = field(default_factory=list)
+    linked_page_mappings: list["ParsedPageMapping"] = field(default_factory=list)
     linked_ppm_offset: int = 0x0
 
     # Internal use members

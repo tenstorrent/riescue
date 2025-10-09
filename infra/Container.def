@@ -36,16 +36,12 @@ Stage: devel
         sortedcontainers \
         pyyaml \
         numpy \
-        pybind11 \
-        pyvsc \
-        csrbox \
         sphinx \
         sphinx-rtd-theme \
         flake8 \
         black \
         intervaltree \
         coverage \
-        tabulate \
         pyright[nodejs]
     python3 -m pip install --upgrade pip
 

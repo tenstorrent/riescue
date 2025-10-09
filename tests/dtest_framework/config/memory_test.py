@@ -18,7 +18,7 @@ class DramRangeTest(unittest.TestCase):
         self.assertEqual(dram.size, 0x100)
         self.assertEqual(dram.end, 0x10FF)
         self.assertFalse(dram.secure)
-        self.assertEqual(dram.to_dict(), {"address": 0x1000, "size": 0x100, "secure": False})
+        self.assertEqual(dram.to_dict(), {"address": 0x1000, "name": "", "size": 0x100, "secure": False})
 
     def test_from_dict_integers(self):
         """DramRange.from_dict handles integer inputs."""

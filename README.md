@@ -7,11 +7,87 @@
 
 **[Read the documentation on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/)**
 
+
+# RiESCUE
+RISC-V Directed Test Framework and Compliance Suite, RiESCUE
+
+RiESCUE provides a suite of Python scripts and libraries for generating RISC-V tests:
+* `RiescueD` - RiESCUE Directed Test Framework
+* `RiescueC` - RiESCUE Compliance Test Generator
+* `CTK` - RiESCUE Compliance Test Kit (Not Yet Available)
+
+Other Riescue projects include:
+* `CoreArchCoverage` - RISC-V ISA Coverage from ISS (Separate Repository Available in the Future)
+* `coretp` - RISC-V Core Test Plan - see [riscv-coretp GitHub](https://github.com/tenstorrent/riscv-coretp)
+
+
+### 1. RiescueD - Directed Test Framework
+A powerful Python library for writing directed tests in assembly with features such as:
+- OS code simulation
+- Random address generation
+- Memory management
+- Page table generation
+- Support for various privilege modes, paging modes, and virtualization modes
+
+[Learn more about RiescueD](riescue/dtest_framework/README.md)
+
+[Detailed RiescueD User Guide](https://docs.tenstorrent.com/riescue/user_guides/riescued_user_guide.html)
+
+
+### 2. RiescueC - Compliance Test Generator
+A specialized test generator for RISC-V compliance testing that supports:
+
+#### Datapath Compliance Testing - `bringup` mode
+- Multiple RISC-V extensions
+  * Standard extensions (M, F, D, V, A, C)
+  * Bit manipulation extensions (Zba, Zbb, Zbc, Zbs, Zb)
+  * Half-precision floating point (Zfh, Zfbfmin)
+- Self-checking test generation
+- Configurable test constraints
+- Comprehensive extension support
+
+[See the RiescueC documentation on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/tutorials/riescuec/riescue_c_brief.html) to get started with `bringup` mode. The source code can be found in `riescue/compliance`.
+
+
+#### Privileged Testing - `tp` mode
+Test Plan or `tp` mode Generates Test Scenarios described in [riscv-coretp](https://github.com/tenstorrent/riscv-coretp).
+
+`TestScenarios` provide a set of python data structures describing sequences of instructions and environmental configuration to test architectural and privilege scenarios. RiescueC consumes these scenarios and generates test ELFs using the underlying `RiescueD` framework.
+
+More documentation and information to come in future updates
+
+
+## Installation and Usage
+For info on installing dependencies, see the [Installation Guide in docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/tutorials/install.html)
+
+### Quick Install
+
+
+```
+python3 -m pip install git+https://github.com/tenstorrent/riescue.git
+```
+
+This installs the command line scripts `riescued`, along with making the `riescue` Python package available for importing. This doesn't source some of the non-python requirements for Riescue.
+
+### Requirements
+
+- RISC-V GNU Toolchain - [riscv-gnu-toolchain GitHub](https://github.com/riscv-collab/riscv-gnu-toolchain)
+- `whisper` - [whisper GitHub](https://github.com/tenstorrent/whisper)
+- `spike` - [riscv-isa-sim GitHub](https://github.com/riscv-software-src/riscv-isa-sim)
+- `coretp` Python library - [riscv-coretp GitHub](https://github.com/tenstorrent/riscv-coretp)
+
+
+## Getting Started
+See the [RiescueD Getting Started Guide](https://docs.tenstorrent.com/riescue/tutorials/index.html) for more information on setting up RiescueD and running tests.
+
+
 ---
-
 # Open Source Roadmap
-We are excited to announce that we will be open-sourcing a suite of tools under the RiESCUE umbrella. Below is a list of tools that we plan to release in the coming months.
-
+We are excited to announce that we will be open-sourcing a suite of tools under the RiESCUE umbrella.
+<details>
+Click here to see a list of tools that we plan to release in the coming months.
+<summary>
+</summary>
 
 ## RiescueD - Directed Test Framework
 A powerful framework for writing directed tests in RISC-V assembly. It provides a library for test generator development, with features such as:
@@ -52,83 +128,9 @@ Extensible framework for defining, managing, and consuming RISC-V architectural 
   * Writing RISC-V architectural test plans and test scenarios
   * Parsing and transforming scenarios into structured data for downstream tools
   * Rendering test plans as documentation
+</details>
 
 
-# RiESCUE
-RISC-V Directed Test Framework and Compliance Suite, RiESCUE
-
-RiESCUE provides a suite of Python scripts and libraries for generating RISC-V tests:
-* `RiescueD` - RiESCUE Directed Test Framework
-* `RiescueC` - RiESCUE Compliance Test Generator 'RiescueC'
-
-Other Riescue projects include:
-* `CTK` - Compliance Test Kit
-* `CoreArchCoverage` - RISC-V ISA Coverage from ISS
-* `coretp` - RISC-V Core Test Plan
-
-
-### 1. RiescueD - Directed Test Framework
-A powerful Python library for writing directed tests in assembly with features such as:
-- OS code simulation
-- Random address generation
-- Memory management
-- Page table generation
-- Support for various privilege modes, paging modes, and virtualization modes
-
-[Learn more about RiescueD](riescue/dtest_framework/README.md)
-
-[Detailed RiescueD User Guide](https://docs.tenstorrent.com/riescue/user_guides/riescued_user_guide.html)
-
-
-### 2. RiescueC - Compliance Test Generator
-A specialized test generator for RISC-V compliance testing that supports:
-- Multiple RISC-V extensions (I, M, A, F, C, D, V, etc.)
-- Self-checking test generation
-- Configurable test constraints
-- Comprehensive extension support
-
-[See the RiescueC documentation](https://docs.tenstorrent.com/riescue/tutorials/riescuec/riescue_c_brief.html)
-
-
-# Installation and Usage
-## From git
-To install directly
-```
-python3 -m pip install git+https://github.com/tenstorrent/riescue.git
-```
-
-This installs the command line scripts `riescued`, along with making the `riescue` Python package available for importing.
-
-## Requirements
-### Singularity / Apptainer
-This repo currently uses a `singularity` container flow to manage the environment. All dependencies are listed in the [Container.def](infra/Container.def) file.
-
-In the future, the Python `setuptools` script will source Python dependencies.
-
-### Toolchains
-RiescueD uses the riscv-gnu-toolchain to assemble, compile, and disassemble ELF tests. Toolchain paths can be passed as a command line flag, set as an environment variable, or added to the `PATH`.
-- `riscv64-unknown-elf-gcc` is the default executable used for assembling and compiling
-  - Searches for `--compiler_path`, followed by the environment variable `RV_GCC`, then `riscv64-unknown-elf-gcc` in the `PATH`
-- `riscv64-unknown-elf-objdump` is the default executable used for disassembling
-  - Searches for `--disassembler_path`, followed by the environment variable `RV_OBJDUMP`, then `riscv64-unknown-elf-objdump` in the `PATH`
-
-### Simulators
-Riescue invokes the following Instruction Set Simulators:
-- `whisper` [whisper GitHub](https://github.com/tenstorrent/whisper)
-  - `whisper` is a git submodule and can be built in the container using `./infra/build_whisper.sh`
-  - External whisper binaries can be passed in using the environment variable `WHISPER_PATH` or the command line switch `--whisper_path`
-- `spike` [riscv-isa-sim GitHub](https://github.com/riscv-software-src/riscv-isa-sim)
-  - `spike` is installed normally in the container flow.
-  - External spike binaries can be passed in using the environment variable `SPIKE_PATH` or the command line switch `--spike_path`
-
-Like toolchains, simulators can be set with a command line switch, environment variable, or added to the `PATH`.
-
-### `riscv-coretp`
-RiescueC uses the [`riscv-coretp`](https://github.com/tenstorrent/riscv-coretp) project, which contains python data structures, test plans, and a basic RISC-V instruction API for generating instructions. It's an external dependncy that isn't on `pip` yet, but is included in the `pyproject.toml`. For more information see the [Install and Setup guide](https://docs.tenstorrent.com/riescue/tutorials/install.html) on the docs.
-
-
-## Getting Started
-See the [RiescueD Getting Started Guide](https://docs.tenstorrent.com/riescue/tutorials/index.html) for more information on setting up RiescueD and running tests.
 
 # Developing and Contributing
 To develop or contribute, you need [Apptainer (formerly Singularity)](https://apptainer.org/).
