@@ -20,20 +20,20 @@ To see available options, run:
 
 .. code-block:: bash
 
-   python3 -m riescued --help
+   riescued --help
 
 To generate and compile a test, pass in the test file using ```--testname``
 
 .. code-block:: bash
 
-   python3 -m riescued --testname tutorial_example_test.s
+   riescued --testname tutorial_example_test.s
 
 
 To run the test on an ISS, add the ``--run_iss`` flag. By default this runs on Whisper, but using ``--iss spike`` you can run the test on Spike.
 
 .. code-block:: bash
 
-   python3 -m riescued --testname tutorial_example_test.s --run_iss
+   riescued --testname tutorial_example_test.s --run_iss
 
 Python Library Usage
 ~~~~~~~~~~~~~~~~~~~~
@@ -133,7 +133,7 @@ Run RiescueD and build the test
 
 .. code-block:: bash
 
-  python3 -m riescued --testname tutorial_example_test.s
+  riescued --testname tutorial_example_test.s
 
 
 This will generate the test harness, linker script, and compile the test into an ELF binary.

@@ -17,7 +17,7 @@ page
 
 import collections
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import riescue.dtest_framework.lib.addrgen as addrgen
 import riescue.lib.common as common
@@ -29,6 +29,7 @@ from riescue.dtest_framework.lib.addrgen import AddrGen
 
 if TYPE_CHECKING:
     from riescue.dtest_framework.pool import Pool
+    from riescue.dtest_framework.lib.page_map import Page, PageMap
 
 log = logging.getLogger(__name__)
 
@@ -38,38 +39,37 @@ class PTTable:
     Actually holds all the pagetables entries and pointer to the next table
     """
 
-    def __init__(self, base_addr, leaf=False):
-        self.base_addr = base_addr
-        self.leaf = leaf
+    def __init__(self, base_addr: int, leaf: bool = False):
+        self.base_addr: int = base_addr
+        self.leaf: bool = leaf
+        self.table: collections.OrderedDict[int, PTEntry] = collections.OrderedDict()
 
-        self.table = collections.OrderedDict()  # entry_index -> PTTable
-
-    def __str__(self):
+    def __str__(self) -> str:
         strn = ""
         for index, entry in self.table.items():
             strn += f"index: 0x{index:x} -> {self.get_entry(index).get_value():x}\n"
 
         return strn
 
-    def insert_entry(self, entry, index):
+    def insert_entry(self, entry: "PTEntry", index: int) -> None:
         """
         Insert an entry at given index
         """
         self.table[index] = entry
 
-    def entry_exists(self, index):
+    def entry_exists(self, index: int) -> bool:
         if index in self.table:
             return True
         else:
             return False
 
-    def get_entry(self, index):
+    def get_entry(self, index: int) -> "PTEntry":
         """
         Return the entry at given index
         """
         return self.table[index]
 
-    def get_entries(self):
+    def get_entries(self):  # TODO: how to annotate this?
         return self.table.values()
 
 
@@ -78,7 +78,8 @@ class PTAttrs(raw_attributes.RawAttributes):
     Model pagetable attributes for a given page
     """
 
-    base_attrs = {
+    # FIXME: can we have int defaults here instead of None?
+    base_attrs: dict[str, Optional[int]] = {  # TODO: is this correct?
         "v": None,
         "v_level0": 1,
         "v_level1": 1,
@@ -347,15 +348,17 @@ class PTAttrs(raw_attributes.RawAttributes):
         "gstage_modify_pt": 0,
     }
 
-    def __init__(self, rng: RandNum, featmgr: FeatMgr, level, page=None, leaf=False):
+    def __init__(self, rng: RandNum, featmgr: FeatMgr, level: int, page: "Optional[Page]" = None, leaf: bool = False):
         super().__init__(valid_attrs=PTAttrs.base_attrs)
-        self.featmgr = featmgr
-        self.leaf = leaf
+        self.featmgr: FeatMgr = featmgr
+        self.leaf: bool = leaf
 
         if page is not None:
             for attr_name in page.attrs.keys():
                 # print(f'pagetable: {page.name}, attr_name: {attr_name}, value: {page.attrs[attr_name]}')
-                self.__setattr__(attr_name, page.attrs[attr_name])
+                value = page.attrs[attr_name]  # FIXME: bandaid fix for None values in page.attrs, do we want to allow None values?
+                if value is not None:
+                    self.__setattr__(attr_name, value)
 
         # Now set the level specific attribute value from attr_level{level} values
         for attr in ["v", "a", "d", "r", "w", "x", "g", "u", "rsw", "reserved", "secure"]:
@@ -376,7 +379,7 @@ class PTAttrs(raw_attributes.RawAttributes):
             # else:
             self.__setattr__(attr, self.__getattribute__(f"{attr}_level{level}"))
 
-    def __str__(self):
+    def __str__(self) -> str:  # FIXME: there are two of these, maybe get rid of one
         str = ""
         for attr in PTAttrs.base_attrs:
             if "level" not in attr:
@@ -412,21 +415,21 @@ class PTEntry:
     It holds following information
     """
 
-    def __init__(self, basetable, pt_attr, level):
+    def __init__(self, basetable: PTTable, pt_attr: PTAttrs, level: int):
         if basetable.base_addr is None:
             raise ValueError("basetable cannot be None for PTEntry")
-        self.basetable = basetable
-        self.pt_attr = pt_attr
-        self.level = level
-        self.leaf = False
+        self.basetable: PTTable = basetable
+        self.pt_attr: PTAttrs = pt_attr
+        self.level: int = level
+        self.leaf: bool = False
 
-    def get_base_addr(self):
+    def get_base_addr(self) -> int:
         return self.basetable.base_addr
 
-    def get_pt_attrs(self):
+    def get_pt_attrs(self) -> PTAttrs:
         return self.pt_attr
 
-    def get_value(self):
+    def get_value(self) -> int:
         # FIXME: this is not good. we need to apply a real mask on top bits
         log.debug(f"PTEntry: get_value: {self.basetable.base_addr:x}, {self.pt_attr.get_value():x}")
         val = ((self.basetable.base_addr >> 12) << 10) | self.pt_attr.get_value()
@@ -435,28 +438,28 @@ class PTEntry:
 
 
 class Pagetables:
-    def __init__(self, page, page_map, pool: "Pool", featmgr: FeatMgr, addrgen: AddrGen):
+    def __init__(self, page: "Page", page_map: "PageMap", pool: "Pool", featmgr: FeatMgr, addrgen: AddrGen):
         """
         Create pagetables for "page" in given "page_map"
           - return a list of PTEntry(s) with entires at each level
           - update the page_map.base_table with the newly created pagetables
         """
-        self.page = page
-        self.page_map = page_map
+        self.page: "Page" = page
+        self.page_map: "PageMap" = page_map
 
-        self.pool = pool
-        self.featmgr = featmgr
-        self.addrgen = addrgen
+        self.pool: "Pool" = pool
+        self.featmgr: FeatMgr = featmgr
+        self.addrgen: AddrGen = addrgen
 
         self.set_level()
 
-    def set_level(self):
+    def set_level(self) -> None:
         # Page class needs to set number of levels at generator.py
         # TODO: Need to use self.page.max_levels
         # self.max_levels = self.page.max_levels
         self.max_levels = self.page_map.max_levels
 
-    def create_pagetables(self, rng):
+    def create_pagetables(self, rng: RandNum) -> None:
         """
         For a given linear address and physical address, create pagetables
         for a page in given page_map
@@ -469,6 +472,8 @@ class Pagetables:
           - pagetable attributes that are specified in the page_mapping()
         """
         basetable = self.page_map.basetable
+        if basetable is None:  # FIXME: added this as a fallback to make sure basetable is set, satisfies other type hinting
+            raise ValueError(f"PageMap {self.page_map.name} basetable is None - initialize() must be called before create_pagetables()")
 
         # print(f'Creating pagetables for {self.page.name}, {self.page.lin_addr:x}')
         current_level = self.max_levels - 1
@@ -483,14 +488,14 @@ class Pagetables:
         if basetable is not None:
             self._create_pt_leaf(rng, base_table=basetable, pt_level=current_level)
 
-    def _create_pt_non_leaf(self, rng, pt_level, base_table):
+    def _create_pt_non_leaf(self, rng: RandNum, pt_level: int, base_table: PTTable) -> Optional[PTTable]:
         """
         Create the non-leaf pt_entry
           - no-leaf entry is marked with XWR=3'b000 in the entry
         """
         # Since we are creating non-leaf entry, clear X/W/R bits
         pt_attr = PTAttrs(rng=rng, featmgr=self.featmgr, level=pt_level, page=self.page)
-        # print(f'{self.page.name}_{pt_level}: pt_attrs: {self.page.attrs}, attrs: {pt_attr}')
+        # print(f'{self.page.name}_{pt_level}: pt_attrs: {self.page.attrs}, attrs: {pt_attr}') # FIXME: is this still used?
         # pt_attr.r = 0
         # pt_attr.w = 0
         # pt_attr.x = 0
@@ -522,7 +527,7 @@ class Pagetables:
                 # to the same physical address with different pagesizes
                 return None
         else:
-            # Entry does not exist for this index, create one
+            # Entry does not exist for this index, create one # FIXME can remove this?
             # lin_name = f'_pt_lin_{self.page_map.name}_{self.page.name}_level{pt_level}'
             # phys_name = f'_pt_phys_{self.page_map.name}_{self.page.name}_level{pt_level}'
 
@@ -530,10 +535,10 @@ class Pagetables:
             (size, mask, pagesize) = self.generate_pt_constraints(leaf=False)
 
             secure_access_generated = False
-            qualifiers = [RV.AddressQualifiers.ADDRESS_DRAM]
+            qualifiers = {RV.AddressQualifiers.ADDRESS_DRAM}  # TODO: review, changed to set from list to match AddressConstraint types
             # Randomize pagetables to be secure with probability
             if self.featmgr.secure_mode and rng.with_probability_of(self.featmgr.secure_pt_probability):
-                qualifiers = [RV.AddressQualifiers.ADDRESS_SECURE]
+                qualifiers = {RV.AddressQualifiers.ADDRESS_SECURE}  # TODO: review, changed to set from list to match AddressConstraint types
                 secure_access_generated = True
 
             phys_addr_c = addrgen.AddressConstraint(type=RV.AddressType.PHYSICAL, qualifiers=qualifiers, bits=self.featmgr.physical_addr_bits, size=size, mask=mask)
@@ -576,7 +581,9 @@ class Pagetables:
                                     attr_level = f"{attr}_level{level}"
                                     # If level is leaf level then we only update v=0 and not v_level0. These are some of the stupid things I want to clean up, but for some other day
                                     leaf_level = RV.RiscvPageSizes.pt_leaf_level(pagesize)
-                                    attrs[attr_level] = self.page.attrs[f"{attr}_level{pt_level}_glevel{level}"]
+                                    value = self.page.attrs[f"{attr}_level{pt_level}_glevel{level}"]  # FIXME: bandaid fix for None values in page.attrs, do we want to allow None values?
+                                    if value is not None:
+                                        attrs[attr_level] = value
                             map.add_raw_pt_page(
                                 linear_name=linear_name,
                                 physical_name=physical_name,
@@ -626,7 +633,7 @@ class Pagetables:
 
         return base_table
 
-    def _create_pt_leaf(self, rng, base_table, pt_level):
+    def _create_pt_leaf(self, rng: RandNum, base_table: PTTable, pt_level: int) -> None:
         """
         Create the leaf pt_entry
         """
@@ -634,10 +641,11 @@ class Pagetables:
         pt_attr = PTAttrs(rng=rng, featmgr=self.featmgr, level=pt_level, page=self.page, leaf=True)
         if self.featmgr.pbmt_ncio and not self.page.no_pbmt_ncio:
             # Randomize NC vs IO to 50%
-            pt_attr.pbmt = 1 if rng.with_probability_of(50) else 2
+            pt_attr.pbmt = 1 if rng.with_probability_of(50) else 2  # type: ignore
+            # FIXME: raw attributes are not type safe, change to dataclass in future
 
         # If creating pagetables for g-stage, leaf level is always treated as user
-        if self.page_map.g_map:
+        if self.page_map.g_map:  # FIXME: does this need to exist?
             pass
             # pt_attr.u = 1
             # pt_attr.g = 0
@@ -666,6 +674,8 @@ class Pagetables:
             )
 
         phys_addr = self.page.phys_addr
+        if phys_addr is None:  # FIXME: added because of optional none for phys_addr
+            raise ValueError(f"Physical address is None for page {self.page.name}")
         if pt_attr.secure:
             phys_addr |= 0x0080000000000000
         leaf_basetable = PTTable(base_addr=phys_addr, leaf=True)
@@ -708,13 +718,17 @@ class Pagetables:
                     if not (self.pool.random_addr_exists(physical_name) or self.pool.random_addr_exists(linear_name)):
                         # FIXME: Currently, cannot enable pagesize logic here since we need to constraint the physical address (GPA)
                         #        to have same alignment as the leaf pagesize. This needs to happen in generator.py
+                        if self.page.phys_addr is None:  # FIXME: fallback to make sure phys_addr is not None
+                            raise ValueError(f"Physical address is None for page {self.page.name}")
                         attrs = {"x": 1}
                         for attr in ["v", "a", "d", "g", "u", "r", "w", "x"]:
                             for level in range(self.max_levels):
                                 attr_level = f"{attr}_level{level}"
                                 # If level is leaf level then we only update v=0 and not v_level0. These are some of the stupid things I want to clean up, but for some other day
                                 leaf_level = RV.RiscvPageSizes.pt_leaf_level(pagesize)
-                                attrs[attr_level] = self.page.attrs[f"{attr}_level{pt_level}_glevel{level}"]
+                                value = self.page.attrs[f"{attr}_level{pt_level}_glevel{level}"]  # FIXME: bandaid fix for None values in page.attrs, do we want to allow None values?
+                                if value is not None:
+                                    attrs[attr_level] = value
                         map.add_raw_pt_page(
                             linear_name=linear_name,
                             physical_name=physical_name,
@@ -726,7 +740,7 @@ class Pagetables:
 
         self.page.insert_pt(pt_entry)
 
-    def generate_pt_constraints(self, leaf):
+    def generate_pt_constraints(self, leaf: bool) -> "tuple[int, int, RV.RiscvPageSizes]":
         """
         Generate constraints for the pagetable base address
         """
@@ -738,6 +752,8 @@ class Pagetables:
 
         # If g-stage is enabled, then we need to make sure that the base address is aligned to the
         # g-stage page size
+        # FIXME: probably should review this, try/catch only exists because these traits are only set in some generator paths
+        # we added all of the gstage_vs_* traits to page class to avoid lint errors as a bandaid but should be revisited
         if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
             # Check if the g_stage page size is specified
             if leaf:
@@ -745,34 +761,46 @@ class Pagetables:
                 # generated for sections like code, data, text etc
                 try:
                     # print(f'PT getting leaf {self.page.name} {self.page.gstage_vs_leaf_pagesize}')
-                    size = self.page.gstage_vs_leaf_address_size
-                    mask = self.page.gstage_vs_leaf_address_mask
-                    pagesize = self.page.gstage_vs_leaf_pagesize
+                    if self.page.gstage_vs_leaf_address_size is not None:  # FIXME: added these checks because these are optional
+                        size = self.page.gstage_vs_leaf_address_size
+                    if self.page.gstage_vs_leaf_address_mask is not None:
+                        mask = self.page.gstage_vs_leaf_address_mask
+                    if self.page.gstage_vs_leaf_pagesize is not None:
+                        pagesize = self.page.gstage_vs_leaf_pagesize
                 except Exception:
                     # FIXME: Need specific exception
                     pass
             else:  # Non-leaf
                 try:
                     # print(f'PT getting nonleaf {self.page.name} {self.page.gstage_vs_nonleaf_pagesize}, {self.page.gstage_vs_nonleaf_address_size:x}, {self.page.gstage_vs_nonleaf_address_mask:x}')
-                    size = self.page.gstage_vs_nonleaf_address_size
-                    mask = self.page.gstage_vs_nonleaf_address_mask
-                    pagesize = self.page.gstage_vs_nonleaf_pagesize
+                    if self.page.gstage_vs_nonleaf_address_size is not None:
+                        size = self.page.gstage_vs_nonleaf_address_size
+                    if self.page.gstage_vs_nonleaf_address_mask is not None:
+                        mask = self.page.gstage_vs_nonleaf_address_mask
+                    if self.page.gstage_vs_nonleaf_pagesize is not None:
+                        pagesize = self.page.gstage_vs_nonleaf_pagesize
                 except Exception:
                     # FIXME: Need specific exception
                     pass
 
         return (size, mask, pagesize)
 
-    def calc_index_from_va(self, level):
+    def calc_index_from_va(self, level: int) -> int:
         """
         Calculate the index for a given level of pagetable
         """
         page_offset_bits = 12
-        index_hi, index_lo = RV.RiscvPagingModes.index_bits(mode=self.page_map.paging_mode, level=level)
+        index_bits_result = RV.RiscvPagingModes.index_bits(mode=self.page_map.paging_mode, level=level)  # FIXME: added because of None fall-through case in index_bits()
+        if index_bits_result is None:
+            raise ValueError(f"index_bits returned None for paging_mode={self.page_map.paging_mode}, level={level}")
+        index_hi, index_lo = index_bits_result
 
         # index_lo = (index_bits * level) + page_offset_bits
         # index_hi = index_lo + index_bits - 1
 
-        index = common.bits(value=self.page.lin_addr, bit_hi=index_hi, bit_lo=index_lo)
+        lin_addr = self.page.lin_addr
+        if lin_addr is None:  # FIXME: added because of optional none for lin_addr
+            raise ValueError(f"Linear address is None for page {self.page.name}")
+        index = common.bits(value=lin_addr, bit_hi=index_hi, bit_lo=index_lo)
 
         return index

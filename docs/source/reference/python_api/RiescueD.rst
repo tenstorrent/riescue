@@ -21,14 +21,14 @@ To see available run options, run:
 
 .. code-block:: bash
 
-   python3 -m riescued  -h
+   riescued  -h
 
 
 To run a directed test, use
 
 .. code-block:: bash
 
-   python3 -m riescued  --testname <path/to/test.s> --cpuconfig <path/to/cpuconfig.json>
+   riescued  --testname <path/to/test.s> --cpuconfig <path/to/cpuconfig.json>
 
 
 You can also run a wrapper script, e.g.

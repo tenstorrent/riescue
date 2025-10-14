@@ -22,7 +22,7 @@ from riescue.lib.cli_base import CliBase
 from riescue.lib.toolchain import Toolchain, Spike, Whisper
 
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("riescue")  # special case because riescued can be a main module
 
 
 class RunnerError(Exception):
@@ -45,7 +45,14 @@ class RiescueD(CliBase):
 
     package_path = Path(__file__).parent
 
-    def __init__(self, testfile: Path, cpuconfig: Path = Path("dtest_framework/lib/config.json"), run_dir: Path = Path("."), seed: Optional[int] = None, toolchain: Optional[Toolchain] = None):
+    def __init__(
+        self,
+        testfile: Path,
+        cpuconfig: Path = Path("dtest_framework/lib/config.json"),
+        run_dir: Path = Path("."),
+        seed: Optional[int] = None,
+        toolchain: Optional[Toolchain] = None,
+    ):
         self.run_dir = run_dir.resolve()
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -84,15 +91,48 @@ class RiescueD(CliBase):
         """
         Adds group arguments to the parser. Includes arguments for FeatMgr, RiescueLogger, Compiler, Disassembler, Spike, and Whisper.
         """
-        parser.add_argument("--testfile", "-t", type=Path, help="Testname with path to be compiled with RiESCUE-D")
-        parser.add_argument("--testname", type=Path, help="Legacy switch to be deprecated, use --testfile instead.")
-        parser.add_argument("--run_dir", "-rd", type=Path, default="./", help="Run directory where the test will be run")
+        parser.add_argument(
+            "--testfile",
+            "-t",
+            type=Path,
+            help="Testname with path to be compiled with RiESCUE-D",
+        )
+        parser.add_argument(
+            "--testname",
+            type=Path,
+            help="Legacy switch to be deprecated, use --testfile instead.",
+        )
+        parser.add_argument(
+            "--run_dir",
+            "-rd",
+            type=Path,
+            default="./",
+            help="Run directory where the test will be run",
+        )
         parser.add_argument("--seed", type=int, help="Seed for the test")
-        parser.add_argument("--cpuconfig", type=Path, default=None, help="Path to cpu feature configuration. Defaults to dtest_framework/lib/config.json")
+        parser.add_argument(
+            "--cpuconfig",
+            type=Path,
+            default=None,
+            help="Path to cpu feature configuration. Defaults to dtest_framework/lib/config.json",
+        )
 
-        run_args = parser.add_argument_group("Run Control", "Arguments that modify the run flow - runnning simulators, compilers, excluding OS code")
-        run_args.add_argument("--elaborate_only", action="store_true", default=None, help="Only elaborate the test but dont attempt to call external compiler or simulator")
-        run_args.add_argument("--run_iss", action="store_true", default=None, help="Run ISS with the test. Default ISS is Whisper, but can be run with any other ISS using --iss <iss>")
+        run_args = parser.add_argument_group(
+            "Run Control",
+            "Arguments that modify the run flow - runnning simulators, compilers, excluding OS code",
+        )
+        run_args.add_argument(
+            "--elaborate_only",
+            action="store_true",
+            default=None,
+            help="Only elaborate the test but dont attempt to call external compiler or simulator",
+        )
+        run_args.add_argument(
+            "--run_iss",
+            action="store_true",
+            default=None,
+            help="Run ISS with the test. Default ISS is Whisper, but can be run with any other ISS using --iss <iss>",
+        )
 
         FeatMgrBuilder.add_arguments(parser)
         RiescueLogger.add_arguments(parser)
@@ -146,7 +186,12 @@ class RiescueD(CliBase):
         )
         return rd
 
-    def run(self, cl_args: argparse.Namespace, elaborate_only: bool = False, run_iss: bool = False) -> GeneratedFiles:
+    def run(
+        self,
+        cl_args: argparse.Namespace,
+        elaborate_only: bool = False,
+        run_iss: bool = False,
+    ) -> GeneratedFiles:
         """
         Run RiescueD configuration, generation, and compilation. Simulate if requested.
 
@@ -167,7 +212,11 @@ class RiescueD(CliBase):
         if run_iss:
             if self.toolchain.simulator is None:
                 raise ValueError("No ISS selected. Provide ISS in toolchain configuration")
-            self.simulate(featmgr, iss=self.toolchain.simulator, whisper_config_json_override=cl_args.whisper_config_json)
+            self.simulate(
+                featmgr,
+                iss=self.toolchain.simulator,
+                whisper_config_json_override=cl_args.whisper_config_json,
+            )
 
         return self.generated_files
 
@@ -247,9 +296,18 @@ class RiescueD(CliBase):
         # Generate Disassembly
         disassembler = self.toolchain.disassembler
         disassembler_args = ["-D", str(self.generated_files.elf), "-M", "numeric"]
-        disassembler.run(output_file=self.generated_files.dis, cwd=self.run_dir, args=disassembler_args)
+        disassembler.run(
+            output_file=self.generated_files.dis,
+            cwd=self.run_dir,
+            args=disassembler_args,
+        )
 
-    def simulate(self, featmgr: FeatMgr, iss: Union[Spike, Whisper], whisper_config_json_override: Optional[Path] = None):
+    def simulate(
+        self,
+        featmgr: FeatMgr,
+        iss: Union[Spike, Whisper],
+        whisper_config_json_override: Optional[Path] = None,
+    ):
         """
         Run test code through ISS
 
@@ -321,7 +379,13 @@ class RiescueD(CliBase):
         else:
             raise ValueError("No ISS selected. Provide ISS in toolchain configuration")
 
-        iss.run_iss(output_file=iss_log, elf_file=self.generated_files.elf, cwd=self.run_dir, timeout=120, args=iss_args)
+        iss.run_iss(
+            output_file=iss_log,
+            elf_file=self.generated_files.elf,
+            cwd=self.run_dir,
+            timeout=120,
+            args=iss_args,
+        )
 
         # In wysiwyg mode, we need to parse the log file to find out what was the last value written to the x31
         if featmgr.wysiwyg:

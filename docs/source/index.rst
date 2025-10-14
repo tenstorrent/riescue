@@ -21,10 +21,11 @@ RISC-V processor verification requires comprehensive testing of architectural fe
 **RiESCUE** provides the tools needed for quick bringup using directed testing and arhcitectural compliance verification.
 
 
-RiESCUE consists of two main tools:
+RiESCUE consists of three main tools:
 
 - :doc:`RiescueD <reference/python_api/RiescueD>` **- Directed Test Framework**
 - :doc:`RiescueC <reference/python_api/RiescueC>` **- Compliance Test Generator**
+- :doc:`CTK <reference/python_api/CTK>` **- Compliance Test Kit**
 
 
 Getting Started

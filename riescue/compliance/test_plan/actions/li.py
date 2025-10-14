@@ -51,7 +51,7 @@ class LiAction(Action):
         if TYPE_CHECKING:
             assert isinstance(step.step, LoadImmediateStep)
 
-        imm = step.step.imm
+        imm = step.step.imm or 0
         bits = step.step.bits
 
         return cls(step_id=step_id, immediate=imm, bits=bits)

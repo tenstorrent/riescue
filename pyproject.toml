@@ -10,23 +10,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riescue"
-version = "1.0.2"
+version = "1.1.0"
 description = "RISC-V Directed Test Framework and Compliance Suite"
 readme = "README.md"
 requires-python = ">= 3.9"
 dependencies = [
-    "dataclasses",
     "sortedcontainers",
     "pyyaml",
     "numpy",
-    "sphinx",
+    "sphinx>=7.4.0",
     "sphinx-rtd-theme",
     "flake8",
     "black==25.1.0",
     "intervaltree",
     "coverage",
     "pyright[nodejs]",
-    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@147da7eed4784417705dfb30eb8922957ba60574",
+    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@0424d547e34229eccedf92612d6d43041380a46f",
 ]
 
 [tool.setuptools.package-dir]
@@ -35,6 +34,7 @@ riescue = "riescue/"
 [project.scripts]
 riescued = "riescue.riescued:main"
 riescuec = "riescue.riescuec:main"
+ctk = "riescue.ctk:main"
 
 [tool.pyright]
 include = [
@@ -46,11 +46,14 @@ include = [
     "riescue/dtest_framework/config",
     "tests/dtest_framework",
     "riescue/dtest_framework/pool.py",
+    "riescue/dtest_framework/lib/pagetables.py",
+    "riescue/dtest_framework/lib/page_map.py",
 
     # RiescueC files
     "riescue/compliance/*.py",
     "riescue/compliance/config",
     "riescue/compliance/src",
+    "riescue/compliance/test_plan",
 ]
 
 extraPaths = ["riescue",]
