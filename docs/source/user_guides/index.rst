@@ -13,7 +13,6 @@ If you're new to RiESCUE, start with the installation guide at :doc:`/tutorials/
 **What's in This Section**
 
 - **Workflow Guide** - Complete step-by-step processes for test development
-- **Best Practices** - Proven strategies and patterns for effective testing
 - **Debugging Guide** - Troubleshooting common issues and problems
 - **Advanced Features** - Complex scenarios and specialized use cases
 
@@ -24,3 +23,4 @@ If you're new to RiESCUE, start with the installation guide at :doc:`/tutorials/
 
    riescued_user_guide
    riescuec_user_guide
+   ctk/vector_test_kit

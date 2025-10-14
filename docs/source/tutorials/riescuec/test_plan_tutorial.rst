@@ -96,7 +96,7 @@ Execute test plan mode using:
 
 .. code-block:: bash
 
-   python3 -m riescuec --mode test_plan --seed 12345
+   riescuec --mode test_plan --seed 12345
 
 **Test Generation Process**
 

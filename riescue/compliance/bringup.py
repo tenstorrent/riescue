@@ -9,13 +9,13 @@ from typing import Optional, Union
 
 from .base import BaseMode
 from riescue.compliance.src.riscv_instr_generator import InstrGenerator
-from riescue.compliance.src.riscv_instr_organizer import InstrOrganizer
 from riescue.compliance.src.riscv_test_generator import TestGenerator
-from riescue.compliance.config import BringupCfg
+from riescue.compliance.config import ResourceBuilder, Resource
 from riescue.compliance.src.comparator import Comparator
 from riescue.compliance.src.riscv_instr_builder import InstrBuilder
 from riescue.riescued import RiescueD
-from riescue.lib.toolchain import Spike, Whisper
+from riescue.lib.toolchain import Spike, Whisper, Toolchain
+from riescue.lib.rand import RandNum
 
 log = logging.getLogger(__name__)
 
@@ -24,17 +24,6 @@ class BringupMode(BaseMode):
     """
     Runs RiescueC Test Plan generation flow.
     """
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if not isinstance(self.cfg, BringupCfg):
-            raise RuntimeError(f"cfg must be an instance of BringupCfg, not {type(self.cfg)}")
-        self.resource_db = self.cfg.build(rng=self.rng, run_dir=self.run_dir)
-        log.info("Selected configuration:")
-        log.info(f"PRIV_MODE:     {self.resource_db.featmgr.priv_mode}")
-        log.info(f"TEST_ENV:      {self.resource_db.featmgr.env}")
-        log.info(f"PAGING_MODE:   {self.resource_db.featmgr.paging_mode}")
-        log.info(f"PAGING_G_MODE: {self.resource_db.featmgr.paging_g_mode}")
 
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -57,6 +46,7 @@ class BringupMode(BaseMode):
         bringup_args.add_argument("--load_fp_regs", "-lfpr", action="store_false", help="Switch to load fp regs with load instructions rather than fmv instructions.")
         bringup_args.add_argument("--combine_compliance_tests", "-cct", type=int, help="When set compliance tests will be combined into a single discrete test per file.")
         bringup_args.add_argument("--exclude_instrs", "-exclude_instrs", type=str, help='Specify instructions to exclude. e.g.--exclude_instrs "add,sub"')
+        bringup_args.add_argument("--include_extensions", type=str, help='Specify extensions to include. e.g.--include_extensions "i_ext,m_ext"')
         bringup_args.add_argument("--instrs", "-instrs", type=str, help='Specify instructions to be run. e.g. --instrs "add,sub"')
         bringup_args.add_argument("--groups", "-groups", type=str, help='Specify groups to be run. e.g. --groups "rv64i_load_store,rv32f_single_precision_reg_reg"')
 
@@ -85,113 +75,143 @@ class BringupMode(BaseMode):
         deprecated_args = parser.add_argument_group("bringup - deprecated", "deprecated arguments")
         deprecated_args.add_argument("--privilege_mode", type=str, help="Deprecated argument. Use --test_priv_mode instead.")
 
-    def run(self) -> None:
+    def run(
+        self,
+        bringup_test_json: Path,
+        seed: int,
+        toolchain: Toolchain,
+        cl_args: Optional[argparse.Namespace] = None,
+    ) -> Path:
         """
-        Generate, compile, and simualte the test case
+        Top level wrapper to generate and simulate a test
         """
+        cfg = self.configure(seed=seed, bringup_test_json=bringup_test_json, cl_args=cl_args)
+        return self.generate(cfg, toolchain)
+
+    def configure(
+        self,
+        seed: int,
+        bringup_test_json: Path,
+        cl_args: Optional[argparse.Namespace] = None,
+    ) -> Resource:
+        """
+        Configure the :class:`Resource` object for use in :py:meth:`generate`
+
+        Since :class:`Resource` gets constructed with :class:`Toolchain` + Whisper, need to make sure that tpp;cu
+        """
+
+        resource_builder = ResourceBuilder()
+        resource_builder.with_bringup_test_json(bringup_test_json)
+        if cl_args is not None:
+            resource_builder.with_args(cl_args)
+        return resource_builder.build(seed, self.run_dir)
+
+    def generate(self, cfg: Resource, toolchain: Toolchain) -> Path:
+        """
+        Generate, compile, and return ELF test file. Returned test will have been simulated on ISS, otherwise an exception will be raised.
+
+        :param cfg: :class:`Resource` object for use in :py:meth:`generate`
+        :return: Path to the generated ELF test file
+        """
+        resource = cfg
+        rng = RandNum(resource.seed)
+        resource.with_rng(rng)
+        log.info(f"Running Bringup mode with seed {resource.seed} and selected configuration:")
+        log.info(f"PRIV_MODE:     {resource.featmgr.priv_mode}")
+        log.info(f"TEST_ENV:      {resource.featmgr.env}")
+        log.info(f"PAGING_MODE:   {resource.featmgr.paging_mode}")
+        log.info(f"PAGING_G_MODE: {resource.featmgr.paging_g_mode}")
 
         # Parse opcodes and generate the tree for all the extensions.
-        self.instr_generator = InstrGenerator(self.resource_db)
-
-        # Performs shuffling on instrs generated before test generation.
-        self.instr_organizer = InstrOrganizer(self.resource_db)  # Literally just shuffles a dictionary's items and then rebuilds the dictionary.
+        self.instr_generator = InstrGenerator(resource)
 
         # Forms instruction class templates from the instruction records. TODO replace with a generic instruction class
-        self.instr_builder = InstrBuilder(self.resource_db)
+        self.instr_builder = InstrBuilder(resource)
 
         # Instantiate the Riescue-D test generator
-        self.test_generator = TestGenerator(self.resource_db)
+        self.test_generator = TestGenerator(resource)
 
         # Get the instruction records, dictionaries of things like name, opcode, variable fields, etc.
-        sim_instrs = self.resource_db.get_sim_set()
+        sim_instrs = resource.get_sim_set()
 
         # Turn the instruction records into classes that can be crossed with the configurations, instantiated and generated, just missing configuration and label at this point.
         sim_classes = self.instr_builder.build_classes(sim_instrs)
 
-        self.resource_db.instr_classes = sim_classes  # Old code did this through cross talk between and so could escape user's notice.
+        resource.instr_classes = sim_classes  # Old code did this through cross talk between and so could escape user's notice.
 
         # Generate the instructions by determining the configration, assigning the configuration, and the calling the setup methods.
         self.instr_generator.generate_instructions_with_config_and_repeat_combinations(sim_classes)
 
         # Generate the riescue_d testcase for the first pass
-        instrs = self.resource_db.get_instr_instances()
+        instrs = resource.get_instr_instances()
 
         log.info(f"Generated {len(instrs)} instructions")
 
         self.test_generator.process_instrs(instrs, iteration=1)
         testfiles = self.test_generator.testfiles()
-        # Run the First pass
-        for testfile in testfiles:
-            self.rd_run_iss(Path(testfile), self.resource_db.first_pass_iss)
 
-        if self.resource_db.disable_pass:
+        # Run the First pass
+        first_pass = None
+        for testfile in testfiles:
+            first_pass = self._rd_run_iss(Path(testfile), resource.first_pass_iss, resource, toolchain)
+
+        if resource.disable_pass:
             log.warning("Second pass is disabled, skipping second pass")
-            return
+            if first_pass is None:
+                raise ValueError("Didn't run a final RiescueD instance")
+            return first_pass.generated_files.elf  # FIXME: Does RiescueC bringup actually support multiple testfiles?
 
         # Parse the first pass log and generate the second pass testcase.
         self.test_generator.process_instrs(instrs, iteration=2)
         testfiles = self.test_generator.testfiles()
         testcases = self.test_generator.testcases()
 
-        if self.resource_db.compare_iss:
+        # run second pass
+        last_rd = None
+        if resource.compare_iss:
             # Comparator for invoking riescue-d framework
-            self.comparator = Comparator(self.resource_db)
+            self.comparator = Comparator(resource)
             for _, testcase in testcases.items():
-                self.rd_run_iss(Path(testcase.testname), ["whisper", "spike"])
+                last_rd = self._rd_run_iss(Path(testcase.testname), ["whisper", "spike"], resource, toolchain)
                 self.comparator.compare_logs(testcase)
         else:
             for testfile in testfiles:
-                self.rd_run_iss(Path(testfile), self.resource_db.second_pass_iss)
-                self.clean_up(testfile, output_format=self.resource_db.output_format)
+                # FIXME: This is flimsy, if there really aren't multiple files then this should just return the file rather than re-assigning a temp
+                last_rd = self._rd_run_iss(Path(testfile), resource.second_pass_iss, resource, toolchain)
+                self._clean_up(testfile, output_format=resource.output_format)
+        if last_rd is None:
+            raise ValueError("Didn't run a final RiescueD instance")
+        return last_rd.generated_files.elf
 
     # helper methods
-    def get_iss(self, iss_name: str) -> Union[Spike, Whisper]:
+    def _get_iss(self, iss_name: str, toolchain: Toolchain) -> Union[Spike, Whisper]:
         if iss_name == "whisper":
-            iss = self.resource_db.toolchain.whisper
+            iss = toolchain.whisper
         elif iss_name == "spike":
-            iss = self.resource_db.toolchain.spike
+            iss = toolchain.spike
         else:
             raise ValueError(f"Invalid ISS: {iss_name}")
         if iss is None:
             raise ValueError(f"No ISS {iss_name} configured in toolchain")
         return iss
 
-    def rd_run_iss(self, file: Path, iss: Union[str, list[str]]) -> RiescueD:
+    def _rd_run_iss(self, file: Path, iss: Union[str, list[str]], resource: Resource, toolchain: Toolchain) -> RiescueD:
         "Shortcut for running RiescueD and ISS on the test"
         if isinstance(iss, str):
             iss = [iss]
-        rd = RiescueD(file, run_dir=self.run_dir, seed=self.seed, toolchain=self.resource_db.toolchain)
-        generator = rd.generate(self.resource_db.featmgr)
-        rd.build(self.resource_db.featmgr, generator)
+        rd = RiescueD(file, run_dir=self.run_dir, seed=resource.seed, toolchain=toolchain)
+        generator = rd.generate(resource.featmgr)
+        rd.build(resource.featmgr, generator)
         for simulator in iss:
-            # raise Exception(self.resource_db.toolchain.whisper.whisper_config_json, rd.toolchain.whisper.whisper_config_json)
-            if self.resource_db.toolchain.whisper is not None:
-                whisper_config_json_override = self.resource_db.toolchain.whisper.whisper_config_json.resolve()
+            if toolchain.whisper is not None:
+                whisper_config_json_override = toolchain.whisper.whisper_config_json.resolve()
             else:
                 whisper_config_json_override = None
 
-            rd.simulate(self.resource_db.featmgr, iss=self.get_iss(simulator), whisper_config_json_override=whisper_config_json_override)
+            rd.simulate(resource.featmgr, iss=self._get_iss(simulator, toolchain), whisper_config_json_override=whisper_config_json_override)
         return rd
 
-    def find_config(self, file: Optional[str]) -> Optional[Path]:
-        """
-        If absolute use that, otherwise use relative to riescue directory
-        """
-        if file is None:
-            return None
-        filepath = Path(file)
-        riescue_relative = self.package_path / file
-
-        if filepath.is_absolute():
-            return filepath
-        elif riescue_relative.exists():
-            return riescue_relative
-        elif filepath.exists():
-            return filepath
-        else:
-            raise FileNotFoundError(f"Couldn't find config file {file}. Tried {filepath} and {riescue_relative}.")
-
-    def clean_up(self, output_file: str, output_format: str):
+    def _clean_up(self, output_file: str, output_format: str):
         if output_format == "binary":
             output_dir = Path(self.run_dir)
             if not output_dir.exists():
