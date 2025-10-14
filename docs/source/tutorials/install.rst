@@ -121,7 +121,7 @@ Like simulators, toolchains can be set with a command line switch, environment v
 
 
 
-With all dependencies sourced, users should be able to run the ``python3 -m riescued`` to build RiescueD tests.
+With all dependencies sourced, users should be able to run the ``riescued`` to build RiescueD tests.
 
 
 **What next?** See the :doc:`/user_guides/riescued_user_guide` page for information on getting started with RiESCUE.

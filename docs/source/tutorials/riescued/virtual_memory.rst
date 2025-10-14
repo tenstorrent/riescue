@@ -16,7 +16,7 @@ We can run the test using:
 
 .. code-block:: bash
 
-   python3 -m riescued --testname virtual_memory.s --run_iss
+   riescued --testname virtual_memory.s --run_iss
 
 This test creates a virtual-to-physical address mapping and verifies that data can be correctly accessed through the virtual address.
 

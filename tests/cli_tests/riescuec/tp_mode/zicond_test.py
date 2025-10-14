@@ -12,3 +12,7 @@ class ZicondTest(unittest.TestCase):
     def test_cli(self):
         args = "--mode tp --test_plan zicond"
         RiescueC.run_cli(args=args.split())
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

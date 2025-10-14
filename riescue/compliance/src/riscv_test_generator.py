@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 import riescue.lib.enums as RV
-from riescue.compliance.src.riscv_dv import process_whisper_sim_log, process_spike_sim_log
+from riescue.compliance.src.riscv_dv import (
+    process_whisper_sim_log,
+    process_spike_sim_log,
+)
 from riescue.compliance.lib.testcase import TestCase
 from riescue.compliance.config import Resource
 
@@ -113,7 +116,6 @@ class TestGenerator:
                 if self.resource_db.combine_compliance_tests == 1:
                     body.append(instr.setup._pass_one_pre_appendix)
 
-                # print(f"Test num:{test_num}, num instrs:{num_instrs}")
                 if (self.resource_db.combine_compliance_tests == 0) or (test_num == (num_instrs - 1)):
                     if self.resource_db.wysiwyg:
                         body.append("\n")
@@ -306,14 +308,16 @@ class TestGenerator:
         instr_cnt_per_file = 0
         testcase_num = 1
         instr_cnt = 0
-        self._testcases: OrderedDict[str, TestCase] = OrderedDict()
+        self._testcases = OrderedDict()
         max_instr_per_file = self.resource_db.max_instr_per_file  # min(self.resource_db.max_instr_per_file, len(instrs.items()))
 
         if iteration == 1:
             self.get_pre_setup_snippets(
                 instrs, iteration
             )  # Running this for now because the code got tangled up with snippets. It is better to request the code when we want to print it rather than cache it here.
-            self.limited_instrs = instrs.values()
+
+            self.limited_instrs = instrs.values()  # FIXME: constructor should know about this and create an empty list instead of doing it here.
+            # This preserves some state if RiscvTestGenerator is re-used
 
         # Wrangle the mode(s) we actually did end up using after randomly choosing one combination in the config manager.
         test_config_to_instrs: OrderedDict[str, list[Any]] = OrderedDict()
@@ -335,7 +339,7 @@ class TestGenerator:
                 instr_cnt += 1
 
                 if instr_cnt_per_file == max_instr_per_file or instr_cnt == len(_instrs):
-                    signature = self.resource_db.generate_test_signature(iteration, testcase_num)
+                    signature = str(self.resource_db.generate_test_path(iteration, testcase_num))
                     testcase = TestCase(signature, instrs_per_file, self.resource_db)
                     self._testcases[signature] = testcase
                     # FIXME: These should be strongly typed
@@ -410,7 +414,12 @@ class TestGenerator:
 
         return label_to_state
 
-    def store_states(self, label_to_state: dict[str, list[str]], testcase: TestCase, testcase_num: int):
+    def store_states(
+        self,
+        label_to_state: dict[str, list[str]],
+        testcase: TestCase,
+        testcase_num: int,
+    ):
         """Store state information for testcase.
 
         :param label_to_state: Dictionary of labels to state information

@@ -33,13 +33,14 @@ class Whisper(Tool):
             whisper_config_json = self.default_whisper_config_json
 
         self.whisper_config_json = whisper_config_json  # resolve before running in case set by caller after constructor
+
         args = whisper_args + [
             "--traceptw",
             "--loglabel",
-            "--memorysize",
-            whisper_memory_size,
             f"--maxinst={whisper_max_instr}",
         ]
+        if whisper_memory_size:
+            args += ["--memorysize", whisper_memory_size]
         self.dumpmem_arg = whisper_dumpmem
         super().__init__(path=whisper_path, env_name="WHISPER_PATH", tool_name="whisper", args=args)
 

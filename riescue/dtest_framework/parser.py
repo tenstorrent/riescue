@@ -662,12 +662,8 @@ class Parser:
             priv_mode = "user"
             if csr_name.startswith("m"):
                 priv_mode = "machine"
-            elif csr_name.startswith("s"):
+            elif csr_name.startswith("s") or csr_name.startswith("h") or csr_name.startswith("v"):
                 priv_mode = "supervisor"
-            elif csr_name.startswith("v"):
-                priv_mode = "virtual"
-            elif csr_name.startswith("h"):
-                priv_mode = "hypervisor"
 
             label = f"csr_access_{csr_name}_{priv_mode}_key_{self.parsed_csr_id}_{read_or_write}"
             csr_access = ParsedCsrAccess(csr_name=csr_name, priv_mode=priv_mode, read_or_write=read_or_write, label=label, csr_id=self.parsed_csr_id)

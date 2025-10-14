@@ -1,5 +1,5 @@
-- [Open Source Roadmap](#open-source-roadmap)
 - [RiESCUE](#riescue)
+- [Open Source Roadmap](#open-source-roadmap)
 - [Installation and Usage](#installation-and-usage)
 - [Contributing](#developing-and-contributing)
 
@@ -9,12 +9,10 @@
 
 
 # RiESCUE
-RISC-V Directed Test Framework and Compliance Suite, RiESCUE
-
-RiESCUE provides a suite of Python scripts and libraries for generating RISC-V tests:
+RiESCUE provides a Python library and command-line tools for generating, building, and compiling RISC-V test ELF files.
 * `RiescueD` - RiESCUE Directed Test Framework
 * `RiescueC` - RiESCUE Compliance Test Generator
-* `CTK` - RiESCUE Compliance Test Kit (Not Yet Available)
+* `CTK` - RiESCUE Compliance Test Kit
 
 Other Riescue projects include:
 * `CoreArchCoverage` - RISC-V ISA Coverage from ISS (Separate Repository Available in the Future)
@@ -22,22 +20,23 @@ Other Riescue projects include:
 
 
 ### 1. RiescueD - Directed Test Framework
-A powerful Python library for writing directed tests in assembly with features such as:
+RiescueD is a Python library and command-line tool (`riescued`) for creating directed test cases. It compiles assembly tests with pre-processor directives into ELF executables, provides a runtime environment, and simulates tests on an instruction set simulator (ISS).
+
+Features include:
 - OS code simulation
 - Random address generation
 - Memory management
 - Page table generation
 - Support for various privilege modes, paging modes, and virtualization modes
 
-[Learn more about RiescueD](riescue/dtest_framework/README.md)
-
-[Detailed RiescueD User Guide](https://docs.tenstorrent.com/riescue/user_guides/riescued_user_guide.html)
+To get started writing RiescueD direct tests, check out the [RiescueD User Guide](https://docs.tenstorrent.com/riescue/user_guides/riescued_user_guide.html). Source code is found in the `riescue/dtest_framework` directory.
 
 
 ### 2. RiescueC - Compliance Test Generator
-A specialized test generator for RISC-V compliance testing that supports:
+RiescueC is a Python library and command-line tool (`riescuec`) that consists of a couple command line generation tools:
 
 #### Datapath Compliance Testing - `bringup` mode
+`BringupMode` or `riescuec --mode bringup` is the default RiescueC mode targeting datapath instruction compliance. It generates directed tests that:
 - Multiple RISC-V extensions
   * Standard extensions (M, F, D, V, A, C)
   * Bit manipulation extensions (Zba, Zbb, Zbc, Zbs, Zb)
@@ -46,19 +45,27 @@ A specialized test generator for RISC-V compliance testing that supports:
 - Configurable test constraints
 - Comprehensive extension support
 
-[See the RiescueC documentation on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/tutorials/riescuec/riescue_c_brief.html) to get started with `bringup` mode. The source code can be found in `riescue/compliance`.
+[See the RiescueC documentation on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/tutorials/riescuec/riescue_c_brief.html) to get started with `bringup` mode. The source code can be found in the `riescue/compliance` directory.
 
 
 #### Privileged Testing - `tp` mode
-Test Plan or `tp` mode Generates Test Scenarios described in [riscv-coretp](https://github.com/tenstorrent/riscv-coretp).
+Test Plan or `riescuec --mode tp` mode generates directed tests using `TestPlan`s described in [riscv-coretp](https://github.com/tenstorrent/riscv-coretp).
 
 `TestScenarios` provide a set of python data structures describing sequences of instructions and environmental configuration to test architectural and privilege scenarios. RiescueC consumes these scenarios and generates test ELFs using the underlying `RiescueD` framework.
 
 More documentation and information to come in future updates
 
 
+
+### 3. CTK - Compliance Test Kit
+High-level tool used to generates a directory of tests given an ISA string (e.g. "rv64imfv"). Tests are ran using RiescueC to generate self-checking tests for a range of extensions.
+
+- See the [CTK Guide on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/tutorials/ctk/ctk_tutorial.html) for a tutorial on running `ctk`.
+- Just looking to generate a single extension of tests? See the User Guide on [Generating a Vector Test Kit on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/user_guides/ctk/vector_test_kit.html) to see how a test kit can be generated for just vector tests.
+
+
 ## Installation and Usage
-For info on installing dependencies, see the [Installation Guide in docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/tutorials/install.html)
+For info on installing dependencies, see the [Installation Guide on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/tutorials/install.html)
 
 ### Quick Install
 

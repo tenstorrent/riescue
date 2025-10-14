@@ -63,16 +63,18 @@ class Toolchain:
         Whisper.add_arguments(parser)
 
     @classmethod
-    def from_clargs(cls, args: argparse.Namespace) -> "Toolchain":
+    def from_clargs(cls, args: argparse.Namespace, build_both: bool = False) -> "Toolchain":
         """
         Create toolchain from command line arguments.
         """
-        if not args.run_iss:
+        if build_both:
             return cls(
                 compiler=Compiler.from_clargs(args),
                 disassembler=Disassembler.from_clargs(args),
+                whisper=Whisper.from_clargs(args),
+                spike=Spike.from_clargs(args),
             )
-        if args.iss == "whisper":
+        elif args.iss == "whisper":
             return cls(
                 compiler=Compiler.from_clargs(args),
                 disassembler=Disassembler.from_clargs(args),
@@ -85,4 +87,7 @@ class Toolchain:
                 spike=Spike.from_clargs(args),
             )
         else:
-            raise ValueError(f"Invalid instruction set simulator but --run_iss is set: {args.iss}")
+            return cls(
+                compiler=Compiler.from_clargs(args),
+                disassembler=Disassembler.from_clargs(args),
+            )

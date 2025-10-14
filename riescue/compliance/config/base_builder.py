@@ -1,19 +1,10 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-import argparse
-import logging
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Optional, Union
-from abc import ABC, abstractmethod
 
 
-log = logging.getLogger(__name__)
-
-
-@dataclass
-class ModeCfg:
+class BaseBuilder:
     """
     Configuration for different Modes
 

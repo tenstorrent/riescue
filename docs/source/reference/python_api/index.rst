@@ -13,4 +13,5 @@ The public APIs are stable and supported across versions. Use these APIs for pro
    RiescueC
    FeatMgr
    FeatMgrBuilder
+   CTK
 

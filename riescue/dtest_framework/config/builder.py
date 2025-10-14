@@ -127,7 +127,7 @@ class FeatMgrBuilder:
         :returns: A ``FeatMgr`` object with the randomization applied
         """
 
-        featmgr = self.featmgr
+        featmgr = self.featmgr.duplicate()
         if featmgr.wysiwyg:
             self.priv_mode = Candidate(RV.RiscvPrivileges.MACHINE)  # Always run in Machine mode for wysiwyg mode
 
@@ -182,3 +182,18 @@ class FeatMgrBuilder:
         new_builder = replace(self)
         new_builder.featmgr = self.featmgr.duplicate()
         return new_builder
+
+    def with_priv_mode(self, priv_mode: RV.RiscvPrivileges) -> FeatMgrBuilder:
+        """
+        Shortcut for setting privilege mode candidate to a single item
+        """
+        self.priv_mode = Candidate(priv_mode)
+        return self
+
+    def with_paging_mode(self, paging_mode: RV.RiscvPagingModes) -> FeatMgrBuilder:
+        """
+        Shortcut for setting paging mode candidate to a single item
+        """
+
+        self.paging_mode = Candidate(paging_mode)
+        return self

@@ -4,27 +4,24 @@
 import argparse
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TypeVar, Generic, Any
 
-from riescue.lib.rand import RandNum
-from riescue.compliance.config.mode_cfg import ModeCfg
+from riescue.lib.toolchain import Toolchain
+
+Cfg = TypeVar("Cfg")  # Generic configuration class that all extended classes will pass between configure and generate
 
 
-class BaseMode(ABC):
+class BaseMode(ABC, Generic[Cfg]):
     """
-    Runner used by RiESCUE-C to generate and run test cases. Subclasses should implement the run method, depending on the mode.
+    Generic runner pro used by RiESCUE-C to generate and run test cases. Extended classes should implement the run method, depending on the mode.
 
-    Currently just a build method, but these classes should contain any logic specific to the mode.
-
-    :param seed: Fully validated configuration produced by the orchestrator
     :param run_dir: The directory to run the test in. Defaults to current directory
     """
 
-    def __init__(self, seed: int, run_dir: Path, cfg: ModeCfg) -> None:
-        self.cfg = cfg
-        self.seed = seed
-        self.rng = RandNum(seed)
+    def __init__(self, run_dir: Path) -> None:
         self.run_dir = run_dir
+        if not self.run_dir.exists():
+            self.run_dir.mkdir(parents=True, exist_ok=True)
 
         self.package_path = Path(__file__).parents[1]
 
@@ -36,15 +33,39 @@ class BaseMode(ABC):
         """
 
     @abstractmethod
-    def run(self) -> None:
+    def configure(
+        self,
+        seed: int,
+        cl_args: Optional[argparse.Namespace] = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Cfg:
         """
-        Run the runner. Should generate test case.
+        Generate a configuration for the runner. Used to optionally generate a configuration that gets passed to :func:`generate`
 
-        FIXME: Later this should also run the test case, for now just return the generated test case
+        :param seed: Seed for the random number generator.
+        :param cl_args: Optional command line arguments
+        :param args: Any extra arguments runner needs to configure. E.g. data structure
+        :return: Configuration for the runner's `generate` method
         """
+        pass
 
-    def cleanup(self) -> None:
+    @abstractmethod
+    def generate(self, cfg: Cfg, toolchain: Toolchain) -> Path:
         """
-        Remove temporary files and finalise any reporting. Implement to add custom cleanup logic
+        Generate a RiescueD assembly Test File. Returns the path where the test case is written.
+
+        :param cfg: Configuration for the runner's `generate` method
+        :param toolchain: Toolchain to use for the test
+        :return: Path to the generated ELF test file
+        """
+        pass
+
+    @abstractmethod
+    def run(self, *args: Any, **kwargs: Any) -> Path:
+        """
+        Run this Mode. This should invoke :func:`generate`, :func:`build`, and :func:`simulate`
+
+        :return: The path to the generated ELF test file
         """
         pass

@@ -16,7 +16,7 @@ We can run the test using:
 
 .. code-block:: bash
 
-   python3 -m riescued --testname random_tutorial.s --run_iss
+   riescued --testname random_tutorial.s --run_iss
 
 Each time you run it, ``my_8_bit_value`` gets a different random value between 0-255. You can check the disassembly file to see what value was generated when no seed is specified.
 
@@ -126,13 +126,13 @@ Let's see how seeds work for reproducible testing. Run the same test multiple ti
 .. code-block:: bash
 
    # Run 1 - note the seed in the output
-   python3 -m riescued --testname random_tutorial.s
+   riescued --testname random_tutorial.s
 
    # Run 2 - different random values
-   python3 -m riescued --testname random_tutorial.s
+   riescued --testname random_tutorial.s
 
    # Run 3 - reproduce Run 1 exactly (use seed from Run 1 output)
-   python3 -m riescued --testname random_tutorial.s --seed 1234567890
+   riescued --testname random_tutorial.s --seed 1234567890
 
 The third run will generate identical random values to the first run, making debugging much easier. Without specifying a seed, a 2^32 bit seed is selected autoamtically.
 
