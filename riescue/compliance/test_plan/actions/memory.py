@@ -36,7 +36,11 @@ class MemoryAction(Action):
         """
         if TYPE_CHECKING:
             assert isinstance(step.step, Memory)
-        return cls(step_id=step_id, size=step.step.size, page_size=step.step.page_size, flags=step.step.flags, page_cross_en=step.step.page_cross_en, num_pages=step.step.num_pages, **kwargs)
+        if step.step.num_pages is None:
+            num_pages = 1
+        else:
+            num_pages = step.step.num_pages
+        return cls(step_id=step_id, size=step.step.size, page_size=step.step.page_size, flags=step.step.flags, page_cross_en=step.step.page_cross_en, num_pages=num_pages, **kwargs)
 
     def repr_info(self) -> str:
         return f"[size=0x{self.size:x}]"

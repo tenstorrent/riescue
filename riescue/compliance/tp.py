@@ -3,6 +3,7 @@
 
 import argparse
 from pathlib import Path
+from typing import Optional
 
 try:
     from coretp.plans.test_plan_registry import get_plan, query_plans
@@ -13,7 +14,9 @@ except ModuleNotFoundError:
 from .base import BaseMode
 from riescue.compliance.test_plan.generator import TestPlanGenerator
 from riescue.riescued import RiescueD
-from riescue.compliance.config import TpCfg
+from riescue.compliance.config import TpBuilder, TpCfg
+from riescue.lib.rand import RandNum
+from riescue.lib.toolchain import Toolchain
 import riescue.lib.enums as RV
 
 
@@ -24,73 +27,107 @@ class TpMode(BaseMode):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        if not isinstance(self.cfg, TpCfg):
-            raise RuntimeError(f"cfg must be an instance of TpCfg, not {type(self.cfg)}")
-        cfg = self.cfg.build(self.rng, self.run_dir)
-        self.isa = cfg.isa
-        self.featmgr = cfg.featmgr
-        self.toolchain = cfg.toolchain
 
-        try:
-            self.test_plan = get_plan(cfg.test_plan_name)
-        except ValueError as e:
-            raise ValueError(f"Test plan '{cfg.test_plan_name}' not found. Avalailable test plans: {query_plans()}") from e
-
-        self.generator = TestPlanGenerator(self.isa, self.rng)
+        # generator = TestPlanGenerator(self.isa, self.rng)
 
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--isa", type=str, default="rv64imfda_zicsr_zk_zicond", help="ISA to use")
         parser.add_argument("--test_plan", dest="test_plan_name", type=str, default="zicond", help="Test plan to use")
 
-    def run(self) -> None:
-        """ """
-
-        test = self.generate()
-
-        rd = RiescueD(testfile=test, seed=self.seed, toolchain=self.toolchain)
-        generator = rd.generate(featmgr=self.featmgr)
-        rd.build(featmgr=self.featmgr, generator=generator)
-
-        whisper = rd.toolchain.whisper
-        if whisper is None:
-            raise ValueError("No whisper configured in toolchain")
-
-        rd.simulate(featmgr=self.featmgr, iss=whisper)
-
-    def generate(self) -> Path:
+    def run(self, seed: int, toolchain: Toolchain, cl_args: Optional[argparse.Namespace] = None) -> Path:
         """
-        Generate a test from test plan. WIP, will need to be conditional at some point. For now hardcoding it
+        Top level wrapper to generate and simulate a test
+        """
+        cfg = self.configure(seed=seed, cl_args=cl_args)
+        return self.generate(cfg, toolchain)
+
+    def configure(
+        self,
+        seed: int,
+        cl_args: Optional[argparse.Namespace] = None,
+    ) -> TpCfg:
+        """
+        Configure the :class:`TpCfg` object for use in :py:meth:`generate`
+
+        :param seed: The seed to use for the random number generator.
+        :param cl_args: Optional command line arguments
+        :return: :class:`TpCfg` object
         """
 
-        discrete_tests = self.generator.build(self.test_plan)
-        env = self.generator.solve(discrete_tests)
+        # This method limits customization of the TpCfg object to only CLI arguments
+        # Only allows for user to return configuration and modify it after returning.
 
-        if env.priv == PrivilegeMode.M:
-            self.featmgr.priv_mode = RV.RiscvPrivileges.MACHINE
-        elif env.priv == PrivilegeMode.S:
-            self.featmgr.priv_mode = RV.RiscvPrivileges.SUPER
-        elif env.priv == PrivilegeMode.U:
-            self.featmgr.priv_mode = RV.RiscvPrivileges.USER
-        else:
-            raise ValueError(f"Invalid privilege mode: {env.priv}")
+        builder = TpBuilder()
+        if cl_args is not None:
+            builder.with_args(cl_args)
+        return builder.build(seed)
 
-        if env.paging_mode == PagingMode.SV39:
-            self.featmgr.paging_mode = RV.RiscvPagingModes.SV39
-        elif env.paging_mode == PagingMode.SV48:
-            self.featmgr.paging_mode = RV.RiscvPagingModes.SV48
-        elif env.paging_mode == PagingMode.SV57:
-            self.featmgr.paging_mode = RV.RiscvPagingModes.SV57
-        elif env.paging_mode == PagingMode.DISABLED:
-            self.featmgr.paging_mode = RV.RiscvPagingModes.DISABLE
-        else:
-            raise ValueError(f"Invalid paging mode: {env.paging_mode}")
+    def generate(self, cfg: TpCfg, toolchain: Toolchain) -> Path:
+        """
+        Generate a test from test plan. Compiles and runs the test on ISS.
 
-        test = self.generator.generate(discrete_tests, env, self.test_plan.name)
+        :param cfg: :class:`TpCfg` object
+        :return: Path to the generated ELF test file
+        """
 
-        test_file = self.run_dir / "tp_test.s"
+        # get test plan
+        if not cfg.test_plan_name:
+            raise ValueError("No test plan was provided. ")
+        try:
+            test_plan = get_plan(cfg.test_plan_name)
+        except ValueError as e:
+            raise ValueError(f"Test plan '{cfg.test_plan_name}' not found") from e
+
+        rng = RandNum(cfg.seed)
+        generator = TestPlanGenerator(cfg.isa, rng)
+        discrete_tests = generator.build(test_plan)
+        env = generator.solve(discrete_tests)
+
+        cfg.featmgr.priv_mode = self._cast_privilege_mode(env.priv)
+        cfg.featmgr.paging_mode = self._cast_paging_mode(env.paging_mode)
+        test = generator.generate(discrete_tests, env, cfg.test_plan_name)
+
+        # write test file
+        test_assembly_file = self.run_dir / f"tp_{cfg.test_plan_name}_{cfg.seed}.s"
         if not self.run_dir.exists():
             self.run_dir.mkdir()
-        with open(test_file, "w") as f:
+        with open(test_assembly_file, "w") as f:
             f.write(test)
-        return test_file
+
+        # run riescued to generate ELF file, reuse featmg, toolchain
+        rd = RiescueD(testfile=test_assembly_file, seed=cfg.seed, toolchain=toolchain)
+        rd_generator = rd.generate(cfg.featmgr)
+        rd.build(cfg.featmgr, rd_generator)
+        if rd.toolchain.simulator is None:
+            raise ValueError("No simulator configured in toolchain")
+        whisper = rd.toolchain.whisper
+        if whisper is None:
+            raise ValueError("No whisper configured in toolchain. Ensure Whisper was built in toolchain")
+        rd.simulate(cfg.featmgr, iss=whisper)
+
+        return rd.generated_files.elf
+
+    def _cast_privilege_mode(self, priv: PrivilegeMode) -> RV.RiscvPrivileges:
+        "Helper to convert coretp.rv_enums.PrivilegeMode to riescue.lib.enums.RiscvPrivileges"
+        if priv == PrivilegeMode.M:
+            return RV.RiscvPrivileges.MACHINE
+        elif priv == PrivilegeMode.S:
+            return RV.RiscvPrivileges.SUPER
+        elif priv == PrivilegeMode.U:
+            return RV.RiscvPrivileges.USER
+        else:
+            raise ValueError(f"Invalid privilege mode: {priv}")
+
+    def _cast_paging_mode(self, paging_mode: PagingMode) -> RV.RiscvPagingModes:
+        "Helper to convert coretp.rv_enums.PagingMode to riescue.lib.enums.RiscvPagingModes"
+        if paging_mode == PagingMode.SV39:
+            return RV.RiscvPagingModes.SV39
+        elif paging_mode == PagingMode.SV48:
+            return RV.RiscvPagingModes.SV48
+        elif paging_mode == PagingMode.SV57:
+            return RV.RiscvPagingModes.SV57
+        elif paging_mode == PagingMode.DISABLED:
+            return RV.RiscvPagingModes.DISABLE
+        else:
+            raise ValueError(f"Invalid paging mode: {paging_mode}")

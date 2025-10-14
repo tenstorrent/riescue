@@ -22,7 +22,7 @@ class AssertExceptionAction(AssertionBase):
 
     register_fields = []
 
-    def __init__(self, cause: ExceptionCause, code: list[Action], **kwargs):
+    def __init__(self, cause: ExceptionCause, code: list[Action], cause_value: int = 0, **kwargs):
         super().__init__(**kwargs)
         self.cause = cause
         self.expanded = False
@@ -30,17 +30,23 @@ class AssertExceptionAction(AssertionBase):
 
         self.fault_label = None
         self.excp_return_label = None
+        self.cause_value: int = cause_value
 
     def repr_info(self) -> str:
         return f"{self.cause}, code=[{', '.join(repr(act) for act in self.code)}]"
 
     @classmethod
-    def from_step(cls, step: StepIR, **kwargs) -> "AssertExceptionAction":
+    def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "AssertExceptionAction":
         if TYPE_CHECKING:
             assert isinstance(step.step, AssertException)
         if step.step.cause is None:
             raise ValueError("AssertException has no cause. Cause must be specified.")
-        return cls(cause=step.step.cause, **kwargs)
+        cause = step.step.cause
+        if isinstance(cause.value, tuple):
+            cause_value = int(cause.value[0])
+        else:
+            cause_value = int(cause.value)
+        return cls(step_id=step_id, cause=step.step.cause, cause_value=cause_value, **kwargs)
 
     def expand(self, ctx: LoweringContext) -> Optional[list[Action]]:
         """
@@ -98,7 +104,7 @@ class AssertExceptionAction(AssertionBase):
                 Operand(
                     type=OperandType.IMM,
                     name="cause",
-                    val=self.cause.value,
+                    val=self.cause_value,
                 ),
                 Operand(
                     type=OperandType.SYMBOL,

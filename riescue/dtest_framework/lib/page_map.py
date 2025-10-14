@@ -7,8 +7,9 @@ This modules is also responsible for making calls to pagetables module to
 create pagetables for every page inside the page_map
 """
 
+from __future__ import annotations
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import riescue.dtest_framework.lib.addrgen as addrgen
 import riescue.lib.enums as RV
@@ -16,6 +17,9 @@ import riescue.dtest_framework.lib.pagetables as pagetables
 from riescue.lib.address import Address
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.lib.addrgen import AddrGen
+from riescue.lib.rand import RandNum
+
+import io
 
 if TYPE_CHECKING:
     from riescue.dtest_framework.pool import Pool
@@ -32,44 +36,44 @@ class Page:
 
     def __init__(
         self,
-        name,
-        phys_name,
+        name: str,
+        phys_name: str,
         pool: "Pool",
         featmgr: FeatMgr,
         addrgen: AddrGen,
-        maps=[],
-        pagesize=RV.RiscvPageSizes.S4KB,
-        gstage_pagesize=RV.RiscvPageSizes.S4KB,
-        in_private_map=False,
-        alias=False,
-        no_pbmt_ncio=0,
+        maps: list[str] = [],  # FIXME: llm thinks this should be optional, I don't think so, double check
+        pagesize: RV.RiscvPageSizes = RV.RiscvPageSizes.S4KB,
+        gstage_pagesize: RV.RiscvPageSizes = RV.RiscvPageSizes.S4KB,
+        in_private_map: bool = False,
+        alias: bool = False,
+        no_pbmt_ncio: int = 0,
     ):
-        self.pool = pool
-        self.featmgr = featmgr
-        self.addrgen = addrgen
+        self.pool: Pool = pool
+        self.featmgr: FeatMgr = featmgr
+        self.addrgen: AddrGen = addrgen
         # Determine u-bit value based on the privilege mode
         ubit = self.featmgr.priv_mode == RV.RiscvPrivileges.USER
         # If 2-stage paging is enabled and vs-stage is disabled, we are only dealing with g-stage
         # we need to mark u=1 since all g-stage tablewalks are treated as user
         if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
             ubit = 1
-        self.name = name
-        self.phys_name = phys_name
-        self.maps = maps
+        self.name: str = name
+        self.phys_name: str = phys_name
+        self.maps: list[str] = maps
         # FIXME: Currently assuming only 'map_os' exists for the entire simulation
-        self.map = self.pool.get_page_map(map_name=maps[0])
+        self.map: PageMap = self.pool.get_page_map(map_name=maps[0])
 
-        self.pagesize = pagesize
-        self.gstage_pagesize = gstage_pagesize
-        self.size = 0x1000
+        self.pagesize: RV.RiscvPageSizes = pagesize
+        self.gstage_pagesize: RV.RiscvPageSizes = gstage_pagesize
+        self.size: int = 0x1000
 
-        self.lin_addr = None
-        self.phys_addr = None
-        self.alias = alias  # used for aliasing the page to another page
-        self.in_private_map = in_private_map
-        self.no_pbmt_ncio = no_pbmt_ncio
+        self.lin_addr: Optional[int] = None
+        self.phys_addr: Optional[int] = None
+        self.alias: bool = alias
+        self.in_private_map: bool = in_private_map
+        self.no_pbmt_ncio: int = no_pbmt_ncio
 
-        self.attrs = {
+        self.attrs: dict[str, Optional[int]] = {
             "v": 1,
             "v_level0": 1,
             "v_level1": 1,
@@ -357,9 +361,18 @@ class Page:
             "gstage_modify_pt": 0,
         }
 
-        self.pt_entries = list()
+        # G-stage paging attributes, only added to satisfy lint errors in pagetables.py L757
+        # should be revisited, see FIXME in same location
+        self.gstage_vs_leaf_address_size: Optional[int] = None
+        self.gstage_vs_leaf_address_mask: Optional[int] = None
+        self.gstage_vs_leaf_pagesize: Optional[RV.RiscvPageSizes] = None
+        self.gstage_vs_nonleaf_address_size: Optional[int] = None
+        self.gstage_vs_nonleaf_address_mask: Optional[int] = None
+        self.gstage_vs_nonleaf_pagesize: Optional[RV.RiscvPageSizes] = None
 
-    def __str__(self):
+        self.pt_entries: list[pagetables.PTEntry] = list()
+
+    def __str__(self) -> str:
         s = f"Page: {self.name}:\n"
         s += f"    phys_name: {self.phys_name}\n"
         if self.lin_addr is not None:
@@ -376,7 +389,7 @@ class Page:
 
         return s
 
-    def set_pagetable_levels(self, page_map):
+    def set_pagetable_levels(self, page_map: PageMap) -> None:
         """
         Default levels is same as number of levels for the PageMap
         TODO:
@@ -387,7 +400,7 @@ class Page:
         # stop_level() provides how many levels to stop at
         self.pt_leaf_level = RV.RiscvPageSizes.pt_leaf_level(self.pagesize)
 
-    def set_pagesize(self):
+    def set_pagesize(self) -> None:  # FIXME: why does this exist?
         """
         Set pagesize based on
           - the pagesize attribute
@@ -395,7 +408,7 @@ class Page:
         """
         pass
 
-    def create_pagetables(self, rng, page_map):
+    def create_pagetables(self, rng: RandNum, page_map: PageMap) -> None:
         """
         Create pagetables by using lower level of Pagetable class
         """
@@ -404,45 +417,45 @@ class Page:
         pt = pagetables.Pagetables(page=self, page_map=page_map, pool=self.pool, featmgr=self.featmgr, addrgen=self.addrgen)
         pt.create_pagetables(rng=rng)
 
-    def insert_pt(self, pt_entry):
+    def insert_pt(self, pt_entry: pagetables.PTEntry) -> None:
         self.pt_entries.append(pt_entry)
 
 
 class PageMap:
-    def __init__(self, name, paging_mode, pool: "Pool", featmgr: FeatMgr, addrgen: AddrGen, g_map=False):
-        self.name = name
-        self.paging_mode = paging_mode
-        self.g_map = g_map
+    def __init__(self, name: str, paging_mode: RV.RiscvPagingModes, pool: "Pool", featmgr: FeatMgr, addrgen: AddrGen, g_map: bool = False):
+        self.name: str = name
+        self.paging_mode: RV.RiscvPagingModes = paging_mode
+        self.g_map: bool = g_map
 
-        self.pool = pool
-        self.featmgr = featmgr
-        self.addrgen = addrgen
+        self.pool: "Pool" = pool
+        self.featmgr: FeatMgr = featmgr
+        self.addrgen: AddrGen = addrgen
 
         # Set the pagetable levels based on the paging_mode
-        self.max_levels = RV.RiscvPagingModes.max_levels(self.paging_mode)
+        self.max_levels: int = RV.RiscvPagingModes.max_levels(self.paging_mode)
 
         # Store the pages related to this map
         self.pages: dict[str, Page] = dict()  # 'name' -> Page()
         # Dict to hold pages that are used for modifying the pagetable pages
         # These pages are merged to self.pages once the self.create_pagetables() is called
-        self.pt_pages = dict()
-        self.base_addr = None  # same as sptbr
-        self.basetable = None
+        self.pt_pages: dict[str, Page] = dict()
+        self.base_addr: Optional[int] = None
+        self.basetable: Optional[pagetables.PTTable] = None  # Set to PTTable after initialize()
 
-    def initialize(self):
+    def initialize(self) -> None:
         # Create the sptrb page
         self.create_sptbr()
 
         # Also create the base table
         self.create_base_table()
 
-    def get_linear_addr_bits(self):
+    def get_linear_addr_bits(self) -> int:
         """
         Return the number of bits for the linear address
         """
         return RV.RiscvPagingModes.linear_addr_bits(self.paging_mode)
 
-    def get_physical_addr_bits(self):
+    def get_physical_addr_bits(self) -> int:
         """
         Return the number of bits for the physical address
         """
@@ -451,13 +464,15 @@ class PageMap:
     # Add raw page to this map (used for creating pagetables for pagetables)
     def add_raw_pt_page(
         self,
-        linear_name,
-        physical_name,
-        linear_addr,
-        physical_addr,
-        attrs=dict(),
-        pagesize=RV.RiscvPageSizes.S4KB,
-    ):
+        linear_name: str,
+        physical_name: str,
+        linear_addr: int,
+        physical_addr: int,
+        attrs: Optional[dict[str, int]] = None,
+        pagesize: RV.RiscvPageSizes = RV.RiscvPageSizes.S4KB,
+    ) -> None:
+        if attrs is None:  # FIXME: added this as a fallback, do we want the user to have to pass in a blank dict instead and remove "optional"?
+            attrs = dict()
 
         log.debug(f"Adding raw page: {linear_name} -> {physical_name}, linear_addr: {linear_addr:x}, physical_addr: {physical_addr:x}, map: {self.name}")
         page = Page(
@@ -489,24 +504,26 @@ class PageMap:
         addr_inst = Address(name=physical_name, type=RV.AddressType.PHYSICAL, address=physical_addr)
         self.pool.add_random_addr(addr_name=physical_name, addr=addr_inst)
 
-    def add_page(self, page):
+    def add_page(self, page: Page) -> None:
         page_name = page.name
         self.pages[page_name] = page
 
-    def add_pt_page(self, page):
+    def add_pt_page(self, page: Page) -> None:
         page_name = page.name
         self.pt_pages[page_name] = page
 
-    def get_page(self, name):
+    def get_page(self, name: str) -> Page:
         return self.pages[name]
 
-    def get_basetable(self):
+    def get_basetable(self) -> pagetables.PTTable:
         """
         Return the pointer to the base of the pagetable for this map
         """
+        if self.basetable is None:  # FIXME: added this as a fallback to make sure basetable is set, satisfies other type hinting
+            raise ValueError(f"PageMap {self.name} basetable is None - initialize() must be called before accessing basetable")
         return self.basetable
 
-    def create_sptbr(self):
+    def create_sptbr(self) -> None:
         """
         Create a new page for the SPTBR
         """
@@ -539,8 +556,7 @@ class PageMap:
 
         # Create and add sptbr page to Pool
         maps_to_add = ["map_os"]
-        # if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-        #     maps_to_add.append('map_hyp')
+
         sptbr_page = Page(
             name=linear_name,
             phys_name=physical_name,
@@ -556,15 +572,14 @@ class PageMap:
         addr_inst = Address(name=physical_name, type=RV.AddressType.PHYSICAL, address=self.sptbr)
         self.pool.add_random_addr(addr_name=physical_name, addr=addr_inst)
 
-    def create_base_table(self):
+    def create_base_table(self) -> None:
         self.basetable = pagetables.PTTable(self.sptbr)
 
-    def create_pagetables(self, rng):
+    def create_pagetables(self, rng: RandNum) -> None:
         """
         For every page in this pagemap, create pagetables
         """
         for page_name in self.pages:
-            # print(f'Creating pagetables for page: {page_name}')
             page = self.pool.get_page(page_name=page_name, map_name=self.name)
             page.create_pagetables(rng=rng, page_map=self)
 
@@ -576,16 +591,18 @@ class PageMap:
             page = self.pool.get_page(page_name=page_name, map_name=self.name)
             page.create_pagetables(rng=rng, page_map=self)
 
-    def print_pagetables(self, file_handle):
+    def print_pagetables(self, file_handle: io.TextIOWrapper) -> None:
         self._print_pagetables_helper(file_handle=file_handle)
         self.print_pagetables_per_page(file_handle=file_handle)
 
-    def _print_pagetables_helper(self, file_handle, basetable=None):
+    def _print_pagetables_helper(self, file_handle: io.TextIOWrapper, basetable: Optional[pagetables.PTTable] = None) -> None:
         """
         - find each table recursively
         - once you find a table, print each entry from that table
         """
         if basetable is None:
+            if self.basetable is None:  # FIXME: added this as a fallback to make sure basetable is set, satisfies other type hinting
+                raise ValueError(f"PageMap {self.name} basetable is None - initialize() must be called before print_pagetables()")
             basetable = self.basetable
         # TODO: Work in progress
         # for pt_entry in basetable.get_entries():
@@ -597,7 +614,7 @@ class PageMap:
         for pt_entry in basetable.get_entries():
             self._print_pagetables_helper(file_handle=file_handle, basetable=pt_entry.basetable)
 
-    def _print_table_entries(self, file_handle, table):
+    def _print_table_entries(self, file_handle: io.TextIOWrapper, table: pagetables.PTTable) -> None:
         if not table.leaf:
             # print(f'.org 0x{table.base_addr:016x}')
             section_name = f"__pagetable_{self.name}_0x{table.base_addr:016x}"
@@ -617,17 +634,11 @@ class PageMap:
             file_handle.write(f"            #level: {pt_entry.level}: index: 0x{index:x}, base_addr: 0x{base_addr:016x}, value: {pt_entry.get_value():016x}\n")
             file_handle.write(f"            #attrs: {pt_entry.pt_attr}\n")
 
-    def print_pagetables_per_page(self, file_handle=None):
-        if file_handle is not None:
-            file_handle.write("\n#==========================================================\n")
-            file_handle.write(f"#printing pagetables for debug: map: {self.name}, base_addr: {self.sptbr:016x}, paging_mode: {self.paging_mode}\n")
-            file_handle.write("#==========================================================")
+    def print_pagetables_per_page(self, file_handle: io.TextIOWrapper) -> None:
+        file_handle.write("\n#==========================================================\n")
+        file_handle.write(f"#printing pagetables for debug: map: {self.name}, base_addr: {self.sptbr:016x}, paging_mode: {self.paging_mode}\n")
+        file_handle.write("#==========================================================")
         for page in self.pages.values():
-            # print(f'\nPage: {page.name}, 0x{page.lin_addr:016x} -> {page.phys_name}, 0x{page.phys_addr:016x}')
-            if file_handle is not None:
-                file_handle.write(f"\n#Page: {page.name}, 0x{page.lin_addr:016x} -> {page.phys_name}, 0x{page.phys_addr:016x}, pagesize:{page.pagesize}\n")
+            file_handle.write(f"\n#Page: {page.name}, 0x{page.lin_addr:016x} -> {page.phys_name}, 0x{page.phys_addr:016x}, pagesize:{page.pagesize}\n")
             for pt_entry in page.pt_entries:
-                # print(f'level: {pt_entry.level}: base_addr: 0x{pt_entry.get_base_addr():016x}, attr: 0x{pt_entry.pt_attr.get_value():016x}')
-                if file_handle is not None:
-                    # file_handle.write(f'#level: {pt_entry.level}: base_addr: 0x{pt_entry.get_base_addr():016x}, value: {pt_entry.get_value():016x}, attr: 0x{pt_entry.pt_attr.get_value():016x}\n')
-                    file_handle.write(f"#level: {pt_entry.level}: base_addr: 0x{pt_entry.get_base_addr():016x}, value: {pt_entry.get_value():016x}, attr: {pt_entry.pt_attr}, map: \n")
+                file_handle.write(f"#level: {pt_entry.level}: base_addr: 0x{pt_entry.get_base_addr():016x}, value: {pt_entry.get_value():016x}, attr: {pt_entry.pt_attr}, map: \n")

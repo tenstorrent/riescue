@@ -1,8 +1,8 @@
-from riescue.compliance.config import Resource
-from riescue.compliance.lib.riscv_instrs import InstrBase
-
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
+
+from riescue.compliance.config import Resource
+from riescue.compliance.lib.riscv_instrs import InstrBase
 
 
 class TestCase:
@@ -17,6 +17,8 @@ class TestCase:
             log, csv_log    : Spike/Whisper raw log and the CSV version for parsing.
             resource_db     : Handle to the Resource class
             instrs          : Dictionary of all the instructions belonging to a testcase.
+
+    FIXME: This deals directly with files, it should be using Paths instead of strings
     """
 
     def __init__(self, signature: str, instrs: list[InstrBase], resource_db: Resource) -> None:

@@ -42,10 +42,10 @@ Basic Workflow
 .. code-block:: bash
 
     # Basic usage
-    python3 -m riescued  run --testname test.s --cpuconfig cpu_config.json
+    riescued  run --testname test.s --cpuconfig cpu_config.json
 
     # With specific environment settings
-    python3 -m riescued  run --testname test.s \
+    riescued  run --testname test.s \
         --cpuconfig cpu_config.json \
         --test_paging_mode sv39 \
         --test_privilege_mode supervisor \

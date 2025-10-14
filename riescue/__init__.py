@@ -6,6 +6,7 @@ import logging
 from .riescued import RiescueD
 from riescue.dtest_framework.config import FeatMgr, FeatMgrBuilder
 from .riescuec import RiescueC
+from .ctk import Ctk
 
 
 logging.getLogger("riescue").addHandler(logging.NullHandler())

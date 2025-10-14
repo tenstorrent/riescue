@@ -2,32 +2,39 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
-import argparse
 import logging
-import os
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional, Any
 
-import riescue.lib.logger as RiescueLogger
 import riescue.lib.enums as RV
 from riescue.lib.rand import RandNum
 from riescue.lib.instr_info.instr_lookup_json import InstrInfoJson
-from riescue.dtest_framework.config import FeatMgrBuilder, FeatMgr
+from riescue.dtest_framework.config import FeatMgr
 from riescue.compliance.lib.tree import Tree
 from riescue.compliance.lib.fpgen_intf import FpGenInterface
-from riescue.lib.toolchain import Toolchain  # FIXME: make this a top-level import, since it's part of RiesceuD interface
+from riescue.lib.toolchain import Toolchain, Whisper, Spike
 
 log = logging.getLogger(__name__)
 
 
 @dataclass
 class Resource:
-    # Central data structure to store hierarchically the extensions, groups and instructions.
-    # FIXME: Rename this structure, since tree has node at every level which are homogeneous.
-    tree: Tree = field(default_factory=Tree)
+    """
+    Central data structure to store hierarchically the extensions, groups and instructions.
+
+    Contains :class:`RandNum` instance.
+
+    .. warning::
+
+        This can not be ran multiple times in the same process, as generator modifies state.
+        It acts as both configuration and a data structure / data pool.
+        Longer term this should not have state modified by the generator. It should be configuration only and used to start the generation.
+
+    """
+
+    tree: Tree = field(default_factory=Tree)  # FIXME: Rename this structure, since tree has node at every level which are homogeneous.
     featmgr: FeatMgr = field(default_factory=FeatMgr)
-    toolchain: Toolchain = field(default_factory=Toolchain)
 
     # Seed management for the framework.
     seed: int = 0
@@ -56,7 +63,18 @@ class Resource:
     include_instrs: list[str] = field(default_factory=list)
 
     exclude_groups: list[str] = field(default_factory=list)
-    exclude_instrs: list[str] = field(default_factory=list)
+    exclude_instrs: list[str] = field(
+        default_factory=lambda: [
+            "wfi",
+            "ebreak",
+            "mret",
+            "sret",
+            "ecall",
+            "fence",
+            "fence.i",
+            "c.ebreak",
+        ]
+    )
     legacy_exclude_instrs: list[str] = field(
         default_factory=lambda: [
             "scall",
@@ -169,7 +187,7 @@ class Resource:
     max_instr_per_file: int = 1000
 
     # Maintains the arch state for every instruction post first-pass.
-    instr_tracker: dict[str, Any] = field(default_factory=dict)
+    instr_tracker: dict[str, Any] = field(default_factory=dict)  # FIXME: This is state, which shouldn't be in a config class
 
     use_output_filename: bool = False
 
@@ -186,21 +204,21 @@ class Resource:
     fp_configs: dict[str, Any] = field(default_factory=dict)
 
     # Maintains per-test configurations.
-    test_configs: dict[str, Any] = field(default_factory=dict)
+    test_configs: dict[str, Any] = field(default_factory=dict)  # FIXME: data/state, shouldn't be part of config
 
-    testcase_name: str = "bringup"
+    testcase_name: str = ""
     testfile: Path = Path("bringup.s")
 
     repeat_runtime: int = 1
 
     # Maintains copy of opcode and config files.
     config_files: dict[str, Optional[Path]] = field(default_factory=dict)
-    user_config: Optional[Path] = None
+    user_config: Optional[Path] = None  # FIXME: This needs to be documented somewhere
     default_config: Path = Path("compliance/tests/configs/default_config.json")
     fp_config: Path = Path("compliance/tests/configs/rv_d_f_zfh.json")
 
     opcode_files: dict[str, Any] = field(default_factory=dict)
-    output_files: list[str] = field(default_factory=list)
+    output_files: list[str] = field(default_factory=list)  # is this used? not sure
 
     # Logger options
     logfile_path: str = ""
@@ -225,6 +243,19 @@ class Resource:
 
     _rng: Optional[RandNum] = None
 
+    # copy method
+    def duplicate(self, featmgr: Optional[FeatMgr] = None, **kwargs) -> "Resource":
+        """
+        Copies dataclass, but shallow copy for complex attributes like tree, featmgr, toolchain, etc.
+        Caller needs to ensure unique FeatMgr instance for each test case
+        """
+        new_resource = replace(self, **kwargs)
+        if featmgr is not None:
+            new_resource.featmgr = featmgr
+        new_resource.tree = Tree()
+        new_resource.instr_tracker = dict()  # FIXME: this is state and should be removed in the future.
+        return new_resource
+
     # properties
     @property
     def fpgen_off(self):
@@ -233,16 +264,25 @@ class Resource:
     @property
     def rng(self) -> RandNum:
         """
-        get instance of ``RandNum``. Need to pass rng instance in ``configure()`` before calling
+        get instance of ``RandNum``. Need to pass rng instance in :meth:`with_rng()` before calling
 
         :raises ValueError: If RandNum is not configured
 
-        This is required since most legacy code uses rng from resource, instead of passing rng around when needed.
-        Ideally rng is passed separately from resource
+        .. warning::
+
+            This is required since most legacy code uses rng from resource, instead of passing rng around when needed.
+            Ideally rng is passed separately from resource. Future changes will remove this and
+
         """
         if self._rng is None:
-            raise ValueError("RandNum is not configured. call configure() first.")
+            raise ValueError("RandNum is not configured. call with_rng() first.")
         return self._rng
+
+    def with_rng(self, rng: RandNum):
+        if self._rng is not None:
+            log.warning("RandNum is already configured. Can only set rng once.")
+        self._rng = rng
+        return self
 
     # FeatMgr properties
     # These used to be in Resource, but using property to delegate to FeatMgr
@@ -261,13 +301,6 @@ class Resource:
     @property
     def wysiwyg(self) -> bool:
         return self.featmgr.wysiwyg
-
-    # configuration methods
-    def with_rng(self, rng: RandNum):
-        if self._rng is not None:
-            raise ValueError("RandNum is already configured. Can only set rng once.")
-        self._rng = rng
-        return self
 
     # public methods
     # data: [instr_name, rs1_val, rs2_val, rs3_val, rd_val]
@@ -334,12 +367,6 @@ class Resource:
             self.exclude_instrs = list(set(self.exclude_instrs) - mutual_exclusions)
 
         # Determine the sim set
-        print(f"translated_extensions: {translated_extensions}")
-        print(f"include_groups: {self.include_groups}")
-        print(f"include_instrs: {self.include_instrs}")
-        print(f"excluded_extensions: {excluded_extensions}")
-        print(f"exclude_groups: {self.exclude_groups}")
-        print(f"exclude_instrs: {self.exclude_instrs}")
         included_instructions = self.info.search_instruction_names(translated_extensions, self.include_groups, self.include_instrs)
         excluded_instructions = self.info.search_instruction_names(
             excluded_extensions,
@@ -382,14 +409,24 @@ class Resource:
     def update_configs(self, instr_configs):
         self.tree.update_configs(instr_configs)
 
-    def generate_test_signature(self, _iter, testcase_num):
-        if self.use_output_filename:
-            self.output_files.append(f"{self.testcase_name}")
-            return f"{self.testcase_name}"
+    def generate_test_path(self, iter, testcase_num) -> Path:
+        """
+        Generate the path to the test case.
 
+        This should return the path to the test. If users want to change the test name,
+        This should respect that and let callers modify the name.
+
+        Only used by TestGenerator to generate the path to the test case before writing
+        Might be better to have the tests worry about this logic. Instead just retrieve testname
+
+        """
+        if self.use_output_filename or self.testcase_name != "":
+            test_case_name = f"{self.testcase_name}"
         else:
-            self.output_files.append(f"{self.testcase_name}_{testcase_num}_{self.seed}_{_iter}")
-            return f"{self.testcase_name}_{testcase_num}_{self.seed}_{_iter}"
+            test_case_name = f"bringup_{testcase_num}_{self.seed}_{iter}"
+        test_path = self.run_dir / test_case_name
+        self.output_files.append(str(test_path))  # FIXME: output_files should be a path if not used anywhere
+        return test_path
 
     def check_arch(self, arch):
         if arch in self.supported_arch:
