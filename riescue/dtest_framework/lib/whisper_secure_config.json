@@ -1,0 +1,394 @@
+{
+    "xlen" : 64,
+    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zvqdot_zjpm_svpbmt_svadu_sstc",
+    "reset_vec"             : "0x80000000",
+    "enable_performance_counters" : "true",
+    "perf_count_atomic_load_store" : "true",
+    "perf_count_fp_load_store" : "true",
+	"enable_counter_overflow": "true",
+
+
+    "Comment" : "Print memory addres of ld/st instructions in trace log.",
+    "print_load_store_address" : "true",
+
+    "Comment" : "2 performance counters implemented (mhpmcount3 and 4), rest (5 to 31) hardwired to 0",
+    "num_mmode_perf_regs" : 2,
+
+    "stee" : {
+      "zero_mask" :     "0xff70000000000000",
+      "secure_mask":    "0x0080000000000000",
+      "secure_region": ["0x0004000000000000", "0x0008000000000000"]
+    },
+	"memmap" : {
+		"Comment"            : "Set physical memory size to be 52-bits",
+		"size"               : "0x10000000000000",
+		"pma" : [
+		 {
+		   "low" : "0x30000000", "high" : "0x30000010",
+			 "attribs" : [ "read", "write", "io", "mem_mapped" ],
+		   "masks" : [ ["0x30000000", "0x30000010", "0xff00"] ],
+		   "register_size" : 8
+		 },
+		 { "low" : "0x42000000", "high" : "0x4208FFFF",
+		   "attribs" : [ "read", "write", "io", "mem_mapped", "misal_acc_fault" ],
+		   "masks" : [[ "0x42000000", "0x4208FFFF", "0xffffffffffffffff"]] ,
+		   "register_size" : 8
+		 },
+		 { "low" : "0x42180000", "high" : "0x4218FFFF",
+		   "attribs" : [ "read", "write", "io", "mem_mapped", "misal_acc_fault"  ],
+		   "masks" : [[ "0x42180000", "0x4218FFFF", "0xffffffffffffffff"]] ,
+		   "register_size" : 8
+		 },
+		 { "low" : "0x09000000", "high" : "0x090c0000",
+		   "attribs" : [ "read", "write", "io", "mem_mapped", "misal_acc_fault"  ],
+		   "masks" : [[ "0x09000000", "0x090c0000", "0xffffffffffffffff"]] ,
+		   "register_size" : 8
+		 },
+		 { "low" : "0x421a0000", "high" : "0x421aFFFF",
+		   "attribs" : [ "read", "write", "io", "mem_mapped", "misal_acc_fault"  ],
+		   "masks" : [[ "0x421a0000", "0x421aFFFF", "0xffffffffffffffff"]] ,
+		   "register_size" : 8
+		 },
+		 { "low" : "0x421b0000", "high" : "0x421bFFFF",
+		   "attribs" : [ "read", "write", "io", "mem_mapped", "misal_acc_fault"  ],
+		   "masks" : [[ "0x421b0000", "0x421bFFFF", "0xffffffffffffffff"]] ,
+		   "register_size" : 8
+		 },
+		 { "low" : "0x42100000", "high" : "0x4217FFFF",
+		 "attribs" : [ "mem_mapped", "io", "misal_acc_fault"  ],
+		 "masks" : [[ "0x42100000", "0x4217FFFF", "0xffffffffffffffff"]] ,
+		 "register_size" : 8
+		 }
+	   ]
+	},
+    "csr" : {
+	    "misa" : {
+	        "reset-comment" : "imabfcvsu",
+	        "reset" : "0x403411af",
+	        "mask-comment" : "Misa is not writable by CSR instructions",
+	        "mask" : "0x0"
+	    },
+
+
+	    "mstatus" : {
+	        "mstatus-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x47804",
+	        "mask" : "0xffffffffffffffff"
+	    },
+
+	    "sstatus" : {
+	        "sstatus-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x47804",
+	        "mask" : "0xffffffffffffffff"
+	    },
+
+	    "satp" : {
+	        "satp-comment" : "Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x0",
+	        "mask" : "0xffffffffffffffff"
+	    },
+
+	    "stvec" : {
+	        "stvec-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x0",
+	        "mask" : "0xffffffffffffffff"
+	    },
+
+	    "medeleg" : {
+	        "medeleg-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x0",
+	        "mask" : "0xffffffffffffffff"
+	    },
+
+	    "hedeleg" : {
+	        "medeleg-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
+	        "reset" : "0x0",
+	        "mask" : "0xfffffffffff0f1ff"
+	    },
+
+	    "tselect" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "tdata1" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "tdata2" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "tdata3" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "dcsr" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "dpc" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "dscratch" : {
+	        "Comment" : "Hardwired to 0",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "dscratch1" : {
+	        "Comment" : "Hardwired to 0",
+	        "number" : "0x7b3",
+	        "reset" : "0x0",
+	        "mask" : "0x0"
+	    },
+
+	    "cycle" : {
+	        "exists" : "false"
+	    },
+
+	    "instret" : {
+	        "exists" : "false"
+	    },
+
+	    "time" : {
+	        "exists" : "true"
+	    },
+        "pmpaddr0" : {
+          "exists"          : "true",
+		  "reset"           : "0x0001ffffffffffff",
+          "mask"            : "0xffffffffffffffff",
+          "poke_mask"       : "0xffffffffffffffff"
+        },
+		"pmpaddr1" : { "exists" : "true" },
+		"pmpaddr2" : { "exists" : "true" },
+        "pmpcfg0": {
+          "exists"          : "true",
+          "reset"           : "0x1f"
+        },
+        "pmpcfg2": { "exists": "true"},
+		"pmpcfg4": { "exists": "true" },
+		"pmpcfg6": { "exists": "true" },
+		"pmpcfg8": { "exists": "true" },
+		"pmpcfg10": { "exists": "true" },
+		"pmpcfg12": { "exists": "true" },
+		"pmpcfg14": { "exists": "true" },
+        "pmpaddr3" : { "exists" : "true" },
+        "pmpaddr4" : { "exists" : "true" },
+        "pmpaddr5" : { "exists" : "true" },
+        "pmpaddr6" : { "exists" : "true" },
+        "pmpaddr7" : { "exists" : "true" },
+        "pmpaddr8" : { "exists" : "true" },
+        "pmpaddr9" : { "exists" : "true" },
+        "pmpaddr10" : { "exists" : "true" },
+        "pmpaddr11" : { "exists" : "true" },
+        "pmpaddr12" : { "exists" : "true" },
+        "pmpaddr13" : { "exists" : "true" },
+        "pmpaddr14" : { "exists" : "true" },
+        "pmpaddr15" : { "exists" : "true" },
+        "pmpaddr16" : { "exists" : "true" },
+	    "pmpaddr17" : { "exists" : "true" },
+	    "pmpaddr18" : { "exists" : "true" },
+	    "pmpaddr19" : { "exists" : "true" },
+	    "pmpaddr20" : { "exists" : "true" },
+	    "pmpaddr21" : { "exists" : "true" },
+	    "pmpaddr22" : { "exists" : "true" },
+	    "pmpaddr23" : { "exists" : "true" },
+	    "pmpaddr24" : { "exists" : "true" },
+	    "pmpaddr25" : { "exists" : "true" },
+	    "pmpaddr26" : { "exists" : "true" },
+	    "pmpaddr27" : { "exists" : "true" },
+	    "pmpaddr28" : { "exists" : "true" },
+	    "pmpaddr29" : { "exists" : "true" },
+	    "pmpaddr30" : { "exists" : "true" },
+	    "pmpaddr31" : { "exists" : "true" },
+	    "pmpaddr32" : { "exists" : "true" },
+	    "pmpaddr33" : { "exists" : "true" },
+	    "pmpaddr34" : { "exists" : "true" },
+	    "pmpaddr35" : { "exists" : "true" },
+	    "pmpaddr36" : { "exists" : "true" },
+	    "pmpaddr37" : { "exists" : "true" },
+	    "pmpaddr38" : { "exists" : "true" },
+	    "pmpaddr39" : { "exists" : "true" },
+	    "pmpaddr40" : { "exists" : "true" },
+	    "pmpaddr41" : { "exists" : "true" },
+	    "pmpaddr42" : { "exists" : "true" },
+	    "pmpaddr43" : { "exists" : "true" },
+	    "pmpaddr44" : { "exists" : "true" },
+	    "pmpaddr45" : { "exists" : "true" },
+	    "pmpaddr46" : { "exists" : "true" },
+	    "pmpaddr47" : { "exists" : "true" },
+	    "pmpaddr48" : { "exists" : "true" },
+	    "pmpaddr49" : { "exists" : "true" },
+	    "pmpaddr50" : { "exists" : "true" },
+	    "pmpaddr51" : { "exists" : "true" },
+	    "pmpaddr52" : { "exists" : "true" },
+	    "pmpaddr53" : { "exists" : "true" },
+	    "pmpaddr54" : { "exists" : "true" },
+	    "pmpaddr55" : { "exists" : "true" },
+	    "pmpaddr56" : { "exists" : "true" },
+	    "pmpaddr57" : { "exists" : "true" },
+	    "pmpaddr58" : { "exists" : "true" },
+	    "pmpaddr59" : { "exists" : "true" },
+	    "pmpaddr60" : { "exists" : "true" },
+	    "pmpaddr61" : { "exists" : "true" },
+	    "pmpaddr62" : { "exists" : "true" },
+	    "pmpaddr63" : { "exists" : "true" },
+	    "pmacfg0": {
+            "number"          : "0x7e0",
+            "reset"           : "0xd0000000800001e7",
+            "mask"            : "0xffffffffffffffff",
+            "poke_mask"       : "0xffffffffffffffff"
+        },
+        "pmacfg1": {
+          "number"          : "0x7e1",
+          "reset"           : "0x0",
+          "mask"            : "0xfcfffffffffff1ff",
+	      "poke_mask": "0xfcfffffffffff1ff"
+        },
+	    "pmacfg2": {
+	    	"number": "0x7e2",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg3": {
+	    	"number": "0x7e3",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg4": {
+	    	"number": "0x7e4",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg5": {
+	    	"number": "0x7e5",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg6": {
+	    	"number": "0x7e6",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg7": {
+	    	"number": "0x7e7",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg8": {
+	    	"number": "0x7e8",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg9": {
+	    	"number": "0x7e9",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg10": {
+	    	"number": "0x7ea",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg11": {
+	    	"number": "0x7eb",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg12": {
+	    	"number": "0x7ec",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg13": {
+	    	"number": "0x7ed",
+	    	"reset": "0x0",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg14": {
+	    	"comment": "Cover default 0-2gb range for IO",
+	    	"number": "0x7ee",
+	    	"reset": "0x7c00000000000007",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    },
+	    "pmacfg15": {
+	    	"comment": "Cover default 2gb-52bit range for dram",
+	    	"number": "0x7ef",
+	    	"reset": "0xd0000000000001e7",
+	    	"mask": "0xfcfffffffffff1ff",
+	    	"poke_mask": "0xfcfffffffffff1ff"
+	    }
+    },
+
+	"auto_increment_timer" : true,
+    "time_down_sample": 2,
+    "aclint" : {
+      "base"               : "0x042180000",
+      "size"               : "0xc000",
+      "timer_offset"       : "0x8000",
+      "time_offset"        : "0x0",
+      "deliver_interrupts" : true,
+      "time_adjust"        : 0,
+      "timecmp_reset"      : "0xffffffff"
+    },
+
+
+    "mmode_perf_event_map" : {
+	    "None"         : "0x0",
+	    "Mult"         : "0x00000e00",
+	    "Div"          : "0x00000f00",
+	    "Csr"          : "0x00001000",
+	    "MultDiv"      : "0x00003000",
+	    "Bitmanip"     : "0x00005000",
+	    "FpSingle"     : "0x00006000",
+	    "FpHalf"       : "0x00007000",
+	    "InstCommited" : "0x00800000",
+	    "Load"         : "0x00c00000",
+	    "Store"        : "0x00d00000"
+    },
+
+   "vector" : {
+      "bytes_per_vec"        : 32,
+      "min_bytes_per_elem"   : 1,
+      "Comment"              : "Hardware supports 32-bit ELEN plus some widening operations from 32 to 64-bit",
+      "max_bytes_per_elem"   : 8,
+      "mask_agnostic_policy" : "ones",
+      "tail_agnostic_policy" : "ones",
+      "update_whole_mask"    : true,
+      "trap_invalid_vtype"   : false,
+      "trap_non_zero_vstart" : true,
+      "legalize_vsetvl_avl"  : true,
+      "legalize_vsetvli_avl" : true,
+      "legalize_for_egs"     : true,
+      "max_bytes_per_lmul"   : { "mf8" : 1, "mf4" : 2, "mf2" : 4 },
+      "tt_fp_usum_tree_reduction" : [ "e16", "e32", "e64" ],
+      "fp_usum_nan_canonicalize" : [ "e16", "e32", "e64" ],
+			 "partial_segment_update" : false
+    }
+}
