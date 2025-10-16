@@ -3,10 +3,10 @@
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.lib.routines import Routines
-from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
+from riescue.dtest_framework.runtime.trap_handler import TrapHandler
 
 
-class SysCalls(AssemblyGenerator):
+class SysCalls(TrapHandler):
     """System call handlers for test execution environment.
 
     Provides handlers for test control, privilege transitions, and system
@@ -23,8 +23,9 @@ class SysCalls(AssemblyGenerator):
         super().__init__(**kwargs)
         self.syscall_table_label = self.featmgr.syscall_table_label
         self.check_exception_label = self.featmgr.check_exception_label
+        self.trap_exit_label = self.featmgr.trap_exit_label
+
         # Pick correct CSRs based on delegation
-        self.xret = "j excp_exit"
         if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.MACHINE:
             self.xepc = "mepc"
         else:
@@ -69,11 +70,20 @@ class SysCalls(AssemblyGenerator):
                 csrrs x0, mstatus, t1  # Set MPP to 11, machine
             """
 
-        code += """
+        code += f"""
             # The function number is in x31
 
             li t0, 0xf0000001  # schedule next test
-            beq t0, x31, enter_scheduler
+            # special case since this isn't going to do an mret/sret. Need to restore context here.
+            bne t0, x31, syscall_table_not_entering_scheduler
+            {self.restore_context()}
+            j enter_scheduler
+            """
+
+        # non scheduler system calls
+        # these all use trap_exit to return to test code, so they should automatically restore context
+        code += """
+        syscall_table_not_entering_scheduler:
 
             li t0, 0xf0000002  # fail test
             beq t0, x31, test_failed
@@ -369,7 +379,7 @@ class SysCalls(AssemblyGenerator):
                 la t1, ret_from_os_fn_m_paging
                 csrw {self.xepc}, t1
                 li x31, -1 # Clear x31, so we don't accidentally jump to an OS function next time
-                {self.xret}
+                j {self.trap_exit_label}
 
             """
         else:
@@ -399,14 +409,15 @@ class SysCalls(AssemblyGenerator):
             li x31, -1 # Clear x31, so we don't accidentally jump to an OS function next time
             srli {self.hartid_reg}, {self.hartid_reg}, 3 # Restore saved hartid rather than offset
             # Return from exception
-            {self.xret}
+            j {self.trap_exit_label}
             """
 
         if self.paging_mode != RV.RiscvPagingModes.DISABLE and self.priv_mode == RV.RiscvPrivileges.MACHINE:
-            ret_from_os_fn += """
+            ret_from_os_fn += f"""
             ret_from_os_fn_m_paging:
                 li t1, (1<<17) | (1<<11)
             csrrs x0, mstatus, t1 # re-enable paging
+            {self.restore_context()}
             jr t0
             """
         return ret_from_os_fn

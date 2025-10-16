@@ -66,7 +66,7 @@ Load your configuration file on the command-line with the ``--cpuconfig`` flag:
 
 .. code-block:: bash
 
-    python3 -m riescue --cpuconfig my_config.json
+    --cpuconfig my_config.json
 
 Configuration Templates
 -----------------------

@@ -81,8 +81,7 @@ Alternatively, set environment variables:
    export SPIKE_PATH=/path/to/spike
    ctk --run_dir my_tests
 
-See :ref:`simulators-and-toolchains` for details on installing these tools.
-
+See :doc:`/tutorials/install` for more information on sourcing dependencies.
 
 Advanced Usage
 --------------

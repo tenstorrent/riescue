@@ -75,12 +75,13 @@ class Loader(AssemblyGenerator):
         self.paging_mode = self.featmgr.paging_mode
         self.counters = Counters(rng=self.rng)
 
+        self.trap_entry_label = self.featmgr.trap_handler_label  #: Trap entry label. Defaults to trap_entry Value ``*tvec`` is loaded with
+
     def generate(self) -> str:
         # If wysiwyg mode, then we don't need any loader code
-        allocate_stack = not self.featmgr.wysiwyg
         big_endian = self.featmgr.big_endian
         if self.featmgr.wysiwyg and not self.featmgr.bringup_pagetables:
-            return self.base_loader(allocate_stack=allocate_stack, big_endian=big_endian)
+            return self.base_loader(wysiwyg=self.featmgr.wysiwyg, big_endian=big_endian)
 
         if self.featmgr.linux_mode:
             return """
@@ -99,7 +100,7 @@ class Loader(AssemblyGenerator):
 
             """
 
-        code = self.base_loader(allocate_stack=allocate_stack, big_endian=big_endian)
+        code = self.base_loader(wysiwyg=self.featmgr.wysiwyg, big_endian=big_endian)
         if self.featmgr.counter_event_path is not None:
             code += self.enable_counters(event_path=self.featmgr.counter_event_path)
 
@@ -273,8 +274,8 @@ class Loader(AssemblyGenerator):
                     """
 
             # Also setup MTVEC with excp_entry
-            code += """
-                la t0, excp_entry
+            code += f"""
+                la t0, {self.trap_entry_label}
                 csrw mtvec, t0
                 """
 
@@ -331,7 +332,7 @@ class Loader(AssemblyGenerator):
                 log.warning("Using user_interrupt_table is deprecated. Use ;#vectored_interrupt(index, label) in source code instead.")
                 interrupt_entry_code.extend(["li t0, user_interrupt_table_addr", "ld t0, 0(t0)"])
             else:
-                interrupt_entry_code.append(f"la t0, {self.featmgr.trap_handler_label}")
+                interrupt_entry_code.append(f"la t0, {self.trap_entry_label}")
             interrupt_entry_code.append(f"csrw {xtvec}, t0")
             code += "\n".join(interrupt_entry_code)
 
@@ -359,9 +360,10 @@ class Loader(AssemblyGenerator):
         if self.featmgr.bringup_pagetables:
             schedule_label = list(self.pool.discrete_tests.keys())[0]
         code += f"""
-        init_mepc_label:
-            j {schedule_label}
+init_mepc_label:
+    j {schedule_label}
 
+{self.kernel_panic(name="loader_panic")}
         """
 
         return code
@@ -426,7 +428,7 @@ class Loader(AssemblyGenerator):
                 """
         return code
 
-    def base_loader(self, allocate_stack: bool = False, big_endian: bool = False) -> str:
+    def base_loader(self, wysiwyg: bool = False, big_endian: bool = False) -> str:
         """
         Basic loader, initialize integer registers. Optionally allocated stack pointer and big-endian mode.
         """
@@ -437,16 +439,24 @@ class Loader(AssemblyGenerator):
 .option norvc
 
 _start:
-    nop
-
 """
+        if wysiwyg:
+            code += "nop\n"
+        else:
+            code += """
+# load panic address to mtvec
+    la t0, loader_panic
+    csrw mtvec, t0
+    nop
+"""
+
         # Initialize all integer registers to 0
         code += "init_int_register:\n"
         for i in range(1, 32):
             code += f"    li x{i}, 0x0\n"
 
         # Stack doesn't get allocated in generator during wysiwyg
-        if allocate_stack:
+        if not wysiwyg:
             if self.featmgr.num_cpus > 1:
                 code += """
                     calc_stack_pointer:

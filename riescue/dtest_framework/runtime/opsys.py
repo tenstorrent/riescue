@@ -6,6 +6,8 @@ OpSys takes care of all the operating system related code including Scheduler
 """
 
 from types import MappingProxyType
+from typing import Optional
+
 import riescue.lib.enums as RV
 from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
 from riescue.dtest_framework.lib.routines import Routines
@@ -76,8 +78,8 @@ class OpSys(AssemblyGenerator):
         assert not (self.featmgr.linux_mode and self.mp_active), "Linux mode and not MP mode are not supported together currently"
 
         # Build OS Data variables
-        self.per_hart_variables = dict(OpSys.PER_HART_OS_VARIABLES)
-        self.shared_variables = dict(OpSys.SHARED_OS_VARIABLES)
+        self.per_hart_variables: dict[str, str] = dict(OpSys.PER_HART_OS_VARIABLES)
+        self.shared_variables: dict[str, Optional[str]] = dict(OpSys.SHARED_OS_VARIABLES)
 
         if self.featmgr.user_interrupt_table:
             self.shared_variables["user_interrupt_table_addr"] = "USER_INTERRUPT_TABLE"
@@ -142,7 +144,12 @@ class OpSys(AssemblyGenerator):
         """
         code += "os_rng_orig:\n"
         code += Routines.place_rng_unsafe_reg(
-            seed_addr_reg="a1", modulus_reg="a2", seed_offset_scale_reg="a3", target_offset_scale_reg="a4", num_ignore_reg="a5", handler_priv_mode=self.handler_priv_mode
+            seed_addr_reg="a1",
+            modulus_reg="a2",
+            seed_offset_scale_reg="a3",
+            target_offset_scale_reg="a4",
+            num_ignore_reg="a5",
+            handler_priv_mode=self.handler_priv_mode,
         )
         code += "\tret\n"
 

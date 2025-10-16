@@ -81,6 +81,7 @@ Test Plan Structure
    │   └── TestStep sequence (Load, Store, Arithmetic, etc.)
    ├── TestScenario 2
    │   └── TestStep sequence
+   ...
    └── TestScenario N
 
 **Available TestStep Types**
@@ -96,7 +97,7 @@ Execute test plan mode using:
 
 .. code-block:: bash
 
-   riescuec --mode test_plan --seed 12345
+   riescuec --mode test_plan --seed 12345  --test_plan zicond
 
 **Test Generation Process**
 
