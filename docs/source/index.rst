@@ -36,6 +36,8 @@ New to RiESCUE? Start with:
 - :doc:`Getting Started Guide </tutorials/index>` - Set up RiESCUE, learn about RiESCUE's main features, and see some tutorials.
 - :doc:`User Guides </user_guides/index>` - Learn how to accomplish tasks with RiESCUE through step-by-step workflows and best practices.
 
+Want to get started generating tests? See  :doc:`/tutorials/riescuec/bringup_mode_tutorial` to start with the RiescueC Bringup Mode tutorial
+
 Reference Documentation
 ------------------------
 

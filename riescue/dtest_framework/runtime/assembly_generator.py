@@ -44,6 +44,7 @@ class AssemblyGenerator(ABC):
         self.featmgr = featmgr
         self.hartid_reg = "s1"
         self.csr_manager: Optional[CsrManagerInterface] = None
+        self.xlen: RV.Xlen = RV.Xlen.XLEN64
 
         self.priv_mode = self.featmgr.priv_mode
         self.handler_priv_mode = "M" if self.priv_mode == RV.RiscvPrivileges.MACHINE else "S"
@@ -111,28 +112,6 @@ class AssemblyGenerator(ABC):
         else:
             raise ValueError(f"Privilege {from_priv} not yet supported for switching privilege")
 
-        return_instr = pre_xret + "\n\t" + xret_instr
-        if from_priv == RV.RiscvPrivileges.MACHINE:
-            if to_priv == RV.RiscvPrivileges.SUPER:
-                xstatus_mpp_clear = "0x00001800"  # mstatus[12:11] = 01
-                xstatus_mpp_set = "0x00000800"  # mstatus[12:11] = 01
-            elif to_priv == RV.RiscvPrivileges.USER:
-                xstatus_mpp_clear = "0x00001800"  # mstatus[12:11] = 11
-                xstatus_mpp_set = "0x00000000"  # mstatus[12:11] = 11
-            else:
-                raise ValueError(f"Privilege {to_priv} not yet supported for switching privilege")
-        elif from_priv == RV.RiscvPrivileges.SUPER:
-            # We need to update sstatus.SPP to 0 if going to user mode
-            # and 1 if staying in super mode
-            if to_priv == RV.RiscvPrivileges.USER:
-                xstatus_spp_clear = "0x00000100"
-                xstatus_spp_set = "0x00000000"
-            elif to_priv == RV.RiscvPrivileges.SUPER:
-                xstatus_spp_clear = "0x00000000"
-                xstatus_spp_set = "0x00000100"
-        else:
-            raise ValueError(f"Privilege {from_priv} not yet supported for switching privilege")
-
         # Setup mepc csr, so we jump to that label after MRET
         if jump_label is None:
             if jump_register is None:
@@ -159,6 +138,16 @@ class AssemblyGenerator(ABC):
                 # |     10     |  Reserved  |
                 # |     11     |   Machine  |
             """
+
+            if to_priv == RV.RiscvPrivileges.SUPER:
+                xstatus_mpp_clear = "0x00001800"  # mstatus[12:11] = 01
+                xstatus_mpp_set = "0x00000800"  # mstatus[12:11] = 01
+            elif to_priv == RV.RiscvPrivileges.USER:
+                xstatus_mpp_clear = "0x00001800"  # mstatus[12:11] = 11
+                xstatus_mpp_set = "0x00000000"  # mstatus[12:11] = 11
+            else:
+                raise ValueError(f"Switching from machine to {to_priv} is not supported.")
+
             code += f"""
                 li x1, {xstatus_mpp_clear}
                 csrrc x0, {xstatus_csr}, x1
@@ -166,6 +155,17 @@ class AssemblyGenerator(ABC):
                 csrrs x0, {xstatus_csr}, x1
             """
         elif from_priv == RV.RiscvPrivileges.SUPER:
+            # We need to update sstatus.SPP to 0 if going to user mode
+            # and 1 if staying in super mode
+            if to_priv == RV.RiscvPrivileges.USER:
+                xstatus_spp_clear = "0x00000100"
+                xstatus_spp_set = "0x00000000"
+            elif to_priv == RV.RiscvPrivileges.SUPER:
+                xstatus_spp_clear = "0x00000000"
+                xstatus_spp_set = "0x00000100"
+            else:
+                raise ValueError(f"Switching from Supervisor to {to_priv} is not supported.")
+
             code += f"""
                 # Update SSTATUS.SPP
                 li t0, {xstatus_spp_clear}
@@ -179,7 +179,8 @@ class AssemblyGenerator(ABC):
                     li x1, 0x00000080 # HSTATUS.SVP=1
                     csrrs x0, hstatus, x1
             """
-
+        else:
+            raise ValueError(f"Switching from {from_priv} to {to_priv} is not supported.")
         code += f"\n\t{pre_xret}\n\t{xret_instr}\n"
         return code
 
@@ -345,3 +346,37 @@ class AssemblyGenerator(ABC):
             instrs += f"csrr t0, {csr}\n"
 
         return instrs
+
+    def kernel_panic(self, name: str) -> str:
+        """
+        Code for runtime to end test early if an unexpected error occurs in runtime code.
+        Named after kernel panic convention used in UNIX to catch fatal internal errors.
+
+        Useful for catching errors before trap handler is setup, or during trap handling.
+        """
+        if self.xlen == RV.Xlen.XLEN64:
+            variable_size = "dword"
+            store_instruction = "sd"
+            load_instruction = "ld"
+        elif self.xlen == RV.Xlen.XLEN32:
+            variable_size = "word"
+            store_instruction = "sw"
+            load_instruction = "lw"
+        else:
+            raise ValueError(f"Unsupported xlen: {self.xlen}")
+
+        tohost_ptr = f"{name}_tohost_ptr"
+
+        return f"""
+# pointer to tohost, so {name} can end test immediately.
+{tohost_ptr}:
+    .{variable_size} tohost
+
+{name}:
+    la t0, {tohost_ptr}
+    {load_instruction} t0, 0(t0)
+    li t1, 3
+    {store_instruction} t1, 0(t0)
+    wfi
+    j {name}
+        """

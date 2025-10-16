@@ -5,11 +5,12 @@
 
 ---
 
-**[Read the documentation on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/)**
 
 
-# RiESCUE
-RiESCUE provides a Python library and command-line tools for generating, building, and compiling RISC-V test ELF files.
+# What's RiESCUE?
+RiESCUE (pronounced *"rescue"*) provides a Python library and command-line tools for generating, building, and compiling RISC-V test ELF files.
+
+Check out the [Intro to RiESCUE, RiescueD, and RiescueC on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/tutorials/riescue_intro_guide.html) for a more detailed introduction to RiESCUE. In short, it consists of:
 * `RiescueD` - RiESCUE Directed Test Framework
 * `RiescueC` - RiESCUE Compliance Test Generator
 * `CTK` - RiESCUE Compliance Test Kit
@@ -74,18 +75,20 @@ For info on installing dependencies, see the [Installation Guide on docs.tenstor
 python3 -m pip install git+https://github.com/tenstorrent/riescue.git
 ```
 
-This installs the command line scripts `riescued`, along with making the `riescue` Python package available for importing. This doesn't source some of the non-python requirements for Riescue.
+This installs the command line scripts `riescued`, `riescuec`, and `ctk`, along with making the `riescue` Python package available for importing. This doesn't source some of the non-python requirements for Riescue.
 
 ### Requirements
-
+The following non-Python dependencies must be installed before running:
 - RISC-V GNU Toolchain - [riscv-gnu-toolchain GitHub](https://github.com/riscv-collab/riscv-gnu-toolchain)
 - `whisper` - [whisper GitHub](https://github.com/tenstorrent/whisper)
 - `spike` - [riscv-isa-sim GitHub](https://github.com/riscv-software-src/riscv-isa-sim)
-- `coretp` Python library - [riscv-coretp GitHub](https://github.com/tenstorrent/riscv-coretp)
-
+See the [Getting Started Guide](https://docs.tenstorrent.com/riescue/tutorials/index.html) for more information on sourcing dependencies.
 
 ## Getting Started
 See the [RiescueD Getting Started Guide](https://docs.tenstorrent.com/riescue/tutorials/index.html) for more information on setting up RiescueD and running tests.
+
+## Documentation
+The documentation is hosted on **[docs.tenstorrent.com/riescue](https://docs.tenstorrent.com/riescue/)**
 
 
 ---

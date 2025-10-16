@@ -78,6 +78,7 @@ class AddrGen:
         log.debug(f"Constraints: {constraint}")
 
         # Generate address
+        address = None
         if constraint.type == RV.AddressType.MEMORY:
             address = self._generate_and_reserve_memory(constraint)
         else:
@@ -86,6 +87,8 @@ class AddrGen:
                 address = addr_space.generate_address(constraint)
                 if address:
                     break
+        if address is None:
+            raise AddrGenError(f"No address generated for constraints: {constraint}")
 
         # Check restrictions ; physical addresses are not restricted
         # If linear address, check restriction. If not restricted, address is generated and count is incremented in restricted_indices

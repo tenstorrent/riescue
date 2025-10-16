@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riescue"
-version = "1.1.0"
+version = "1.1.1"
 description = "RISC-V Directed Test Framework and Compliance Suite"
 readme = "README.md"
 requires-python = ">= 3.9"
@@ -44,6 +44,7 @@ include = [
     # RiescueD files
     #"riescue/dtest_framework",
     "riescue/dtest_framework/config",
+    "riescue/dtest_framework/runtime",
     "tests/dtest_framework",
     "riescue/dtest_framework/pool.py",
     "riescue/dtest_framework/lib/pagetables.py",
@@ -56,11 +57,13 @@ include = [
     "riescue/compliance/test_plan",
 ]
 
+typeCheckingMode = "standard"
+# typeCheckingMode = "strict" # add this in the future
+
+
 extraPaths = ["riescue",]
 exclude = [
     "tests/compliance",
-    "riescue/lib/csr_manager",
-    "riescue/lib/instr_info",
 ]
 pythonVersion = "3.9"
 pythonPlatform = "Linux"

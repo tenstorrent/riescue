@@ -7,6 +7,8 @@ from typing import Optional
 
 from riescue.lib.rand import RandNum
 
+# FIXME: This relies heavily on Voyager2. It should be moved to riescue/voyager2 or made generic
+
 
 class FieldConfig:
     "CSR and field Config"
@@ -76,9 +78,10 @@ class CsrManager:
         rs: str = "",
         rd: str = "",
         subfield: dict[str, str] = {},
-    ):
+    ) -> str:
         reg1 = instruction_helper.get_random_gpr_reserve("int")
         reg2 = instruction_helper.get_random_gpr_reserve("int")
+        instruction = None
 
         if value is None:
             value = self.rng.get_rand_bits(64)
@@ -136,6 +139,8 @@ class CsrManager:
 
         regs = [reg1, reg2]
         instruction_helper.unreserve_regs(regs)
+        if instruction is None:
+            raise Exception(f"No instruction generated for {access_type} of {csr_name}")
 
         return instruction
 
