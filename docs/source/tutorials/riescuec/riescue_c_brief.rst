@@ -1,4 +1,4 @@
-RiescueC Framework Overview
+RiescueC Overview
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 RiescueC generates RISC-V compliance tests automatically. You provide a JSON configuration file specifying which instructions you want to test, and it creates self-checking assembly tests that run on instruction set simulators.
 
@@ -10,7 +10,7 @@ RiescueC creates randomized RISC-V assembly tests for compliance verification. I
 RiescueC Modes
 ==============
 
-RiescueC operates in three distinct modes, each designed for different verification scenarios.
+RiescueC operates in two distinct modes, each designed for different verification scenarios.
 
 1. Bringup Mode
 
@@ -20,19 +20,20 @@ RiescueC operates in three distinct modes, each designed for different verificat
 
 .. code-block:: bash
 
-   python3 riescuec --mode bringup --json my_config.json
+   riescuec --mode bringup --json my_config.json
 
 **What you get**: Focused tests for specific instructions or extensions with minimal overhead.
 
 
 2. Test Plan Mode
 
+**How to run**:
+
+.. code-block:: bash
+
+   riescuec --mode test_plan --test_plan zicond
+
 **Purpose**: Generate tests from ``coretp`` test plans through self-checking architectural scenarios.
-
-
-3. Compliance Mode
-
-**Purpose**: Full compliance test suite generation with comprehensive coverage.
 
 
 
@@ -46,7 +47,7 @@ Run RiescueC Bringup mode with a Bringup Test JSON file:
 
 .. code-block:: bash
 
-   python3 riesceuc --mode bringup --json my_test.json -o my_test
+   riesceuc --mode bringup --json my_test.json -o my_test
 
 Example JSON configuration:
 
@@ -92,6 +93,6 @@ You can also use ``-o`` to specify an output filename. E.g. ``-o my_test`` will 
 Next Steps
 ==========
 
-- Try the bringup mode tutorial for hands-on examples
-- Check the configuration examples for your target extensions
-- Use test plan mode for advanced verification scenarios
+- See the :doc:`bringup_mode_tutorial` for a hands-on example for running RiescueC
+- Check the configuration examples for your target extensions in the :doc:`../cpu_configuration` page
+- Use test plan mode for advanced verification scenarios in the :doc:`test_plan_tutorial` page

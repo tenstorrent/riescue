@@ -3,7 +3,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Tuple, Iterator, Sequence
+from typing import Tuple, Iterator, Sequence, Any
 
 from intervaltree import IntervalTree, Interval
 
@@ -46,7 +46,7 @@ class AddressRangeSet(ABC):
         pass
 
     @abstractmethod
-    def add(self, interval: AddressRange) -> None:
+    def add(self, interval: AddressRange, *args: Any, **kwargs: Any) -> None:
         """Add an address range to the set."""
         pass
 
@@ -61,7 +61,7 @@ class AddressRangeSet(ABC):
         pass
 
     @abstractmethod
-    def overlap(self, interval: AddressRange) -> Sequence[AddressRange]:
+    def overlap(self, interval: AddressRange, *args: Any, **kwargs: Any) -> Sequence[AddressRange]:
         """Return the overlap of the address range with the set."""
         pass
 

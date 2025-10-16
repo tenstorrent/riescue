@@ -90,6 +90,7 @@ class FeatMgr:
     trap_handler_label: str = "trap_entry"
     syscall_table_label: str = "syscall_table"
     check_exception_label: str = "check_exception_cause"
+    trap_exit_label: str = "trap_exit"
 
     # Run options
     tohost_nonzero_terminate: bool = False

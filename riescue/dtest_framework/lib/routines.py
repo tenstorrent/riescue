@@ -288,7 +288,15 @@ class Routines:
 
     # If this seed address is shared this is not a threadsafe routine, okay for non-sharing or for critical section.
     @classmethod
-    def place_rng_unsafe_reg(cls, seed_addr_reg: str, modulus_reg: int, seed_offset_scale_reg: int, target_offset_scale_reg: int, num_ignore_reg: int, handler_priv_mode: str) -> str:
+    def place_rng_unsafe_reg(
+        cls,
+        seed_addr_reg: str,
+        modulus_reg: str,
+        seed_offset_scale_reg: str,
+        target_offset_scale_reg: str,
+        num_ignore_reg: str,
+        handler_priv_mode: str,
+    ) -> str:
         return f"""
                 # simple XORshift random number generator
                 # https://www.javamex.com/tutorials/random_numbers/xorshift.shtml#.VlcaYzKwEV8

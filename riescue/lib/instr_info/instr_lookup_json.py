@@ -159,7 +159,7 @@ class InstrInfoJson:
 
         return local_instr_dict_raw
 
-    def from_instr_record_lookup_slice_of_encoding(instr_dict, msb, lsb):
+    def from_instr_record_lookup_slice_of_encoding(self, instr_dict, msb, lsb):
         numbits = msb - lsb + 1
         encoding = instr_dict["encoding"]
         length = len(encoding)
@@ -174,7 +174,7 @@ class InstrInfoJson:
         else:
             return int(field, 2)
 
-    def extract_constants(instr_record):
+    def extract_constants(self, instr_record):
         constant_bit_positions = OrderedDict(
             [("opcode", {"ext": "all", "bits": [(6, 0), (2, 0), (1, 0)]}), ("24..20", {"ext": "v_v", "bits": [(24, 20)]}), ("mop", {"ext": "v_v", "bits": [(27, 26)]})]
         )
@@ -187,7 +187,7 @@ class InstrInfoJson:
             for bitpair in value["bits"]:
                 msb = bitpair[0]
                 lsb = bitpair[1]
-                constant = InstrInfoJson.from_instr_record_lookup_slice_of_encoding(instr_record, msb, lsb)
+                constant = self.from_instr_record_lookup_slice_of_encoding(instr_record, msb, lsb)
                 if constant is not None:
                     constant_vals[key] = hex(constant)
                     break
@@ -197,7 +197,7 @@ class InstrInfoJson:
     def augment_data_with_constants(self, instr_dict_raw):
         local_instr_dict_raw = copy.deepcopy(instr_dict_raw)
         for key, value in local_instr_dict_raw.items():
-            constant_vals = InstrInfoJson.extract_constants(value)
+            constant_vals = self.extract_constants(value)
             value.update(constant_vals)
 
         return local_instr_dict_raw
@@ -226,6 +226,8 @@ class InstrInfoJson:
         return applicable_extensions
 
     def rebuild_json(self):
+        "Rebuilds JSON from yaml"
+
         instr_dict_raw = dict()
         supplementary_dict_raw = dict()
         groups_to_instruction_names = dict()
@@ -242,7 +244,7 @@ class InstrInfoJson:
 
         groups_to_instruction_names["none"] = dict()
         riescue_extensions_list = [key for key in self.translation_from_riescue_to_riscv_extensions.keys()]
-        list_with_repeats = InstrInfoJson.translate_riescue_extensions_to_riscv_extensions(self.not_my_xlen, extensions=riescue_extensions_list)
+        list_with_repeats = self.translate_riescue_extensions_to_riscv_extensions(extensions=riescue_extensions_list)
         applicable_extensions = [key for key in OrderedDict.fromkeys(list_with_repeats).keys()]
 
         # Populate the instructions table
@@ -294,7 +296,7 @@ class InstrInfoJson:
         else:
             self.rebuild_json()
 
-    def search_instructions_by_extension(self, extension_names: list, exclude_rules) -> set:
+    def search_instructions_by_extension(self, extension_names: list, exclude_rules) -> list:
         assert self.instr_query_dict["Extensions_To_Instruction_Names"], "Extensions table is empty."
         instrs = list()
         for extension_name in extension_names:
@@ -303,7 +305,7 @@ class InstrInfoJson:
             instrs.extend(self.instr_query_dict["Extensions_To_Instruction_Names"].get(extension_name, []))
         return instrs
 
-    def search_instructions_by_groups(self, group_names: list, exclude_rules) -> set:
+    def search_instructions_by_groups(self, group_names: list, exclude_rules) -> list:
         # Check that self.instr_query_dict["Groups"] is not an empty dictionary.
         assert self.instr_query_dict["Groups_To_Instruction_Names"], "Groups table is empty."
         instrs = list()

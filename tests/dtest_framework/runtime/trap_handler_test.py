@@ -145,10 +145,10 @@ class InterruptHandlerTest(unittest.TestCase):
         """
         Test vector bounds are respected based on XLEN.
         """
-        handler_64 = InterruptHandler(privilege_mode="M", xlen=64)
+        handler_64 = InterruptHandler(privilege_mode="M", xlen=RV.Xlen.XLEN64)
         self.assertEqual(handler_64.vector_count, 63)
 
-        handler_32 = InterruptHandler(privilege_mode="M", xlen=32)
+        handler_32 = InterruptHandler(privilege_mode="M", xlen=RV.Xlen.XLEN32)
         self.assertEqual(handler_32.vector_count, 31)
 
     def test_default_interrupt_vectors(self):

@@ -82,7 +82,13 @@ class InterruptHandler:
 
     reserved_interrupt_indicies = [2, 4, 6, 8, 10, 12, 14, 15]
 
-    def __init__(self, privilege_mode: str, trap_entry: str = "trap_entry", default_trap_handler: str = "default_trap_handler", xlen: int = 64):
+    def __init__(
+        self,
+        privilege_mode: str,
+        trap_entry: str = "trap_entry",
+        default_trap_handler: str = "default_trap_handler",
+        xlen: RV.Xlen = RV.Xlen.XLEN64,
+    ):
         self.privilege_mode = privilege_mode
         if self.privilege_mode not in ["M", "S"]:
             raise ValueError(f"Privilege mode {self.privilege_mode} not supported")
@@ -92,7 +98,7 @@ class InterruptHandler:
         else:
             self.xip = "sip"
             self.xret = "sret"
-        self.vector_count = xlen - 1
+        self.vector_count = xlen.value - 1
 
         self.vector_table: Dict[int, InterruptServiceRoutine] = {}  # Maps vector_num -> ISR
 
@@ -292,96 +298,40 @@ class TrapHandler(AssemblyGenerator):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.default_trap_handler_label = "trap_handler"
-        self.syscall_table_label = self.featmgr.syscall_table_label
-        self.check_exception_label = self.featmgr.check_exception_label
-        self.interrupt_handler = InterruptHandler(self.handler_priv_mode, self.featmgr.trap_handler_label, default_trap_handler=self.default_trap_handler_label)
+        # default labels
+        self.trap_handler_label = "trap_handler"  #: Default trap handler routine. Used for default trap behavior.
+        self.interrupt_handler_label = "interrupt_handler"  #: Default interrupt handler routine. Clears mip and ends trap
+        self.exception_handler_label = "excp_entry"  #: Exception Handler routine. Assumes context has already been saved
+        self.trap_panic_label = "trap_panic"  #: Kernel panic label. Used to end test early if an fatal error occurs in trap handler.
+
+        self.trap_entry_label = self.featmgr.trap_handler_label  #: Trap entry label. Defaults to trap_entry Value ``*tvec`` is loaded with
+        self.trap_exit_label = self.featmgr.trap_exit_label  #: Trap exit routine. Can restore context before jumping back to test code.
+        self.syscall_table_label = self.featmgr.syscall_table_label  #: Syscall table routine. Used to evaluate ECALL / syscalls. Implemented in :class:`syscalls.SysCalls`
+        self.check_exception_label = self.featmgr.check_exception_label  #: Check exception routine, used to check for expected exceptions
+
+        self.interrupt_handler = InterruptHandler(
+            trap_entry=self.trap_entry_label,
+            privilege_mode=self.handler_priv_mode,
+            default_trap_handler=self.trap_handler_label,
+        )
 
         self.env = self.featmgr.env
         self.paging_mode = self.featmgr.paging_mode
         self.deleg_excp_to = self.featmgr.deleg_excp_to
-        if self.featmgr.cfiles is None:
-            self.save_regs = ""
-            self.restore_regs = ""
-        else:
-            self.save_regs = f"""
-                add sp, sp, -256
-                sd x1, 8(sp)
-                sd x3, 24(sp)
-                sd x4, 32(sp)
-                sd x5, 40(sp)
-                sd x6, 48(sp)
-                sd x7, 56(sp)
-                sd x8, 64(sp)
-                sd x9, 72(sp)
-                sd x10, 80(sp)
-                sd x11, 88(sp)
-                sd x12, 96(sp)
-                sd x13, 104(sp)
-                sd x14, 112(sp)
-                sd x15, 120(sp)
-                sd x16, 128(sp)
-                sd x17, 136(sp)
-                sd x18, 144(sp)
-                sd x19, 152(sp)
-                sd x20, 160(sp)
-                sd x21, 168(sp)
-                sd x22, 176(sp)
-                sd x23, 184(sp)
-                sd x24, 192(sp)
-                sd x25, 200(sp)
-                sd x26, 208(sp)
-                sd x27, 216(sp)
-                sd x28, 224(sp)
-                sd x29, 232(sp)
-                sd x30, 240(sp)
-                sd x31, 248(sp)
-                mv x30, sp
-            """
-            self.restore_regs = f"""
-                    ld x1, 8(sp)
-                    ld x3, 24(sp)
-                    ld x4, 32(sp)
-                    ld x5, 40(sp)
-                    ld x6, 48(sp)
-                    ld x7, 56(sp)
-                    ld x8, 64(sp)
-                    ld x9, 72(sp)
-                    ld x10, 80(sp)
-                    ld x11, 88(sp)
-                    ld x12, 96(sp)
-                    ld x13, 104(sp)
-                    ld x14, 112(sp)
-                    ld x15, 120(sp)
-                    ld x16, 128(sp)
-                    ld x17, 136(sp)
-                    ld x18, 144(sp)
-                    ld x19, 152(sp)
-                    ld x20, 160(sp)
-                    ld x21, 168(sp)
-                    ld x22, 176(sp)
-                    ld x23, 184(sp)
-                    ld x24, 192(sp)
-                    ld x25, 200(sp)
-                    ld x26, 208(sp)
-                    ld x27, 216(sp)
-                    ld x28, 224(sp)
-                    ld x29, 232(sp)
-                    ld x30, 240(sp)
-                    ld x31, 248(sp)
-                    add sp, sp, 256
-            """
 
-    def generate(self) -> str:
         self.xcause = "scause"
         self.xepc = "sepc"
         self.xret = "sret"
         self.xip = "sip"
+        self.tvec = "stvec"
         if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.MACHINE:
             self.xcause = "mcause"
             self.xepc = "mepc"
             self.xret = "mret"
             self.xip = "mip"
+            self.tvec = "mtvec"
+
+    def generate(self) -> str:
 
         for interrupts in self.pool.parsed_vectored_interrupts:
             self.interrupt_handler.register_vector(interrupts.index, interrupts.label, indirect=True)
@@ -389,11 +339,9 @@ class TrapHandler(AssemblyGenerator):
         code = f"""
         .section .text
         {self.interrupt_handler.generate()}
-        {self.default_trap_handler(label=self.default_trap_handler_label)}
+        {self.default_trap_handler()}
         .align 2
-        excp_entry:
-        {self.save_regs}
-        excp_entry_common:
+        {self.exception_handler_label}:
         """
 
         # Call pre handler user code
@@ -440,14 +388,8 @@ class TrapHandler(AssemblyGenerator):
         """
 
         code += f"""
-            excp_exit:
-                {self.restore_regs}
-                {self.xret}
-            """
-
-        code += f"""
         {self.check_exception_label}:
-            {self.os_check_excp(return_label='return_to_host', xepc=self.xepc, xret=self.xret)}
+            {self.os_check_excp(return_label='return_to_host', xepc=self.xepc, xret=f"j {self.trap_exit_label}")}
 
             ecall_from_machine:
             ecall_from_supervisor:
@@ -474,35 +416,69 @@ class TrapHandler(AssemblyGenerator):
                 jalr ra, t0
             """
 
-        # Return from exception
-        code += f"""
-            # Return from exception
-        """
+        # Return from trap
+        code += "\n" + self.trap_exit()
 
-        if self.featmgr.cfiles is None:
-            code += f"""
-                {self.xret}
-            """
-        else:
-            code += f"""
-                j excp_exit
-            """
-
+        # kernel panic code, should be unreachable since trap_exit does an xret
+        code += "\n" + self.kernel_panic(name=self.trap_panic_label)
         return code
 
-    def default_trap_handler(self, label: str):
+    def save_context(self) -> str:
         """
-        Generates the default trap handler code.
+        Code to save context before handling trap.
+
+        - sets tvec to trap_panic label. Assumes trap panic label is la-able (within 32-bits)
+        - if using cfiles save all registers. This assumes the stack is loaded into sp already
+        """
+        save_context = ""
+        if self.featmgr.cfiles is not None:
+            save_context += self._save_regs()
+
+        save_context += f"""
+            la t0, {self.trap_panic_label}
+            csrw {self.tvec}, t0
+        """
+        return save_context
+
+    def restore_context(self) -> str:
+        """
+        Code to restore context before returning to test code after trap handler.
+
+        - restores tvec to trap_exit label
+        """
+        restore_context = ""
+        if self.featmgr.cfiles is not None:
+            restore_context += self._restore_regs()
+
+        restore_context += f"""
+            la t1, {self.trap_entry_label}
+            csrw {self.tvec}, t1
+        """
+        return restore_context
+
+    def default_trap_handler(self):
+        """
+        Generates the default trap handler code. Checks for interrupt vs exception.
+        Exceptions get handled in exception entry.
+        Interrupts get cleared and return to code.
+
+        Consists of:
+
+        - routine :py:attr:`trap_handler_label` checks if interrupts vs exception
+        - routine :py:attr:`interrupt_handler_label` clears interrupts and returns to code
+        - branches to :py:attr:`exception_handler_label` if interrupt bit is 0 (i.e. exception)
+        - jumps to :py:attr:`trap_exit_label` to restore context and return to test code
         """
 
         return f"""
-            {label}:
-            {self.save_regs}
+            {self.trap_handler_label}:
+            {self.save_context()}
             csrr t0, {self.xcause}
             li t1, (0x1<<(XLEN-1))              # Isolate interrupt bit
             and t0, t0, t1
-            beq t0, x0, excp_entry_common              # If the interrupt bit is 0, exception
+            beq t0, x0, {self.exception_handler_label}  # If the interrupt bit is 0, exception
 
+            {self.interrupt_handler_label}:
             {Routines.place_retrieve_hartid(dest_reg="t0", priv_mode=self.handler_priv_mode)} # Get hartid
             bne t0, x0, test_failed                  # FIXME: Only handles interrupts for hartid0
 
@@ -517,5 +493,64 @@ class TrapHandler(AssemblyGenerator):
             # otherwise need a while loop to get lowest bit to clear
             csrw {self.xip}, t0
 
-            j excp_exit
+            j {self.trap_exit_label}
         """
+
+    def trap_exit(self) -> str:
+        """
+        Trap exit code. Restores context, returns to test code.
+
+        If using cfiles mode, need to automaticaly restore context. Otherwise, just jump to trap_exit_label
+
+        Implements :py:attr:`trap_exit_label` routine
+        """
+        return f"""
+.align 2
+{self.trap_exit_label}:
+    {self.restore_context()}
+    {self.xret}
+"""
+
+    # helper methods
+    def _save_regs(self) -> str:
+        """
+        save all registers to stack
+        """
+        # need to save all registers to stack
+        # assuming stack is already loaded from c code.
+        reg_size_bytes = self.xlen.value // 8
+        allocate_size = reg_size_bytes * 32
+        save_regs = [f"add sp, sp, -{allocate_size}"]
+
+        if self.xlen == RV.Xlen.XLEN64:
+            save_reg_instr = "sd"
+        elif self.xlen == RV.Xlen.XLEN32:
+            save_reg_instr = "sw"
+        else:
+            raise ValueError(f"Unsupported xlen: {self.xlen}")
+        save_regs.append(f"{save_reg_instr} x1, 8(sp)")  # skip x2/sp
+        for i in range(3, 32):
+            save_regs.append(f"{save_reg_instr} x{i}, {i*reg_size_bytes}(sp)")
+        save_regs.append("mv x30, sp")  # original code had this after saving all registers. Not sure if it's used
+        return "\n\t".join(save_regs)
+
+    def _restore_regs(self) -> str:
+        """
+        restore all registers from stack
+        """
+        reg_size_bytes = self.xlen.value // 8
+        allocate_size = reg_size_bytes * 32
+        restore_regs = []
+
+        if self.xlen == RV.Xlen.XLEN64:
+            restore_reg_instr = "ld"
+        elif self.xlen == RV.Xlen.XLEN32:
+            restore_reg_instr = "lw"
+        else:
+            raise ValueError(f"Unsupported xlen: {self.xlen}")
+
+        restore_regs.append(f"{restore_reg_instr} x1, 8(sp)")  # skip x2/sp
+        for i in range(3, 32):
+            restore_regs.append(f"{restore_reg_instr} x{i}, {i*reg_size_bytes}(sp)")
+        restore_regs += [f"add sp, sp, {allocate_size}"]
+        return "\n\t".join(restore_regs)

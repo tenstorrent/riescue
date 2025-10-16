@@ -246,6 +246,7 @@ class AddressCluster:
         # A small number of times, allocate near the limits of the micro-cluster
         if (not self.start_allocated or not self.end_allocated) and self.rng.percent() < 10:
             start = None
+            end = None
             if not self.start_allocated:
                 start = self.start_address & mask
                 end = start + size + 1
@@ -256,8 +257,8 @@ class AddressCluster:
                 end = start + size + 1
                 allocating_near_end = True
 
-            if start is None:
-                raise AddrGenError("Failed to allocate near the limits of the micro-cluster")
+            if start is None or end is None:
+                raise AddrGenError(f"Failed to allocate near the limits of the micro-cluster with {start=} and {end=}")
 
             level = self.overlap_level((start, end), uclusters)
             if level == 1:
