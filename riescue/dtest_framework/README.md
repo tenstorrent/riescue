@@ -51,18 +51,38 @@ Here's a minimal example of a RiescueD test:
 ;#test.tags       vectors vector_ld_st
 
 .section .code, "ax"
+##########################
+# Test Setup
+##########################
 test_setup:
-    # Common initialization sequence
+    # Common initialization sequence, executed
+    # exactly one time before executing all the tests
     j passed
 
+##########################
+# Test 1
+##########################
 ;#discrete_test(test=test01)
 test01:
     nop
     beq x0, t0, failed
     j passed
 
+##########################
+# Another Test 2
+##########################
+;#discrete_test(test=test02)
+test02:
+    nop
+    beq x0, t0, failed
+    j passed
+
+##########################
+# Test Cleanup
+##########################
 test_cleanup:
-    # Common cleanup sequence
+    # Common cleanup sequence, executed
+    # exactly one time after executing all the tests
     j passed
 
 ```
