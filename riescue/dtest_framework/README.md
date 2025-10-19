@@ -61,7 +61,7 @@ test01:
     beq x0, t0, failed
     j passed
 
-test_setup:
+test_cleanup:
     # Common cleanup sequence
     j passed
 
