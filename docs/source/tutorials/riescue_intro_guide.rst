@@ -13,11 +13,11 @@ RiESCUE Directed Testing Framework - **RiescueD**
 -------------------------------------------------
 
 Writing directed RISC-V assembly tests by hand can be time consuming, hard to maintain, and leads to static tests.
-**RiescueD** speeds up the test development process by providing a framework for writing directed tests while controlling the environment, offering an extensible test harness, and providing constrained randomization of memory addresses and data values.
+**RiescueD** speeds up the test development process by providing a framework for writing directed tests while controlling the environment, offering an extensible test runtime environment, and providing constrained randomization of memory addresses and data values.
 
 
-Users provide a directed test case written in assembly with Riescue Directives and a CPU configuration file detailing the memory map and ISA of the target system. **RiescueD** uses this configuration to setup the environment and the test harness. It compiles and runs the test on an Instruction Set Simulator to verify the test is valid.
-This enables quick development of directed tests without having to write the test harness from scratch, manage the environment, generate the correct memory map, or randomize memory addresses and data values.
+Users provide a directed test case written in assembly with Riescue Directives and a CPU configuration file detailing the memory map and ISA of the target system. **RiescueD** uses this configuration to setup the environment and the test runtime environment. It compiles and runs the test on an Instruction Set Simulator to verify the test is valid.
+This enables quick development of directed tests without having to write the test runtime environment from scratch, manage the environment, generate the correct memory map, or randomize memory addresses and data values.
 
 .. image:: /common/images/riescued_diagram.png
 
@@ -36,11 +36,11 @@ This enables quick development of directed tests without having to write the tes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **RiescueD** excels as a directed test framework when used to bringup and verify new RISC-V features.
-The utilities provided in **RiescueD** let test writers focus on writing test logic and not worry about the environment and test harness.
+The utilities provided in **RiescueD** let test writers focus on writing test logic and not worry about the environment and test runtime environment.
 This allows for both quick bringup for new features and randomized test generation for regression testing.
 
 **RiescueD** also excels as a framework to build complex test generators on top of.
-With **RiescueD** handling the environment and test harness, test generators using the framework can focus on generating interesting stimulus instead of a complex environment and managing virtual memory.
+With **RiescueD** handling the environment and test runtime environment, test generators using the framework can focus on generating interesting stimulus instead of a complex environment and managing virtual memory.
 Combined with support for multiprocessor testing (MP), this creates an extensible framework for generating complex tests for a range of RISC-V platforms.
 
 For examples on how to write directed tests, see the :doc:`RiescueD Workflow Guide <../user_guides/riescued_user_guide>`.

@@ -89,7 +89,7 @@
 test_setup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010001
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -125,7 +125,7 @@ test01:
 excp:
     ecall
     # We should never reach here
-    j failed
+    ;#test_failed()
 
 # We return here after exception is handled
 excp_ret:
@@ -136,10 +136,10 @@ excp_ret:
     # 'passed' and 'failed' are special RiESCUE defined labels, which each
     # discrete_test must use to indicate the end of the discrete_test
 
-    # j failed  <-- 'j failed' should be used to indicate OS that discrete_test
+    # ;#test_failed()  <-- ';#test_failed()' should be used to indicate OS that discrete_test
     #               hit a fail condition and gracefully exit the test with errorcode
 
-    j passed  # <-- 'j passed' should be used to indicate OS that discrete_test
+    ;#test_passed()  # <-- ';#test_passed()' should be used to indicate OS that discrete_test
     #               hit a pass condition and OS is free to schedule the next test
 
 
@@ -161,7 +161,7 @@ test02a:
 excp2a:
     lwu t2, 0(x1)
 
-    j failed
+    ;#test_failed()
 
     # Setup exception checks
     OS_SETUP_CHECK_EXCP LOAD_PAGE_FAULT, excp2a_1, excp2a_ret, lin7 + 0x203000
@@ -170,12 +170,12 @@ excp2a:
 excp2a_1:
     lwu t2, 0(x1)
 
-    j failed
+    ;#test_failed()
 
 .endif
 
 excp2a_ret:
-    j passed
+    ;#test_passed()
 
 #####################
 # test02: Generate a load page fault with v_nonleaf=0
@@ -195,12 +195,12 @@ test02:
 excp2:
     lwu t2, 0(x1)
 
-    j failed
+    ;#test_failed()
 
 .endif
 
 excp2_ret:
-    j passed
+    ;#test_passed()
 
 #####################
 # test03: Generate a store page fault with v=0
@@ -221,12 +221,12 @@ test03:
 excp3:
     sw t2, 0(x1)
 
-    j failed
+    ;#test_failed()
 
 .endif
 
 excp3_ret:
-    j passed
+    ;#test_passed()
 
 #####################
 # test04: Generate a load page fault with r=0
@@ -247,12 +247,12 @@ test04:
 excp4:
     lwu t2, 0(x1)
 
-    j failed
+    ;#test_failed()
 
 .endif
 
 excp4_ret:
-    j passed
+    ;#test_passed()
 
 #####################
 # test05: Generate a store page fault with w=0
@@ -273,12 +273,12 @@ test05:
 excp5:
     sw t2, 0(x1)
 
-    j failed
+    ;#test_failed()
 
 .endif
 
 excp5_ret:
-    j passed
+    ;#test_passed()
 
 #####################
 # test06: Modify pagetable and mark v=0 and generate the pagefault
@@ -312,7 +312,7 @@ test06:
 excp6:
     sw t2, 0(x1)
 
-    j failed
+    ;#test_failed()
 
 .endif
 
@@ -325,7 +325,7 @@ excp6_ret:
     sd t2, 0(x1)
     SFENCE.VMA
 
-    j passed
+    ;#test_passed()
 
 #####################
 # test_cleanup: RiESCUE defined label
@@ -336,7 +336,7 @@ excp6_ret:
 test_cleanup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010002
-    j passed
+    ;#test_passed()
 
 vmm_handler_pre:
     nop

@@ -10,8 +10,8 @@
 ;#test.paging     sv57
 ;#test.category   arch
 ;#test.class      vector
-;#test.features   
-;#test.tags       
+;#test.features
+;#test.tags
 ;#test.summary
 
 #####################
@@ -39,7 +39,7 @@
 #             discrete_test(s)
 #####################
 test_setup:
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -87,7 +87,7 @@ test01:
 	lw t2,0(a2)
 	lw t3,0(a3)
 
-	j passed
+	;#test_passed()
 
 
 #####################
@@ -97,7 +97,7 @@ test01:
 #             discrete_test(s)
 #####################
 test_cleanup:
-	j passed
+	;#test_passed()
 
 
 .section .data

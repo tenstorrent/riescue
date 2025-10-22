@@ -271,10 +271,10 @@ Here's a complete example showing how to structure a RiescueD test:
         # Verify the store
         ld t3, 8(t1)
         beq t0, t3, test01_pass
-        j failed
+        ;#test_failed()
 
     test01_pass:
-        j passed
+        ;#test_passed()
 
     #####################
     # Test Cleanup
@@ -282,7 +282,7 @@ Here's a complete example showing how to structure a RiescueD test:
     test_cleanup:
         # Executed after all tests are run, exactly once
         li t0, 0x12345678
-        j passed
+        ;#test_passed()
 
     #####################
     # Memory Sections
@@ -342,11 +342,11 @@ Common exception causes that can be tested:
 
     ecall_instr:
         ecall          # This instruction will cause an exception
-        j failed       # Should never reach here
+        ;#test_failed()       # Should never reach here
 
     after_ecall:
         # Continue test execution here
-        j passed
+        ;#test_passed()
 
 **Page Fault Testing Example:**
 
@@ -361,11 +361,11 @@ Common exception causes that can be tested:
     fault_store:
         li t1, readonly_page
         sw t0, 0(t1)    # This will cause a store page fault
-        j failed        # Should never reach here
+        ;#test_failed()        # Should never reach here
 
     after_fault:
         # Exception was handled correctly
-        j passed
+        ;#test_passed()
 
 Page Map Feature
 ~~~~~~~~~~~~~~~~

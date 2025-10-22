@@ -43,7 +43,7 @@
 test_setup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010001
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -53,7 +53,7 @@ test_setup:
 test01:
 
     nop
-    j failed
+    ;#test_failed()
 
 
 
@@ -66,7 +66,7 @@ test01:
 #             discrete_test(s)
 #####################
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 #####################
 # Default data section

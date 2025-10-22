@@ -283,17 +283,22 @@ class Spike(Tool):
             spike_args = []
 
         args = spike_args + ["-l", "--log-commits"]
-        if third_party_spike:
-            if not spike_isa:
-                spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvl256b_zve64d_svpbmt"
-            tool_name = "spike"
+        tool_name = "spike" if third_party_spike else "tt_spike"
+
+        if spike_isa:
+            self.spike_isa = spike_isa
         else:
-            if not spike_isa:
-                spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_svpbmt_sstc_zicntr"
-            tool_name = "tt_spike"
-            args.append("--varch=vlen:256,elen:64")
+            if third_party_spike:
+                self.spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvl256b_zve64d_svpbmt"
+            else:
+                self.spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_svpbmt_sstc_zicntr"
+
+        if not third_party_spike:
+            self.varch = {"vlen": 256, "elen": 64}
             args.append(f"--max-instrs={spike_max_instr}")
-        args += [f"--isa={spike_isa}"]
+        else:
+            self.varch = None
+
         super().__init__(path=spike_path, env_name="SPIKE_PATH", tool_name=tool_name, args=args)
 
     @staticmethod
@@ -321,5 +326,9 @@ class Spike(Tool):
             extra_args = args
         else:
             extra_args = []
+        if self.spike_isa:
+            extra_args.append(f"--isa={self.spike_isa}")
+        if self.varch:
+            extra_args.append(f"--varch=vlen:{self.varch['vlen']},elen:{self.varch['elen']}")
         extra_args.extend([str(elf_file)])
         return super().run(output_file=output_file, cwd=cwd, timeout=timeout, args=extra_args)

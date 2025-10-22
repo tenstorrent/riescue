@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from pathlib import Path
-from typing import Any, Dict, Generator
+from typing import Any, Generator, Callable
 
 import riescue.lib.enums as RV
 from riescue.lib.rand import RandNum
@@ -18,82 +18,84 @@ from riescue.dtest_framework.runtime.macros import Macros
 from riescue.dtest_framework.config import FeatMgr
 
 
+Formatter = Callable[[str], str]
+
+
 class Runtime:
     """
-    Class used to generate runtime code for a test based on environment and features. Runtime code consists of Loader, TestScheduler, OpSys, Macros, and Equates.
-    Generates and optionally writes code to .inc files.
+    Generates Test Runtime Environment code.
+    Runtime code consists of Loader, TestScheduler, OpSys, Macros, and Equates.
+
+    Most code is generated for .text sections, with some exceptions for user jump tables.
+
+    Yields name of module and a generator for each module's code. Name can be used by consumers as file name, or comment for inline code.
 
     :param rng: Random number generator
     :param pool: Test pool
-    :param run_dir: Path to the directory where the generated code will be written
     :param featmgr: Feature manager
     """
 
-    def __init__(self, rng: RandNum, pool: Pool, run_dir: Path, featmgr: FeatMgr):
+    def __init__(self, rng: RandNum, pool: Pool, featmgr: FeatMgr):
         self.rng = rng
         self.pool = pool
-        self.run_dir = run_dir
         self.featmgr = featmgr
 
+        self._modules: dict[str, AssemblyGenerator] = dict()
+
         # Save registered Runtime modules here
-        self.modules: Dict[str, AssemblyGenerator] = dict()  # name -> module_instant
-        self.modules["loader"] = Loader(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
-        self.modules["os"] = OpSys(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
-        self.modules["scheduler"] = TestScheduler(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
-        self.modules["syscalls"] = SysCalls(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
-        generate_trap_handler = True
+        self._modules: dict[str, AssemblyGenerator] = dict()  # name -> module_instance
+        self._modules["macros"] = Macros(mp_enablement=self.featmgr.mp, rng=self.rng, pool=self.pool, featmgr=self.featmgr)
+        self._modules["loader"] = Loader(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
+
+        # WYSIWYG mode only needs macros, loader, and equates
+        if self.featmgr.wysiwyg:
+            return
+
+        # only need trap handling if not in linux mode.
+        # linux mode only needs macros, loader, os, and scheduler
         if not self.featmgr.linux_mode:
-            self.modules["trap_handler"] = TrapHandler(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
-            generate_trap_handler = False  # Trap handler inserted by TrapHandler
-        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
-            self.modules["hypervisor"] = Hypervisor(generate_trap_handler=generate_trap_handler, rng=self.rng, pool=self.pool, featmgr=self.featmgr)
-        self.modules["macros"] = Macros(mp_enablement=self.featmgr.mp, rng=self.rng, pool=self.pool, featmgr=self.featmgr)
+            self._modules["syscalls"] = SysCalls(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
+            generate_trap_handler = True
+            if not self.featmgr.linux_mode:
+                self._modules["trap_handler"] = TrapHandler(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
+                generate_trap_handler = False  # Trap handler inserted by TrapHandler
+            if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and not self.featmgr.wysiwyg:
+                self._modules["hypervisor"] = Hypervisor(generate_trap_handler=generate_trap_handler, rng=self.rng, pool=self.pool, featmgr=self.featmgr)
 
-    def generate(self, testname: str):
-        """
-        Generate code for each of the System modules and write to .inc files using format `{testname}_{module_name}.inc`
+        self._modules["os"] = OpSys(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
+        self._modules["scheduler"] = TestScheduler(rng=self.rng, pool=self.pool, featmgr=self.featmgr)
 
-        :param testname: Name of the test file without the .s extension
+    def generate(self) -> Generator[tuple[str, Generator[str, Any, None]], Any, None]:
         """
-        # Go through each Runtime module and generate code
-        for module_name in self.modules.keys():
-            module = self.modules[module_name]
-            include_file = self.run_dir / f"{testname}_{module_name}.inc"
-            with open(include_file, "w") as f:
-                for x in formatted_line_generator(module.generate().split("\n")):
-                    f.write(x)
+        Generate code for each of the modules. Yields name of module and a generator for each module's code.
+        """
 
-    def module_generator(self) -> Generator[tuple[str, str], Any, None]:
-        """
-        Generator function that yields tuple of (module_name, code) for each module name
-        """
-        for module_name in self.modules.keys():
-            module = self.modules[module_name]
-            yield module_name, "".join(formatted_line_generator(module.generate().split("\n")))
+        for module_name, module in self._modules.items():
+            yield module_name, self._format_code(s for s in module.generate().split("\n"))
 
     def generate_equates(self) -> str:
         retstr = ""
-        for mod in self.modules.values():
+        for mod in self._modules.values():
             retstr += mod.generate_equates()
         return retstr
 
+    def _format_code(self, code_generator: Generator[str, Any, None]) -> Generator[str, Any, None]:
+        """
+        Basic formatting for emitted code. Tries to reduce tabs, empty new lines, etc
+        """
 
-# Strips white space from lines, formats to single indent
-# global function so generator can use as well
-def formatted_line_generator(lines: list[str]) -> Generator[str, Any, None]:
-    """
-    Generator function that yields formatted lines from a list of lines, stripping whitespace and formatting to single indent
+        prev_lines_blank = 0
+        for line in code_generator:
+            parsed_line = line.strip()
 
-    :param lines: List of lines to format
-    """
-    for line in lines:
-        parsed_line = line.strip()
-
-        if parsed_line == "":
-            yield "\n"
-        elif "\n" in parsed_line:
-            yield from formatted_line_generator(parsed_line.split("\n"))
-        elif any([parsed_line.startswith(x) for x in [".align", ".section", ".macro", ".endm", "#", ";"]]) or parsed_line.endswith(":"):
-            yield f"{parsed_line}\n"
-        else:
-            yield f"\t{parsed_line}\n"
+            if parsed_line == "":
+                prev_lines_blank += 1
+                # yield ""
+                if prev_lines_blank <= 2:
+                    yield ""
+            elif any([parsed_line.startswith(x) for x in [".align", ".section", ".macro", ".endm", "#", ";"]]) or parsed_line.endswith(":"):
+                prev_lines_blank = 0
+                yield f"{parsed_line}"
+            else:
+                prev_lines_blank = 0
+                yield f"\t{parsed_line}"

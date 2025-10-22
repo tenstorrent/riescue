@@ -17,9 +17,8 @@ from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.parser import PmaInfo, PmpInfo, ParsedPageMapping, Parser, ParsedRandomAddress, ParsedRandomData
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.lib.page_map import Page, PageMap
-from riescue.dtest_framework.config import CpuConfig, Memory
-
-from riescue.dtest_framework.runtime import Runtime, formatted_line_generator
+from riescue.dtest_framework.generator.assembly_writer import AssemblyWriter
+from riescue.dtest_framework.artifacts import GeneratedFiles
 
 log = logging.getLogger(__name__)
 
@@ -41,21 +40,13 @@ class Generator:
         self.numgen.default_genops()
 
         self.run_dir = run_dir
-        self.runtime = Runtime(rng=self.rng, pool=self.pool, run_dir=self.run_dir, featmgr=self.featmgr)
+        self.writer = AssemblyWriter(rng=self.rng, pool=self.pool, run_dir=self.run_dir, featmgr=self.featmgr)
 
         # Set MISA bits based on enabled features
         self.misa_bits = self.featmgr.get_misa_bits()
 
-        # Output files
-        self.os_inc = self.run_dir / f"{self.pool.testname}_os.inc"
-        self.scheduler_inc = self.run_dir / f"{self.pool.testname}_scheduler.inc"
-        self.syscalls_inc = self.run_dir / f"{self.pool.testname}_syscalls.inc"
-        self.excp_inc = self.run_dir / f"{self.pool.testname}_trap_handler.inc"
-        self.loader_inc = self.run_dir / f"{self.pool.testname}_loader.inc"
-        self.macros_inc = self.run_dir / f"{self.pool.testname}_macros.inc"
-        self.equates_inc = self.run_dir / f"{self.pool.testname}_equates.inc"
-        self.pagetables_inc = self.run_dir / f"{self.pool.testname}_pagetables.inc"
-        self.hypervisor_inc = self.run_dir / f"{self.pool.testname}_hypervisor.inc"
+        # Output files (excludes inc files)
+        self.testname = self.pool.testname
         self.linker_script = self.run_dir / f"{self.pool.testname}.ld"
 
         # Default sections
@@ -193,44 +184,23 @@ class Generator:
         self.featmgr.physical_addr_bits = self.physical_addr_bits
         log.debug(f"Using physical address bits: {self.physical_addr_bits}")
 
-    def generate(self, file_in, assembly_out):
-        # Need better name for .s files (riescue source?)
-        # .S can be assembly
-        filehandle = None
-        with open(assembly_out, "w") as f:
-            filehandle = f
-            # The order of calling following functions is very important, please do not change
-            # unless you know what you are doing
-            self.process_raw_parsed_page_mappings()
-            self.generate_data()
-            self.add_page_maps()
-            self.generate_sections()
-            self.initialize_page_maps()
-            self.handle_res_mem()
-            self.generate_addr()
-            self.handle_page_mappings()
-            self.generate_init_mem()
+    def generate(self, file_in: Path, generated_files: GeneratedFiles):
+        """
+        Generate random data, randomize addresses, create page mappings, reserve memory, and write all files
+        """
+        # The order of calling following functions is very important, please do not change
+        # unless you know what you are doing
+        self.process_raw_parsed_page_mappings()
+        self.generate_data()
+        self.add_page_maps()
+        self.generate_sections()
+        self.initialize_page_maps()
+        self.handle_res_mem()
+        self.generate_addr()
+        self.handle_page_mappings()
+        self.generate_init_mem()
 
-            use_single_assembly_file = self.featmgr.single_assembly_file or bool(self.featmgr.linux_mode)
-            pagetable_includes = ""
-            if self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE or self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                if use_single_assembly_file:
-                    with io.StringIO() as f:
-                        self.create_pagetables(f)
-                        pagetable_includes = "## pagetables ##\n" + f.getvalue()
-                else:
-                    with open(self.pagetables_inc, "w") as pt_file_handle:
-                        self.create_pagetables(pt_file_handle)
-
-            if not use_single_assembly_file:
-                self.generate_runtime(testname=self.pool.testname)
-            self.write_test(
-                file_in,
-                output_file=filehandle,
-                single_assembly_file=use_single_assembly_file,
-                pagetable_includes=pagetable_includes,
-            )
-            self.generate_linker_script()
+        self.writer.write(rasm=file_in, generated_files=generated_files)
 
     def generate_data(self):
         for name, random_data in self.pool.get_parsed_data().items():
@@ -1729,23 +1699,6 @@ class Generator:
                 page.attrs[attr_name] = ppm_attr_val
                 log.debug(f"Setting {attr_name} = {ppm_attr_val} for {page.name}")
 
-    def create_pagetables(self, pt_file_handle):
-        # Create pagetables here
-
-        # Handle the vs-stage pagetables first since we need to know the guest physical
-        # address to generate the g-stage pagetables
-        for map in self.pool.get_page_maps().values():
-            if not map.g_map and map.paging_mode != RV.RiscvPagingModes.DISABLE:
-                map.create_pagetables(self.rng)
-                map.print_pagetables(file_handle=pt_file_handle)
-
-        # Now that the vs-stage pagetables are generated, handle the g-stage pagetables
-        if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-            for map in self.pool.get_page_maps().values():
-                if map.g_map:
-                    map.create_pagetables(self.rng)
-                    map.print_pagetables(file_handle=pt_file_handle)
-
     def handle_sections(self, section):
         sections_to_process = ["data", "text", "code"] + self.os_data_sections + self.io_sections
         if self.featmgr.c_used:
@@ -2287,269 +2240,3 @@ class Generator:
         if self.featmgr.c_used:
             for section_name in self.c_used_sections:
                 self.handle_sections(section_name)
-
-    def get_input_test_lines(self, input_file):
-        text = []
-        code = []
-        data = []
-
-    def write_test(self, filename, output_file, single_assembly_file=False, pagetable_includes=""):
-        lines = []
-        priority = ["user", "super", "machine"]
-        with open(filename, "r") as input_file:
-            lines = input_file.readlines()
-
-        # Randomize starting of the code section to an offset from 0...128, increment of 4
-        code_offset = 0
-        # if self.featmgr.randomize_code_offset:
-        #     code_offsets = list(range(0, 129, 4))
-        #     code_offset = self.rng.random_entry_in(code_offsets)
-        code_replace = f"""
-        .section .code, "ax"
-        # .org 0x{code_offset:x}
-        """
-
-        if self.featmgr.wysiwyg:
-            loader_pos = [i for i, line in enumerate(lines) if ".section .text" in line][0]
-        else:
-            code_lines = [i for i, line in enumerate(lines) if ".section .code," in line]
-            if len(code_lines) == 0:
-                raise ValueError('No ".section .code" found in .s file')
-            loader_pos = code_lines[0]
-            lines[loader_pos] = code_replace
-
-        main_idx = -1
-        for idx, line in enumerate(lines):
-            if ".section .code_super_0" in line:
-                main_idx = idx
-                break
-
-        if main_idx == -1:
-            main_idx = loader_pos
-
-        os_code = None
-
-        # Include or inline the include files
-        if not single_assembly_file:
-            if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and not self.featmgr.wysiwyg and not self.featmgr.linux_mode:
-                lines.insert(main_idx, f'.include "{self.hypervisor_inc.name}"\n')
-            if not self.featmgr.wysiwyg:
-                lines.insert(main_idx, f'.include "{self.excp_inc.name}"\n')
-                lines.insert(main_idx, f'.include "{self.syscalls_inc.name}"\n')
-            lines.insert(main_idx, f'.include "{self.loader_inc.name}"\n')
-            if self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE or self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                lines.insert(main_idx, f'.include "{self.pagetables_inc.name}"\n')
-            lines.insert(main_idx, f'.include "{self.equates_inc.name}"\n')
-            lines.insert(main_idx, f'.include "{self.macros_inc.name}"\n')
-        else:
-            runtime_module_code = {module_name: module_code for module_name, module_code in self.runtime_module_generator()}
-            if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and not self.featmgr.wysiwyg and not self.featmgr.linux_mode:
-                lines.insert(main_idx, f"## hypervisor ##\n{runtime_module_code['hypervisor']}")
-            if not self.featmgr.wysiwyg and not self.featmgr.linux_mode:
-                lines.insert(main_idx, f"## trap_handler ##\n{runtime_module_code['trap_handler']}")
-                lines.insert(main_idx, f"## syscalls ##\n{runtime_module_code['syscalls']}")
-            lines.insert(main_idx, f"## loader ##\n{runtime_module_code['loader']}")
-            lines.insert(main_idx, f"## macros ##\n{runtime_module_code['macros']}")
-            os_code = runtime_module_code["os"]
-
-        if not self.featmgr.wysiwyg:
-            data_lines = [i for i, line in enumerate(lines) if ".section .data" in line]
-            if len(data_lines) == 0:
-                raise ValueError('No ".section .data" defined in .s file. Try including at the end')
-            os_pos = data_lines[0]
-
-        if not self.featmgr.wysiwyg:
-            if not single_assembly_file:
-                lines.insert(os_pos, f'.include "{self.scheduler_inc.name}"\n')
-                lines.insert(os_pos, f'.include "{self.os_inc.name}"\n')
-            else:
-                if os_code is None:
-                    raise ValueError("Got os_code==None, somehow variable os_code wassn't initialized to runtime.opsys code")
-                lines.insert(os_pos, "## os ##\n" + os_code)
-                lines.insert(os_pos, "## test_scheduler ##\n" + runtime_module_code["scheduler"])
-
-        init_mem_sections = []
-        for val in self.pool.get_parsed_init_mem_addrs():
-            init_mem_sections.append(val)
-
-        for i, line in enumerate(lines):
-            if line.startswith(";#init_memory"):
-                lin_name_map = Parser.separate_lin_name_map(line)
-                maps = lin_name_map[1]
-                found = False
-                for lin_name in init_mem_sections:
-                    if len(maps) == 0:
-                        if "@" + lin_name in line:
-                            permissions = "aw"
-                            if self.pool.parsed_page_mapping_exists(lin_name, "map_os") and self.pool.get_parsed_page_mapping(lin_name, "map_os").x:
-                                permissions = "ax"
-                            print_lin_name = lin_name
-                            if lin_name.startswith("0x"):
-                                print_lin_name = self.prefix_hex_lin_name(lin_name)
-                            lines[i] = line + line.replace(line, f'.section .{print_lin_name}, "{permissions}"\n')
-                            break
-                    else:
-                        for m in maps:
-                            lin_name_2 = (line.split(":")[0]).split("@")[1].strip()
-                            if lin_name == (lin_name_2 + "_" + m):
-                                permissions = "aw"
-                                if self.pool.parsed_page_mapping_exists(lin_name, m) and self.pool.get_parsed_page_mapping(lin_name, m).x:
-                                    permissions = "ax"
-                                print_lin_name = lin_name
-                                if lin_name.startswith("0x"):
-                                    print_lin_name = self.prefix_hex_lin_name(lin_name)
-                                lines[i] = line + line.replace(line, f'.section .{print_lin_name}, "{permissions}"\n')
-                                found = True
-                                break
-                            if found:
-                                break
-            parsed_line = line.strip()
-            if parsed_line.startswith(";#csr_rw"):
-                pattern = r"^;#csr_rw\((?P<csr_name>\w*),\s*(?P<read_or_write>\w*)\)"
-                match = re.match(pattern, parsed_line)
-                if match:
-                    csr_name = match.group("csr_name")
-                    read_or_write = match.group("read_or_write")
-
-                    # get parsed csr val
-                    parsed_csr_val = self.pool.get_parsed_csr_access(csr_name, read_or_write)
-                    priv_mode = "super" if parsed_csr_val.priv_mode == "supervisor" else parsed_csr_val.priv_mode
-                    csr_prio = priority.index(priv_mode)
-                    priv_mode_prio = priority.index(self.featmgr.priv_mode.name.lower())
-                    if priv_mode_prio >= csr_prio:
-                        if read_or_write == "read":
-                            lines[i] = lines[i] + f"\ncsrr t2, {csr_name}\n"
-                        else:
-                            lines[i] = lines[i] + f"\ncsrw {csr_name}, t2\n"
-                    else:
-                        flag_name = "machine_csr_jump_table_flags" if priv_mode == "machine" else "super_csr_jump_table_flags"
-                        code_to_replace = f"li x31, {flag_name}\n"
-                        code_to_replace += f"li t0, {parsed_csr_val.csr_id}\n"
-                        code_to_replace += "sd t0, 0(x31)\n"
-
-                        sys_call = "0xf0001006" if priv_mode == "super" else "0xf0001005"
-                        code_to_replace += f"li x31, {sys_call}\n"
-                        code_to_replace += "ecall\n"
-
-                        lines[i] = lines[i] + "\n" + code_to_replace
-
-        if single_assembly_file:
-            output_file.write("## equates ##\n")
-            self.generate_equates(output_file)
-        else:
-            with open(self.equates_inc, "w") as equates_inc_file:
-                self.generate_equates(equates_inc_file)
-
-        # Add pagetables if includes inlined
-        if single_assembly_file:
-            if self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE or self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                lines.append("## pagetables ##\n" + pagetable_includes)
-
-        # Write .S file
-        for line in formatted_line_generator(lines):
-            output_file.write(line)
-
-    def generate_equates(self, filehandle):
-        output_file = filehandle
-        # Write the configuration
-        output_file.write("# Test configuration:\n")
-        data = self.featmgr.get_summary()
-        for config_name, config in data.items():
-            output_file.write(f".equ {config_name:35}, {int(config)}\n")
-
-        # Write random data
-        output_file.write("\n")
-        output_file.write("# Test random data:\n")
-        data = self.pool.get_random_data()
-        for data_name, data in data.items():
-            output_file.write(f".equ {data_name:35}, 0x{data:016x}\n")
-
-        # Write test addresses
-        output_file.write("\n# Test addresses:\n")
-        data = self.pool.get_random_addrs()
-        for addr_name, addr in data.items():
-            if addr_name == "code":
-                addr.address = addr.address + self.code_offset
-            output_file.write(f".equ {addr_name:35}, 0x{addr.address:016x}\n")
-
-        # Generate any equate file additions from runtime
-        output_file.write(self.runtime.generate_equates())
-
-        # Write exception causes
-        output_file.write("\n# Exception causes:\n")
-        for cause_enum in RV.RiscvExcpCauses:
-            output_file.write(f".equ {cause_enum.name:35}, {cause_enum.value}\n")
-
-        output_file.write("\n# Expected Interrupt causes:\n")
-        for interrupt_enum in RV.RiscvInterruptCause:
-            output_file.write(f".equ EXPECT_{interrupt_enum.name}, {interrupt_enum.value}\n")
-
-        output_file.write("\n# XLEN\n.equ XLEN, 64\n")
-        # Also have a special ECALL cause based on the current privilege mode
-        # Handle VS mode
-        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and self.featmgr.priv_mode == RV.RiscvPrivileges.SUPER:
-            output_file.write("\n.equ ECALL            , ECALL_FROM_VS\n")
-        else:
-            output_file.write(f"\n.equ ECALL            , ECALL_FROM_{self.featmgr.priv_mode}\n")
-        deleg_to_super = 1 if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER else 0
-        deleg_to_machine = 1 if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.MACHINE else 0
-        output_file.write(f"\n.equ OS_DELEG_EXCP_TO_SUPER, {deleg_to_super}")
-        output_file.write(f"\n.equ OS_DELEG_EXCP_TO_MACHINE, {deleg_to_machine}")
-        output_file.write("\n")
-        output_file.write("\n.equ DONT_USE_STACK, 1")
-        output_file.write("\n")
-
-        # Also write needs pma flag based on the commandline
-        pma_enabled = 1 if self.featmgr.needs_pma else 0
-        output_file.write(f"\n.equ PMA_ENABLED, {pma_enabled}\n")
-
-        # Add MISA equates
-        output_file.write(f"\n.equ MISA_BITS, {self.misa_bits}\n")
-
-        # Add feature-specific equates
-        output_file.write("\n# Feature-specific equates:\n")
-        for feature in self.featmgr.feature.list_features():
-            enabled = 1 if self.featmgr.feature.is_enabled(feature) else 0
-            supported = 1 if self.featmgr.feature.is_supported(feature) else 0
-            output_file.write(f".equ FEATURE_{feature.upper():35}, {enabled} # supported={supported}\n")
-
-    def generate_linker_script(self):
-        # Create the linker script file <testname>.ld
-        with open(self.linker_script, "w") as linker_file:
-            linker_file.write('OUTPUT_ARCH("riscv")\nENTRY(_start)\n')
-            linker_file.write("SECTIONS\n{\n")
-            for section_name, address in self.pool.get_sections().items():
-                log.debug(f"{section_name} -> 0x{address:016x}")
-                print_section_name = section_name
-                if section_name == "code":
-                    address = address + self.code_offset
-                if section_name.startswith("0x"):
-                    print_section_name = self.prefix_hex_lin_name(section_name)
-                # Clear bit-55 if it's set since there physical address space does not use it
-                if address & (1 << 55):
-                    address = address & ~(1 << 55)
-                linker_file.write(
-                    "\t. = {}\n\t {} : {} \n\n".format(
-                        str(hex(address) + ";"),
-                        "." + print_section_name,
-                        "{ *(." + print_section_name + ") }",
-                    )
-                )
-            linker_file.write("}")
-
-    # can these both be removed? could instead just use the module_generator
-    def generate_runtime(self, **kwargs):
-        """
-        Generate runtime code in various .inc files
-        """
-        self.runtime.generate(**kwargs)
-
-    def runtime_module_generator(self):
-        """
-        Generate runtime code in various .inc files
-        """
-        for m in self.runtime.module_generator():
-            yield m
-
-    def prefix_hex_lin_name(self, n):
-        return f"__auto_secname_{n}"

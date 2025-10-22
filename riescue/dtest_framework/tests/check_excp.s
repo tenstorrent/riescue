@@ -11,7 +11,7 @@
 .section .code, "ax"
 
 test_setup:
-    j passed
+    ;#test_passed()
 
 ;#discrete_test(test=test01)
 test01:
@@ -28,7 +28,7 @@ excp:
 
 excp_ret:
 
-    j passed
+    ;#test_passed()
 
 
 .section .data

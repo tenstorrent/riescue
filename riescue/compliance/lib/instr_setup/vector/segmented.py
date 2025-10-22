@@ -182,9 +182,7 @@ class VecLoadUnitStrideSegmentedSetup(SegmentedComponent, VecLoadUnitStrideSetup
             """Every operation was masked out, no architectural state change to match"""
             if not self.resource_db.wysiwyg:
                 if self.j_pass_ok():
-                    self.write_pre("\tli a0, passed_addr")
-                    self.write_pre("\tld a1, 0(a0)")
-                    self.write_pre("\tjalr ra, 0(a1)")
+                    self.write_pre(";#test_passed()")
             else:
                 self.write_pre("\tadd x31,x31,x0")
             return
@@ -332,16 +330,12 @@ class VecLoadUnitStrideSegmentedSetup(SegmentedComponent, VecLoadUnitStrideSetup
             self.write_pre(f"\tbne {result_reg}, {xreg}, 1f")
 
         if self.j_pass_ok():
-            self.write_pre("\tli a0, passed_addr")
-            self.write_pre("\tld a1, 0(a0)")
-            self.write_pre("\tjalr ra, 0(a1)")
+            self.write_pre(";#test_passed()")
         else:
             self.write_pre("\tj 2f")
         self.write_pre("\t1:")
         if not self.resource_db.wysiwyg:
-            self.write_pre("\tli a0, failed_addr")
-            self.write_pre("\tld a1, 0(a0)")
-            self.write_pre("\tjalr ra, 0(a1)")
+            self.write_pre(";#test_failed()")
         self.write_pre("\t2:")
 
     def post_setup(self, modified_arch_state, instr):
@@ -578,9 +572,7 @@ class VecLoadStridedSegmentedSetup(SegmentedComponent, VecLoadComponent, VecUnit
             """Every operation was masked out, no architectural state change to match"""
             if not self.resource_db.wysiwyg:
                 if self.j_pass_ok():
-                    self.write_pre("\tli a0, passed_addr")
-                    self.write_pre("\tld a1, 0(a0)")
-                    self.write_pre("\tjalr ra, 0(a1)")
+                    self.write_pre(";#test_passed()")
             else:
                 self.write_pre("\tadd x31,x31,x0")
             return
@@ -728,16 +720,12 @@ class VecLoadStridedSegmentedSetup(SegmentedComponent, VecLoadComponent, VecUnit
             self.write_pre(f"\tbne {result_reg}, {xreg}, 1f")
 
         if self.j_pass_ok():
-            self.write_pre("\tli a0, passed_addr")
-            self.write_pre("\tld a1, 0(a0)")
-            self.write_pre("\tjalr ra, 0(a1)")
+            self.write_pre(";#test_passed()")
         else:
             self.write_pre("\tj 2f")
         self.write_pre("\t1:")
         if not self.resource_db.wysiwyg:
-            self.write_pre("\tli a0, failed_addr")
-            self.write_pre("\tld a1, 0(a0)")
-            self.write_pre("\tjalr ra, 0(a1)")
+            self.write_pre(";#test_failed()")
         self.write_pre("\t2:")
 
     def post_setup(self, modified_arch_state, instr):
@@ -921,9 +909,7 @@ class VecLoadIndexedUnorderedSegmentedSetup(SegmentedComponent, VecLoadStoreBase
             """Every operation was masked out, no architectural state change to match"""
             if not self.resource_db.wysiwyg:
                 if self.j_pass_ok():
-                    self.write_pre("\tli a0, passed_addr")
-                    self.write_pre("\tld a1, 0(a0)")
-                    self.write_pre("\tjalr ra, 0(a1)")
+                    self.write_pre(";#test_passed()")
             else:
                 self.write_pre("\tadd x31,x31,x0")
             return
@@ -1069,16 +1055,12 @@ class VecLoadIndexedUnorderedSegmentedSetup(SegmentedComponent, VecLoadStoreBase
             self.write_pre(f"\tbne {result_reg}, {xreg}, 1f")
 
         if self.j_pass_ok():
-            self.write_pre("\tli a0, passed_addr")
-            self.write_pre("\tld a1, 0(a0)")
-            self.write_pre("\tjalr ra, 0(a1)")
+            self.write_pre(";#test_passed()")
         else:
             self.write_pre("\tj 2f")
         self.write_pre("\t1:")
         if not self.resource_db.wysiwyg:
-            self.write_pre("\tli a0, failed_addr")
-            self.write_pre("\tld a1, 0(a0)")
-            self.write_pre("\tjalr ra, 0(a1)")
+            self.write_pre(";#test_failed()")
         self.write_pre("\t2:")
 
     def post_setup(self, modified_arch_state, instr):
@@ -1330,9 +1312,7 @@ class VecLoadWholeRegSetup(SegmentedComponent, VecLoadUnitStrideSetup):
             """Every operation was masked out, no architectural state change to match"""
             if not self.resource_db.wysiwyg:
                 if self.j_pass_ok():
-                    self.write_pre("\tli a0, passed_addr")
-                    self.write_pre("\tld a1, 0(a0)")
-                    self.write_pre("\tjalr ra, 0(a1)")
+                    self.write_pre(";#test_passed()")
             else:
                 self.write_pre("\tadd x31,x31,x0")
             return
@@ -1481,16 +1461,12 @@ class VecLoadWholeRegSetup(SegmentedComponent, VecLoadUnitStrideSetup):
             self.write_pre(f"\tbne {result_reg}, {xreg}, 1f")
 
         if self.j_pass_ok():
-            self.write_pre("\tli a0, passed_addr")
-            self.write_pre("\tld a1, 0(a0)")
-            self.write_pre("\tjalr ra, 0(a1)")
+            self.write_pre(";#test_passed()")
         else:
             self.write_pre("\tj 2f")
         self.write_pre("\t1:")
         if not self.resource_db.wysiwyg:
-            self.write_pre("\tli a0, failed_addr")
-            self.write_pre("\tld a1, 0(a0)")
-            self.write_pre("\tjalr ra, 0(a1)")
+            self.write_pre(";#test_failed()")
         self.write_pre("\t2:")
 
     def post_setup(self, modified_arch_state, instr):

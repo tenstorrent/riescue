@@ -300,7 +300,7 @@ test_cleanup:
     csrc sie, t0
     csrw sip, x0
     li a0, 0
-    j passed
+    ;#test_passed()
 
 
 

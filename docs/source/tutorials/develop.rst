@@ -51,6 +51,21 @@ The container installs ``python3.9``, default python dependencies, and the defau
     The container does **not** include the ``riscv-gnu-toolchain``. Users and developers should source their own toolchain and point RiESCUE to it by making it avilable in the ``PATH`` or setting the ``RV_GCC`` and ``RV_OBJDUMP`` environment variables. See :doc:`/tutorials/install` for more information.
 
 
+Adding binds
+=============
+The container has some default binds that map ``/usr/lib64`` to ``/shared``, but to add additional binds, developers can add ``--singularity-binds=/bar,/foo:/foobar`` to the command line to add to the container binds.
+
+
+Directories are separated by commas.
+Mapping a directory to itself can be done by only providing the directory name.
+Mapping a directory to a different directory can be done by providing the directory name and the destination directory name separated by a colon.
+
+
+.. note::
+    Keep all the arguments in a single argument without spaces.
+
+    This will also remove all arguments that start with ``--singularity`` from the command line.
+
 
 ``riscv-coretp``
 ~~~~~~~~~~~~~~~~

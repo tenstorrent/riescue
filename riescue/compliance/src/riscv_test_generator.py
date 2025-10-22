@@ -120,9 +120,7 @@ class TestGenerator:
                     if self.resource_db.wysiwyg:
                         body.append("\n")
                     else:
-                        body.append("\tli a0, passed_addr")
-                        body.append("\tld a1, 0(a0)")
-                        body.append("\tjalr ra, 0(a1)\n")
+                        body.append(";#test_passed()")
         else:
             for test_num, instr in enumerate(instrs):
                 snippet = instr.first_pass_snippet + instr.get_post_setup(self.state_tracker[instr.label + f"_{testcase_num}"])
@@ -178,9 +176,7 @@ class TestGenerator:
         else:
             body.append('.section .code, "ax"\n')
             body.append("test_setup:")
-            body.append("\tli a0, passed_addr")
-            body.append("\tld a1, 0(a0)")
-            body.append("\tjalr ra, 0(a1)\n")
+            body.append(";#test_passed()")
 
         self.process_body(iteration, testcase_num, body=body, instrs=testcase.instrs)
 
@@ -263,9 +259,7 @@ class TestGenerator:
 
         else:
             body.append("test_cleanup:")
-            body.append("\tli a0, passed_addr")
-            body.append("\tld a1, 0(a0)")
-            body.append("\tjalr ra, 0(a1)\n")
+            body.append(";#test_passed()")
 
         # Add data section
         body.append(".section .data\n")

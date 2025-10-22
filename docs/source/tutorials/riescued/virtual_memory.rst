@@ -123,7 +123,7 @@ The test demonstrates a common virtual memory verification pattern:
        lw t1, 0(t0)               # Read through virtual address
        li t2, my_word             # Load expected value
        beq t1, t2, paging_passed  # Verify data matches
-       j failed
+       ;#test_failed()
 
 This pattern:
 

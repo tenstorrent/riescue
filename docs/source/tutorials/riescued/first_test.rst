@@ -94,15 +94,15 @@ This is a required lables  executed after all tests are run, exactly once.
 
 .. code-block:: asm
 
-  j failed
+  ;#test_failed()
 
 This indicates a test failed and starts the end of test sequence.
 
 .. code-block:: asm
 
-  j passed
+  ;#test_passed()
 
-This indicates a test passed or some test setup code has finished. It resumes control to the test harness.
+This indicates a test passed or some test setup code has finished. It resumes control to the test runtime environment and proceeds to the next test or successful end of test.
 
 
 RiescueD Directives
@@ -136,7 +136,7 @@ Run RiescueD and build the test
   riescued --testname tutorial_example_test.s
 
 
-This will generate the test harness, linker script, and compile the test into an ELF binary.
+This will generate the test runtime environment, linker script, and compile the test into an ELF binary.
 
 Adding ``--run_iss`` will also run the test on an Instruction Set Simulator to verify the test is valid.
 
@@ -144,9 +144,9 @@ Adding ``--run_iss`` will also run the test on an Instruction Set Simulator to v
 Examining the Output
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-In your working directory, you should see your compiled ELF ``tutorial_example_test`` along with some test harness ``.inc``, a linker script, and a disassembly file.
+In your working directory, you should see your compiled ELF ``tutorial_example_test`` along with some test runtime environment ``.inc``, a linker script, and a disassembly file.
 
-In the disassembly file  (``tutorial_example_test.dis``) we can see the discrete test was compiled with the test harness in the subroutine ``test01``:
+In the disassembly file  (``tutorial_example_test.dis``) we can see the discrete test was compiled with the test runtime environment in the subroutine ``test01``:
 
 .. code-block::
 

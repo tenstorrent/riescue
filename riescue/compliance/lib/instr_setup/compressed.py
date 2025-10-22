@@ -37,9 +37,7 @@ class C1NopSetup(InstrSetup):
         # Since this is a nop, there isn't supposed to be any modified state.
         if not self.resource_db.wysiwyg:
             if self.j_pass_ok():
-                self.write_pre("\tli a0, passed_addr\n")
-                self.write_pre("\tld a1, 0(a0)\n")
-                self.write_pre("\tjalr ra, 0(a1)\n")
+                self.write_post(";#test_passed()")
         else:
             temp_reg = self.get_random_reg(instr.reg_manager)
             self.write_post(f"\tadd x31,x31,{temp_reg}")
@@ -266,16 +264,12 @@ class C0DoubleLoadRegBasedSetup(
                 self.write_post("\tbne x2, x3, 1f")
 
         if self.j_pass_ok():
-            self.write_post("\tli a0, passed_addr\n")
-            self.write_post("\tld a1, 0(a0)\n")
-            self.write_post("\tjalr ra, 0(a1)\n")
+            self.write_post(";#test_passed()")
         else:
             self.write_post("\tj 2f\n")
         self.write_post("\t1:\n")
         if not self.resource_db.wysiwyg:
-            self.write_post("\tli a0, failed_addr\n")
-            self.write_post("\tld a1, 0(a0)\n")
-            self.write_post("\tjalr ra, 0(a1)\n")
+            self.write_post(";#test_failed()")
         self.write_post("\t2:\n")
 
 
@@ -318,16 +312,12 @@ class CStoreComponent:
                 self.write_post(f"\tbne {result_reg1}, {result_reg2}, 1f")
 
         if self.j_pass_ok():
-            self.write_post("\tli a0, passed_addr\n")
-            self.write_post("\tld a1, 0(a0)\n")
-            self.write_post("\tjalr ra, 0(a1)\n")
+            self.write_post(";#test_passed()")
         else:
             self.write_post("\tj 2f\n")
         self.write_post("\t1:\n")
         if not self.resource_db.wysiwyg:
-            self.write_post("\tli a0, failed_addr\n")
-            self.write_post("\tld a1, 0(a0)\n")
-            self.write_post("\tjalr ra, 0(a1)\n")
+            self.write_post(";#test_failed()")
         self.write_post("\t2:\n")
 
 
@@ -544,18 +534,14 @@ class CompressedJumpSetup(JumpComponent, ConstraintDBAccessComponent, InstrSetup
         if self.resource_db.wysiwyg:
             self.write_pre("\tli x31, 0xbaadc0de")
         else:
-            self.write_pre("\tli a0, failed_addr\n")
-            self.write_pre("\tld a1, 0(a0)\n")
-            self.write_pre("\tjalr ra, 0(a1)\n")
+            self.write_pre(";#test_failed()")
 
         self.write_pre(f"jump_{dot_free_label}_post:")
         self.write_pre("\tnop")
 
     def post_setup(self, modified_arch_state, instr):
         if self.j_pass_ok():
-            self.write_post("\tli a0, passed_addr\n")
-            self.write_post("\tld a1, 0(a0)\n")
-            self.write_post("\tjalr ra, 0(a1)\n")
+            self.write_post(";#test_passed()")
 
 
 class CompressedBranchSetup(ConstraintDBAccessComponent, InstrSetup):
@@ -614,9 +600,7 @@ class CompressedBranchSetup(ConstraintDBAccessComponent, InstrSetup):
 
     def post_setup(self, modified_arch_state, instr):
         if self.j_pass_ok():
-            self.write_post("\tli a0, passed_addr\n")
-            self.write_post("\tld a1, 0(a0)\n")
-            self.write_post("\tjalr ra, 0(a1)\n")
+            self.write_post(";#test_passed()")
 
 
 class CompDoubleSPLoadSetup(
@@ -660,16 +644,12 @@ class CompDoubleSPLoadSetup(
                 self.write_post("\tbne x2, x3, 1f")
 
         if self.j_pass_ok():
-            self.write_post("\tli a0, passed_addr\n")
-            self.write_post("\tld a1, 0(a0)\n")
-            self.write_post("\tjalr ra, 0(a1)\n")
+            self.write_post(";#test_passed()")
         else:
             self.write_post("\tj 2f\n")
         self.write_post("\t1:\n")
         if not self.resource_db.wysiwyg:
-            self.write_post("\tli a0, failed_addr\n")
-            self.write_post("\tld a1, 0(a0)\n")
-            self.write_post("\tjalr ra, 0(a1)\n")
+            self.write_post(";#test_failed()")
         self.write_post("\t2:\n")
 
 

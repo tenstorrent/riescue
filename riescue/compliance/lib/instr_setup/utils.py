@@ -290,16 +290,12 @@ class CStoreComponent:
                 self.write_post(f"\tbne {result_reg1}, {result_reg2}, 1f")
 
         if self.j_pass_ok():
-            self.write_post("\tli a0, passed_addr\n")
-            self.write_post("\tld a1, 0(a0)\n")
-            self.write_post("\tjalr ra, 0(a1)\n")
+            self.write_post(";#test_passed()")
         else:
             self.write_post("\tj 2f\n")
         self.write_post("\t1:\n")
         if not self.resource_db.wysiwyg:
-            self.write_post("\tli a0, failed_addr\n")
-            self.write_post("\tld a1, 0(a0)\n")
-            self.write_post("\tjalr ra, 0(a1)\n")
+            self.write_post(";#test_failed()")
         self.write_post("\t2:\n")
 
 

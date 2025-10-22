@@ -97,8 +97,8 @@ class TpMode(BaseMode):
 
         # run riescued to generate ELF file, reuse featmg, toolchain
         rd = RiescueD(testfile=test_assembly_file, seed=cfg.seed, toolchain=toolchain)
-        rd_generator = rd.generate(cfg.featmgr)
-        rd.build(cfg.featmgr, rd_generator)
+        rd.generate(cfg.featmgr)
+        generated_files = rd.build(cfg.featmgr)
         if rd.toolchain.simulator is None:
             raise ValueError("No simulator configured in toolchain")
         whisper = rd.toolchain.whisper
@@ -106,7 +106,7 @@ class TpMode(BaseMode):
             raise ValueError("No whisper configured in toolchain. Ensure Whisper was built in toolchain")
         rd.simulate(cfg.featmgr, iss=whisper)
 
-        return rd.generated_files.elf
+        return generated_files.elf
 
     def _cast_privilege_mode(self, priv: PrivilegeMode) -> RV.RiscvPrivileges:
         "Helper to convert coretp.rv_enums.PrivilegeMode to riescue.lib.enums.RiscvPrivileges"

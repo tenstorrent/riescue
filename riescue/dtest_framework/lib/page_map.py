@@ -9,7 +9,7 @@ create pagetables for every page inside the page_map
 
 from __future__ import annotations
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, TextIO
 
 import riescue.dtest_framework.lib.addrgen as addrgen
 import riescue.lib.enums as RV
@@ -18,8 +18,6 @@ from riescue.lib.address import Address
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.lib.addrgen import AddrGen
 from riescue.lib.rand import RandNum
-
-import io
 
 if TYPE_CHECKING:
     from riescue.dtest_framework.pool import Pool
@@ -591,36 +589,49 @@ class PageMap:
             page = self.pool.get_page(page_name=page_name, map_name=self.name)
             page.create_pagetables(rng=rng, page_map=self)
 
-    def print_pagetables(self, file_handle: io.TextIOWrapper) -> None:
-        self._print_pagetables_helper(file_handle=file_handle)
-        self.print_pagetables_per_page(file_handle=file_handle)
+    def generate_pagetables_assembly(self) -> list[str]:
+        pagetables = self._generate_pagetable_hierarchy()
+        pagetables += self.generate_page_debug_comments()
+        return pagetables
 
-    def _print_pagetables_helper(self, file_handle: io.TextIOWrapper, basetable: Optional[pagetables.PTTable] = None) -> None:
+    def _generate_pagetable_hierarchy(self, basetable: Optional[pagetables.PTTable] = None) -> list[str]:
         """
-        - find each table recursively
-        - once you find a table, print each entry from that table
+        Recursively traverse and generate assembly for pagetable hierarchy.
+
+        Traverses the pagetable tree structure, generating assembly directives for each level.
+
+        :param basetable: Root pagetable to process. Defaults to self.basetable if None.
+        :return: Assembly code lines for pagetables
+        :raises ValueError: If basetable is None and self.basetable is not initialized
         """
         if basetable is None:
             if self.basetable is None:  # FIXME: added this as a fallback to make sure basetable is set, satisfies other type hinting
                 raise ValueError(f"PageMap {self.name} basetable is None - initialize() must be called before print_pagetables()")
             basetable = self.basetable
-        # TODO: Work in progress
-        # for pt_entry in basetable.get_entries():
-        #     base_addr = pt_entry.basetable.base_addr
-        #     self.print_pagetables(pt_entry.basetable)
 
         # Print the table itself
-        self._print_table_entries(file_handle=file_handle, table=basetable)
+        content = self._print_table_entries(table=basetable)
         for pt_entry in basetable.get_entries():
-            self._print_pagetables_helper(file_handle=file_handle, basetable=pt_entry.basetable)
+            content += self._generate_pagetable_hierarchy(basetable=pt_entry.basetable)
+        return content
 
-    def _print_table_entries(self, file_handle: io.TextIOWrapper, table: pagetables.PTTable) -> None:
+    def _print_table_entries(self, table: pagetables.PTTable) -> list[str]:
+        """
+        Generate assembly directives for a single pagetable's entries.
+
+        Creates section directives, allocates space with `.org`, and emits pagetable entry values.
+
+        :param table: Pagetable to emit assembly for
+        :return: Assembly code lines including section headers and entry definitions
+        """
+
+        page_table_entries = []
         if not table.leaf:
             # print(f'.org 0x{table.base_addr:016x}')
             section_name = f"__pagetable_{self.name}_0x{table.base_addr:016x}"
-            file_handle.write(f'.section .{section_name}, "aw"\n')
+            page_table_entries.append(f'.section .{section_name}, "aw"')
             self.pool.add_section(section_name=section_name, address=table.base_addr)
-            file_handle.write(f"{section_name}:\n.globl {section_name}\n")
+            page_table_entries.append(f"{section_name}:\n.globl {section_name}")
 
         for index, pt_entry in sorted(table.table.items()):
             # We need to sort the pt_entries by index so the gcc does not complain about backwords .org
@@ -629,16 +640,24 @@ class PageMap:
             entry_size_str = "" if (entry_size == 0) else f"{entry_size}"
             offset = entry_size * index
             # BOZO: For some reason sometimes gcc doesn't like ".org 0" and complains about "moving org backwards"
-            file_handle.write(f"    .org 0x{offset:x}\n")
-            file_handle.write(f"        .{entry_size_str}byte 0x{pt_entry.get_value():016x}\n")
-            file_handle.write(f"            #level: {pt_entry.level}: index: 0x{index:x}, base_addr: 0x{base_addr:016x}, value: {pt_entry.get_value():016x}\n")
-            file_handle.write(f"            #attrs: {pt_entry.pt_attr}\n")
+            page_table_entries.append(f"    .org 0x{offset:x}")
+            page_table_entries.append(f"        .{entry_size_str}byte 0x{pt_entry.get_value():016x}")
+            page_table_entries.append(f"            #level: {pt_entry.level}: index: 0x{index:x}, base_addr: 0x{base_addr:016x}, value: {pt_entry.get_value():016x}")
+            page_table_entries.append(f"            #attrs: {pt_entry.pt_attr}")
+        return page_table_entries
 
-    def print_pagetables_per_page(self, file_handle: io.TextIOWrapper) -> None:
-        file_handle.write("\n#==========================================================\n")
-        file_handle.write(f"#printing pagetables for debug: map: {self.name}, base_addr: {self.sptbr:016x}, paging_mode: {self.paging_mode}\n")
-        file_handle.write("#==========================================================")
+    def generate_page_debug_comments(self) -> list[str]:
+        """
+        Generate debug comments mapping pages to pagetable entries.
+
+        :return: Comment lines documenting page mappings and their pagetable entries
+        """
+        page_table_entries = []
+        page_table_entries.append("\n#==========================================================")
+        page_table_entries.append(f"#printing pagetables for debug: map: {self.name}, base_addr: {self.sptbr:016x}, paging_mode: {self.paging_mode}")
+        page_table_entries.append("#==========================================================")
         for page in self.pages.values():
-            file_handle.write(f"\n#Page: {page.name}, 0x{page.lin_addr:016x} -> {page.phys_name}, 0x{page.phys_addr:016x}, pagesize:{page.pagesize}\n")
+            page_table_entries.append(f"\n#Page: {page.name}, 0x{page.lin_addr:016x} -> {page.phys_name}, 0x{page.phys_addr:016x}, pagesize:{page.pagesize}")
             for pt_entry in page.pt_entries:
-                file_handle.write(f"#level: {pt_entry.level}: base_addr: 0x{pt_entry.get_base_addr():016x}, value: {pt_entry.get_value():016x}, attr: {pt_entry.pt_attr}, map: \n")
+                page_table_entries.append(f"#level: {pt_entry.level}: base_addr: 0x{pt_entry.get_base_addr():016x}, value: {pt_entry.get_value():016x}, attr: {pt_entry.pt_attr}, map:")
+        return page_table_entries

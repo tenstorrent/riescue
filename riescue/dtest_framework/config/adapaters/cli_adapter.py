@@ -101,12 +101,6 @@ class CliAdapter(Adapter):
 
         if cmdline.no_random_csr_reads is not None:
             featmgr.no_random_csr_reads = cmdline.no_random_csr_reads
-        if cmdline.replace_gold_standard is not None:
-            featmgr.replace_gold_standard = cmdline.replace_gold_standard
-        if cmdline.riescue_d_gold_test is not None:
-            featmgr.riescue_d_gold_test = cmdline.riescue_d_gold_test
-        if cmdline.repo_gold_file_used is not None:
-            featmgr.repo_gold_file_used = cmdline.repo_gold_file_used
 
         if cmdline.eot_pass_value is not None:
             featmgr.eot_pass_value = cmdline.eot_pass_value
@@ -154,8 +148,6 @@ class CliAdapter(Adapter):
             featmgr.random_machine_csr_list = cmdline.random_machine_csr_list
         if cmdline.random_supervisor_csr_list is not None:
             featmgr.random_supervisor_csr_list = cmdline.random_supervisor_csr_list
-        if cmdline.gold_standard_filepath is not None:
-            featmgr.gold_standard_filepath = cmdline.gold_standard_filepath
 
         # Check command line for overrides that can be set by test header
         if cmdline.wysiwyg is not None:

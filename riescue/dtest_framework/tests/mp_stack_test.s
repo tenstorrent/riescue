@@ -56,7 +56,7 @@
 #             discrete_test(s)
 #####################
 test_setup:
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -92,7 +92,7 @@ test01:
     addi sp, sp, 4                 # deallocate word on stack
 
 
-    j passed
+    ;#test_passed()
 
 
 
@@ -102,7 +102,7 @@ test01:
 # test_cleanup:
 #####################
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 
 #####################

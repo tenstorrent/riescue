@@ -200,8 +200,8 @@ class BringupMode(BaseMode):
         if isinstance(iss, str):
             iss = [iss]
         rd = RiescueD(file, run_dir=self.run_dir, seed=resource.seed, toolchain=toolchain)
-        generator = rd.generate(resource.featmgr)
-        rd.build(resource.featmgr, generator)
+        rd.generate(resource.featmgr)
+        rd.build(resource.featmgr)
         for simulator in iss:
             if toolchain.whisper is not None:
                 whisper_config_json_override = toolchain.whisper.whisper_config_json.resolve()

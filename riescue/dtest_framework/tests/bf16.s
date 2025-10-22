@@ -60,7 +60,7 @@ test_setup:
     or t2, t2, x3
     csrw mstatus, t2
     csrr t2, fcsr
-    j passed
+    ;#test_passed()
 
     #####################
 # Convention:
@@ -179,7 +179,7 @@ test01:
 #####################
 test_cleanup:
     li x1, 0xc0010002
-    j passed
+    ;#test_passed()
 
 .section .data
 # h_data:

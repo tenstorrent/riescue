@@ -66,7 +66,7 @@
 .section .code, "ax"
 
 test_setup:
-    j passed
+    ;#test_passed()
 
 ;#discrete_test(test=test01)
 test01:
@@ -86,9 +86,9 @@ set_map_0:
     li a0, 0x10000
     jal c_func_0
     beq a0, x0, passed_0
-    j failed
+    ;#test_failed()
 passed_0:
-    j passed
+    ;#test_passed()
 
 set_map_1:
     csrr x1, satp
@@ -101,12 +101,12 @@ set_map_1:
     li a0, 0x10000
     jal c_func_1
     beq a0, x0, passed_1
-    j failed
+    ;#test_failed()
 passed_1:
-    j passed
+    ;#test_passed()
 
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 .section .data
 my_data:

@@ -505,33 +505,3 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Probability of randomizing PBMT NC vs IO bits in page table entries (0-100)",
         type=int,
     )
-
-    gold = parser.add_argument_group("gold", "Deprecated ???")
-    gold.add_argument(
-        "--gold_standard_filepath",
-        "-gsfp",
-        default=None,
-        help="Path to gold standard file. Signals that test output should be diffed against this file",
-        type=str,
-    )
-    gold.add_argument(
-        "--replace_gold_standard",
-        "-rgs",
-        action="store_true",
-        default=None,
-        help="Convenience option to replace gold standard with test output",
-    )
-    gold.add_argument(
-        "--riescue_d_gold_test",
-        "-rgt",
-        action="store_true",
-        default=None,
-        help="Run the test with Riescue-D gold standard",
-    )
-    gold.add_argument(
-        "--repo_gold_file_used",
-        "-rgfu",
-        action="store_true",
-        default=None,
-        help="Indicates that the gold standard file is in the repo",
-    )

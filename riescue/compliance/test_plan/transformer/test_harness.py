@@ -59,28 +59,9 @@ class TestHarness:
         """
         return TextBlock(
             label="local_test_failed",
-            text=[
-                "li t0, failed_addr",
-                "ld t1, 0(t0)",
-                "jalr ra, 0(t1)",
-            ],
+            text=[";#test_failed()"],
         )
-
-    # def _local_test_failed(self) -> TextBlock:
-    #     """
-    #     Local test failed subroutine, lets actions jump to failure using j test_failed
-    #     """
-    #     return TextBlock(
-    #         label="test_failed_mem",
-    #         text=[
-    #             ".dword tohost"
-    #         ],
-    # )
 
     def _jump_to_test_passed(self) -> list[str]:
         "Creates jump to passed address instructions"
-        return [
-            "li t0, passed_addr",
-            "ld t1, 0(t0)",
-            "jalr ra, 0(t1)",
-        ]
+        return [";#test_passed()"]

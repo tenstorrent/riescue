@@ -7,7 +7,7 @@
 .section .code, "ax"
 
 test_setup:
-    j passed
+    ;#test_passed()
 
 .equ data_region2_val, 0xACEDBEEF
 
@@ -20,21 +20,21 @@ test_random_data:
     li t0, my_8_bit_number
     li t1, 0xFF
     bleu t0, t1, test_16_bit_random_data # Assert the 8-bit value <= 255
-    j failed
+    ;#test_failed()
 test_16_bit_random_data:
     li t2, my_16_bit_number
     li t3, 0xFFFF
     bleu t2, t3, random_data_passed
-    j failed
+    ;#test_failed()
 random_data_passed:
-    j passed
+    ;#test_passed()
 
 ;#discrete_test(test=test_aligned_addr)
 test_aligned_addr:
     li t0, aligned_addr
     andi t1, t0, 0xFF
     bnez t1, failed     # Should be zero (256-byte aligned)
-    j passed
+    ;#test_passed()
 
 ;#discrete_test(test=load_from_data_regions)
 load_from_data_regions:
@@ -46,12 +46,12 @@ load_from_data_regions:
     and t3, t3, t4
     li t2, data_region2_val
     beq t2, t3, test_random_data_pass # Assert the word from data_region2 is equal to data_region2_val
-    j failed
+    ;#test_failed()
 test_random_data_pass:
-    j passed
+    ;#test_passed()
 
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 
 .section .data

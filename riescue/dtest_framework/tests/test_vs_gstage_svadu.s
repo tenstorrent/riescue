@@ -189,7 +189,7 @@ test_setup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010001
 
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -232,10 +232,10 @@ test01:
     li t1, lin8
 excp_test01:
     lwu t2, 0(t1)
-    j failed
+    ;#test_failed()
 
 ret_test01:
-    j passed
+    ;#test_passed()
 
 
 ## #####################
@@ -249,11 +249,11 @@ ret_test01:
 ##     li t1, lin8_a
 ## excp_test02:
 ##     lwu t2, 0(t1)
-##     j failed
+##     ;#test_failed()
 ##
 ## ret_test02:
 ## .endif
-##     j passed
+##     ;#test_passed()
 
 ## #####################
 ## # test03: Test out attribute v_leaf_gleaf
@@ -266,11 +266,11 @@ ret_test01:
 ##     li t1, lin9_a
 ## excp_test03:
 ##     lwu t2, 0(t1)
-##     j failed
+##     ;#test_failed()
 ## .endif
 ##
 ## ret_test03:
-##     j passed
+##     ;#test_passed()
 
 #####################
 # test04: Test out attribute v_nonleaf_gleaf
@@ -283,11 +283,11 @@ test04:
     li t1, lin9
 excp_test04:
     lwu t2, 0(t1)
-    j failed
+    ;#test_failed()
 
 ret_test04:
 .endif
-    j passed
+    ;#test_passed()
 
 
 #    # Access my_code_page in user mode with u=1
@@ -307,7 +307,7 @@ ret_test04:
 #     li x1, my_code_page
 # excp_test01:
 #     jalr x1, x1, 0
-#     j failed
+#     ;#test_failed()
 #
 # ret_test01:
 #     # Switch back to testmode
@@ -318,10 +318,10 @@ ret_test04:
     # 'passed' and 'failed' are special RiESCUE defined labels, which each
     # discrete_test must use to indicate the end of the discrete_test
 
-    # j failed  <-- 'j failed' should be used to indicate OS that discrete_test
+    # ;#test_failed()  <-- ';#test_failed()' should be used to indicate OS that discrete_test
     #               hit a fail condition and gracefully exit the test with errorcode
 
-    j passed  # <-- 'j passed' should be used to indicate OS that discrete_test
+    ;#test_passed()  # <-- ';#test_passed()' should be used to indicate OS that discrete_test
     #               hit a pass condition and OS is free to schedule the next test
 
 
@@ -336,11 +336,11 @@ ret_test04:
 ##     li t1, lin6
 ## excp_test05:
 ##     lwu t2, 0(t1)
-##     j failed
+##     ;#test_failed()
 ##
 ## ret_test05:
 ## .endif
-##     j passed
+##     ;#test_passed()
 ##
 ## #####################
 ## # test05_d: Test out attribute d=0
@@ -353,11 +353,11 @@ ret_test04:
 ##     li t1, lin6_d
 ## excp_test05_d:
 ##     sw t2, 0(t1)
-##     j failed
+##     ;#test_failed()
 ##
 ## ret_test05_d:
 ## .endif
-##     j passed
+##     ;#test_passed()
 
 ## #####################
 ## # test06: Test out attribute a_nonleaf_gleaf=0
@@ -370,11 +370,11 @@ ret_test04:
 ##     li t1, lin6_a
 ## excp_test06:
 ##     lwu t2, 0(t1)
-##     j failed
+##     ;#test_failed()
 ##
 ## ret_test06:
 ## .endif
-##     j passed
+##     ;#test_passed()
 ##
 ## #####################
 ## # test07: Test out attribute d_nonleaf_gleaf=0
@@ -387,11 +387,11 @@ ret_test04:
 ##     li t1, lin6_d_g
 ## excp_test07:
 ##     sw t2, 0(t1)
-##     j failed
+##     ;#test_failed()
 ##
 ## ret_test07:
 ## .endif
-##     j passed
+##     ;#test_passed()
 
 #####################
 # test_cleanup: RiESCUE defined label
@@ -402,7 +402,7 @@ ret_test04:
 test_cleanup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010002
-    j passed
+    ;#test_passed()
 
 
 #####################

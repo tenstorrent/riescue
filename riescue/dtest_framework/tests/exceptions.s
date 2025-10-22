@@ -58,7 +58,7 @@
     la x30, \instruction_addr
 
     jalr x30
-    j failed # Should not reach here
+    ;#test_failed() # Should not reach here
 
 .endm
 
@@ -113,7 +113,7 @@ test_setup:
     #mepc,mstatus,satp,medelg,
 
 
-    j passed
+    ;#test_passed()
 
 #####################
 # test01: Misaligned Instruction Exception
@@ -217,10 +217,10 @@ excp_ret:
     # 'passed' and 'failed' are special RiESCUE defined labels, which each
     # discrete_test must use to indicate the end of the discrete_test
 
-    # j failed  <-- 'j failed' should be used to indicate OS that discrete_test
+    # ;#test_failed()  <-- ';#test_failed()' should be used to indicate OS that discrete_test
     #               hit a fail condition and gracefully exit the test with errorcode
 
-    j passed  # <-- 'j passed' should be used to indicate OS that discrete_test
+    ;#test_passed()  # <-- ';#test_passed()' should be used to indicate OS that discrete_test
     #               hit a pass condition and OS is free to schedule the next test
 
 #####################
@@ -232,7 +232,7 @@ excp_ret:
 test_cleanup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li t1, 0xc0010002
-    j passed
+    ;#test_passed()
 
 
 
@@ -246,14 +246,14 @@ load_address_misaligned:
 syscall:
     UPDATE_EPC
     ecall
-    j failed
+    ;#test_failed()
 
 misaligned_instruction:
     li x8, lin1 + misaligned_instruction_addr
     addi x9,x8,0x02 # Add 2bytes to the address to cause misalignment, 1byte shifts are not supported in RTL
     UPDATE_EPC
     jalr x9
-    j failed
+    ;#test_failed()
 
 illegal_instruction:
     UPDATE_EPC
@@ -261,70 +261,70 @@ illegal_instruction:
 
 
 load_access_fault_instruction:
-    j passed # Access fault dependendt misalignment support
+    ;#test_passed() # Access fault dependendt misalignment support
     la x8, load_address_misaligned
     addi x9,x8,0x2 # Add 2bytes to the address to cause misalignment, 1byte shifts are not supported in RTL
     UPDATE_EPC
     lr.d x8, 0(x9)
-    j failed
+    ;#test_failed()
 
 store_amo_access_fault_instruction:
-    j passed # Access fault dependendt misalignment support
+    ;#test_passed() # Access fault dependendt misalignment support
     la x8, load_address_misaligned
     addi x9,x8,0x2 # Add a byte to the address to cause misalignment, 1byte shifts are not supported in RTL
     UPDATE_EPC
     sc.d x7, x8, 0(x9) #.dword 0x1884B3AF
     # x7 is only updated if sc.d fails
-    j failed
+    ;#test_failed()
 
 instruction_access_fault_instruction:
-    j passed # Bringup after PMP/PMA setup
+    ;#test_passed() # Bringup after PMP/PMA setup
 
 instruction_address_misaligned_instruction:
     la x8, load_address_misaligned
     addi x9,x8,0x2
     UPDATE_EPC
     jalr x9
-    j failed
+    ;#test_failed()
 
 load_address_misaligned_instruction:# TODO : Once we get clarity on misaligned hanndling from Joe/Radha
     la x8, load_address_misaligned
     addi x9,x8, 0x02
     UPDATE_EPC
     ld x8, 0(x9)
-    j passed# Test falls through if we enable misaligned support in whisper.json
+    ;#test_passed()# Test falls through if we enable misaligned support in whisper.json
 
 load_page_fault_instruction:
-    #j passed # Bug 611
+    #;#test_passed() # Bug 611
     .ifeq PAGING_MODE_DISABLE # If paging not disabled
     li x8, lin2 + load_page_fault_addr
     UPDATE_EPC
     ld x9, 0(x8)
-    j failed
+    ;#test_failed()
     .endif
-    j passed
+    ;#test_passed()
 
 store_page_fault_instruction:
-    #j passed # Bug 611
+    #;#test_passed() # Bug 611
     .ifeq PAGING_MODE_DISABLE
     li x8, lin2 + load_page_fault_addr
     addi x9,x0,0x0
     UPDATE_EPC
     sd x9, 0(x8)
-    j failed
+    ;#test_failed()
     .endif
-    j passed
+    ;#test_passed()
 
 instruction_page_fault_instruction:
-    #j passed # Bug 611
+    #;#test_passed() # Bug 611
     .ifeq PAGING_MODE_DISABLE
     li x8, lin2 + load_page_fault_addr
     addi x9,x0,0x0
     sd x8,0(x12) #UPDATE_EPC
     jalr x8
-    j failed
+    ;#test_failed()
     .endif
-    j passed
+    ;#test_passed()
 
 #####################
 # Default data section

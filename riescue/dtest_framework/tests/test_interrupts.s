@@ -30,7 +30,7 @@ sei_handler:
     mret
 
 test_setup:
-    j passed
+    ;#test_passed()
 
 #####################
 # test1: Triggers an SSI interrupt and checks that custom handler was used
@@ -47,9 +47,9 @@ test1:
 
     li t0, 0xbeef
     bne t0, a0, failed
-    j passed
+    ;#test_passed()
 
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 .section .data

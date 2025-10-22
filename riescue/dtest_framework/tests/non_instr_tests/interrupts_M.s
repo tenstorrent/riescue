@@ -340,7 +340,7 @@ test_cleanup:
     csrc mie, t0
     csrw mip, x0
     li a0, 0
-    j passed
+    ;#test_passed()
 
 
 
