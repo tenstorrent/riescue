@@ -76,7 +76,7 @@
 #             discrete_test(s)
 #####################
 test_setup:
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -86,7 +86,7 @@ test_setup:
 test01:
     li t1, data1
     mv t4, t1
-    
+
     # Precheck parity
     li t2, test01_parity
     ld t3, 0(t2)
@@ -116,7 +116,7 @@ test01:
     bne t3, t1, failed
     sd x0, 0(t2)
 
-    j passed
+    ;#test_passed()
 
 
 # This test is to have another distinct discrete test
@@ -157,7 +157,7 @@ test02:
     bne t3, t1, failed
     sd x0, 0(t2)
 
-    j passed
+    ;#test_passed()
 
 
 # This test is also just to have another distinct discrete test
@@ -168,7 +168,7 @@ test02:
 test03:
     li t1, data1
     mv t4, t1
-    
+
     # Precheck parity
     li t2, test03_parity
     ld t3, 0(t2)
@@ -198,7 +198,7 @@ test03:
     bne t3, t1, failed
     sd x0, 0(t2)
 
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -209,7 +209,7 @@ test03:
 #####################
 #FIXME: this may have been removed as a feature.
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 
 #####################

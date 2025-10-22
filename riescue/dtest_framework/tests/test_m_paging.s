@@ -36,7 +36,7 @@
 
 #####################
 test_setup:
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -59,7 +59,7 @@ test01:
     bne t1, t2, failed
 
     li t1, 0xc001c0de
-    j passed
+    ;#test_passed()
 
 
 
@@ -82,7 +82,7 @@ test03:
 test_cleanup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010002
-    j passed
+    ;#test_passed()
 
 
 #####################

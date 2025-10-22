@@ -29,7 +29,7 @@ USER_INTERRUPT_TABLE:
 # test_setup:
 #####################
 test_setup:
-    j passed
+    ;#test_passed()
 
 #####################
 # test1: Check that --user_interrupt_table correctly jumps to USER_INTERRUPT_TABLE
@@ -48,9 +48,9 @@ test1:
 
     li t0, 0xbeef
     bne t0, a0, failed
-    j passed
+    ;#test_passed()
 
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 .section .data

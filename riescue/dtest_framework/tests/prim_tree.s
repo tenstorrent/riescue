@@ -92,7 +92,7 @@
 test_setup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010001
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -119,10 +119,10 @@ test01:
     # 'passed' and 'failed' are special RiESCUE defined labels, which each
     # discrete_test must use to indicate the end of the discrete_test
 
-    # j failed  <-- 'j failed' should be used to indicate OS that discrete_test
+    # ;#test_failed()  <-- ';#test_failed()' should be used to indicate OS that discrete_test
     #               hit a fail condition and gracefully exit the test with errorcode
 
-    j passed  # <-- 'j passed' should be used to indicate OS that discrete_test
+    ;#test_passed()  # <-- ';#test_passed()' should be used to indicate OS that discrete_test
     #               hit a pass condition and OS is free to schedule the next test
 
 
@@ -154,7 +154,7 @@ main:
 
 exit:
     # End of program
-    j passed
+    ;#test_passed()
 
 # Function to initialize adjacency matrix
 # init:
@@ -307,7 +307,7 @@ ret
 test_cleanup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010002
-    j passed
+    ;#test_passed()
 
 
 #####################

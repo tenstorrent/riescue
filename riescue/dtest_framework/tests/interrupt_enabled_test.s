@@ -25,7 +25,7 @@ USER_INTERRUPT_TABLE:
 
 
 test_setup:
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -40,11 +40,11 @@ test01:
 
     li t0, 0xbeef
     bne t0, a0, failed
-    j passed
+    ;#test_passed()
 
 
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 
 #####################

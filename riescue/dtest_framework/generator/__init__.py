@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from riescue.dtest_framework.runtime.runtime import Runtime
+from .generator import Generator
 
-__all__ = ["Runtime"]
+__all__ = ["Generator"]

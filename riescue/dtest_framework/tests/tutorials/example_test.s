@@ -7,7 +7,7 @@
 
 test_setup:
     # Executed before each test, exactly once
-    j passed
+    ;#test_passed()
 
 ;#random_data(name=test_data, type=bits32, and_mask=0xfffffff0)
 
@@ -18,13 +18,13 @@ test01:
     add t2, t0, t1
 
     bne t2, x0, test01_pass
-    j failed
+    ;#test_failed()
 
 test01_pass:
-    j passed
+    ;#test_passed()
 
 test_cleanup:
     # Executed after all tests are run, exactly once
-    j passed
+    ;#test_passed()
 
 .section .data

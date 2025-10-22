@@ -4,17 +4,36 @@
 import os
 import json
 import subprocess
-import shlex
 import getpass
 import argparse
 
 from pathlib import Path
+from typing import Optional
 
 """
 Python class to handle Singularity script building, launching, and running.
 
 Use infra/container-build to build container
 Use infra/container-run to run container
+
+Uses .container_config file to configure remote, binds, and token path. Tries in order of:
+1. pwd / .container_config
+2. repo_path / .container_config
+3. repo_path / infra / .container_config
+
+Container-run usage:
+
+    First positional argument should be a path to an executable to run in the container.
+    interactively:
+        ./infra/container-run  --singularity-binds=/usr/lib64:/shared,/home/user/projects:/projects  /usr/bin/python3 -m riescue.riescued
+
+
+    If no positional arguments, launches interactive bash session.
+        ./infra/container-run  --singularity-binds=/usr/lib64:/shared,/home/user/projects:/projects
+
+Singularity binds can get passed through with --singularity-binds=/path,/path2:/path2
+    key=value is required for all singularity arguments
+    NOTE: This will remove all arguments that start with --singularity from the command line.
 """
 
 
@@ -26,11 +45,11 @@ class Container:
         self.repo_path = repo_path or Path(__file__).parents[2]
         self.infra = self.repo_path / "infra"
         self.env = self.repo_path / ".env"
-        self.container_config = self.infra / ".container_config"
+        self.container_config = self._find_container_config()
         self.registry_uri = None
         self.registry_remote = None
 
-        if self.container_config.exists():
+        if self.container_config is not None:
             with open(self.container_config, "r") as f:
                 config = json.load(f)
             self.registry_uri = config.get("registry_uri")
@@ -105,6 +124,8 @@ class Container:
         """
         singularity_args, args = self.parse_container_args(args)
 
+        if singularity_args.singularity_binds:
+            self.binds += "," + singularity_args.singularity_binds
         if singularity_args.singularity_sif is not None:
             self.sif = singularity_args.singularity_sif
         else:
@@ -181,11 +202,11 @@ class Container:
         return object_sha
 
     @property
-    def sif_version(self):
+    def sif_version(self) -> int:
         return self._get_version_from_sif()
 
     @property
-    def def_version(self):
+    def def_version(self) -> int:
         return self._get_version_from_def()
 
     @def_version.setter
@@ -214,13 +235,14 @@ class Container:
                 return self._version_num_from_str(line)
         raise ValueError(f"Couldn't find VERSION in sif inspect output: {sif_list}")
 
-    def _get_version_from_def(self) -> str:
+    def _get_version_from_def(self) -> int:
         "Returns version from def file"
         with open(self.container_def, "r") as f:
             for line in f:
                 line = line.strip()
                 if line.startswith("VERSION"):
                     return self._version_num_from_str(line)
+        raise ValueError(f"Couldn't find VERSION in def file: {self.container_def}")
 
     def _set_def_version(self, new_version: int):
         with open(self.container_def, "r") as f:
@@ -229,7 +251,7 @@ class Container:
             for line in new_lines:
                 f.write(line)
 
-    def _read_id(self) -> tuple:
+    def _read_id(self) -> str:
         "File of format {version}-{sha_payload}"
         with open(self.container_id_file, "r") as f:
             return f.read().strip()
@@ -243,8 +265,28 @@ class Container:
         remote_login_cmd = ["remote", "login", "-u", getpass.getuser()]
         if self.token:
             remote_login_cmd += ["-p", self.token]
+        if self.registry_remote is None:
+            raise ValueError(f"registry_remote is not set in .container_config")
         remote_login_cmd.append(self.registry_remote)
         self.singularity(remote_login_cmd, check=True)
+
+    def _find_container_config(self) -> Optional[Path]:
+        """
+        Finds the container config file in the following order:
+        1. pwd / .container_config
+        2. repo_path / .container_config
+        3. repo_path / infra / .container_config
+
+        :returns: Path to container if it exists. None otherwise.
+        """
+        if Path(".container_config").exists():
+            return Path(".container_config")
+        elif (self.repo_path / ".container_config").exists():
+            return self.repo_path / ".container_config"
+        elif (self.infra / ".container_config").exists():
+            return self.infra / ".container_config"
+        else:
+            return None
 
     def _load_dotenv(self, env_file):
         "Loads environment variables from .env file"
@@ -263,11 +305,24 @@ class Container:
     def parse_container_args(self, args):
         parser = argparse.ArgumentParser(add_help=False)
         parser.add_argument("--singularity-sif", type=Path, default=None, help="Path to existing sif. Skips remote login and pulling")
+        parser.add_argument("--singularity-binds", type=str, default="", help="Comma-separated list of binds to add to the container. e.g. /usr/lib64:/shared,/home/user/projects:/projects")
 
-        cli_args = [a for a in args if "--singularity" not in a]
-        args, _ = parser.parse_known_args(args)
+        parsed_args, _ = parser.parse_known_args(args)
+        # enforce that arguments are in key=value format
+        for i, a in enumerate(args):
+            if "--singularity" in a and "=" not in a:
+                if len(args) <= i + 1:
+                    raise RuntimeError(f"Missing argument after {a}, expected key=value format")
+                b = args[i + 1]
+                raise RuntimeError(f"arguments '{a} {b}': must be in key=value format, i.e. {a}={b}")
 
-        return args, cli_args
+        new_cli_args = [a for a in args if "--singularity" not in a]
+
+        if new_cli_args != args:
+            # warn user that we are removing all arguments that start with --singularity
+            # don't want users being confused why args are dropped
+            print(f"Warning: Launching container and removing args that start with --singularity from command line. {args} -> {new_cli_args}")
+        return parsed_args, new_cli_args
 
     def singularity(self, args, debug=False, **kwargs):
         cmd = ["singularity"] + args

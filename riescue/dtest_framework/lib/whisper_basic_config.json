@@ -217,7 +217,7 @@
 	    "pmpaddr63" : { "exists" : "false" },
 	    "pmacfg0": {
             "number"          : "0x7e0",
-            "reset"           : "0x0",
+            "reset"           : "0xd000000000000017",
             "mask"            : "0xffffffffffffffff",
             "poke_mask"       : "0xffffffffffffffff"
         },
@@ -288,30 +288,26 @@
 	    	"poke_mask": "0xfcfffffffffff1ff"
 	    },
 		"pmacfg12": {
-	    	"comment": "Cover default 0-64gb range for DRAM (larger than expected 62GB of RAM , but this is next legal value, rely on AddrGen to generate addresses in correct range)",
 	    	"number": "0x7ec",
-	    	"reset": "0x94000000000001e7",
+	    	"reset": "0x0",
 	    	"mask": "0xfcfffffffffff1ff",
 	    	"poke_mask": "0xfcfffffffffff1ff"
 	    },
 	    "pmacfg13": {
-			"comment": "Cover 3 TiB range for IO, [0x300_0000_0000, 0x3ff_ffff_ffff]",
 	    	"number": "0x7ed",
-	    	"reset": "0xa00003000000008f",
+	    	"reset": "0x0",
 	    	"mask": "0xfcfffffffffff1ff",
 	    	"poke_mask": "0xfcfffffffffff1ff"
 	    },
 	    "pmacfg14": {
-			"comment": "Cover 2 TiB range for IO, [0x200_0000_0000, 0x2ff_ffff_ffff]",
 	    	"number": "0x7ee",
-	    	"reset": "0xa00002000000008f",
+	    	"reset": "0x0",
 	    	"mask": "0xfcfffffffffff1ff",
 	    	"poke_mask": "0xfcfffffffffff1ff"
 	    },
 	    "pmacfg15": {
-	    	"comment": "Cover 1 TiB range for MMIO ",
 	    	"number": "0x7ef",
-	    	"reset": "0xa00001000000008f",
+	    	"reset": "0x0",
 	    	"mask": "0xfcfffffffffff1ff",
 	    	"poke_mask": "0xfcfffffffffff1ff"
 	    }

@@ -23,9 +23,7 @@ class JumpSetup(InstrSetup):
         if self.resource_db.wysiwyg:
             self.write_pre("\tli x31, 0xbaadc0de")
         else:
-            self.write_pre("\tli a0, failed_addr")
-            self.write_pre("\tld a1, 0(a0)")
-            self.write_pre("\tjalr ra, 0(a1)")
+            self.write_pre(";#test_failed()")
 
         self.write_pre(f"jump_{instr.label}_passed :")
         if self.resource_db.combine_compliance_tests or self.resource_db.wysiwyg:
@@ -33,9 +31,7 @@ class JumpSetup(InstrSetup):
 
     def post_setup(self, modified_arch_state, instr):
         if self.j_pass_ok():
-            self.write_post("\tli a0, passed_addr")
-            self.write_post("\tld a1, 0(a0)")
-            self.write_post("\tjalr ra, 0(a1)")
+            self.write_post(";#test_passed()")
 
 
 class BranchSetup(InstrSetup):
@@ -134,14 +130,10 @@ class BranchSetup(InstrSetup):
             if self.resource_db.wysiwyg:
                 self.write_pre("\tli x31, 0xbaadc0de")
             else:
-                self.write_pre("\tli a0, failed_addr")
-                self.write_pre("\tld a1, 0(a0)")
-                self.write_pre("\tjalr ra, 0(a1)")
+                self.write_pre(";#test_failed()")
         else:
             if self.j_pass_ok():
-                self.write_pre("\tli a0, passed_addr")
-                self.write_pre("\tld a1, 0(a0)")
-                self.write_pre("\tjalr ra, 0(a1)")
+                self.write_pre(";#test_passed()")
             elif self.resource_db.combine_compliance_tests:
                 self.write_pre(f"\tj {self.conclusion_label}")
 
@@ -155,13 +147,9 @@ class BranchSetup(InstrSetup):
         if not self.resource_db.wysiwyg:
             if instr.config.branch_outcome == "taken":
                 if self.j_pass_ok():
-                    self.write_post("\tli a0, passed_addr")
-                    self.write_post("\tld a1, 0(a0)")
-                    self.write_post("\tjalr ra, 0(a1)")
+                    self.write_post(";#test_passed()")
             else:
-                self.write_post("\tli a0, failed_addr")
-                self.write_post("\tld a1, 0(a0)")
-                self.write_post("\tjalr ra, 0(a1)")
+                self.write_post(";#test_failed()")
         if self.resource_db.combine_compliance_tests:
             self.write_post(f"{self.conclusion_label}:")
             self.write_post("\tnop")

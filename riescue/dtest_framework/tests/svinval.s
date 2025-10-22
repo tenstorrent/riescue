@@ -48,7 +48,7 @@
 
 test_setup:
 
-    j passed
+    ;#test_passed()
 
 ;#discrete_test(test=test01)
 test01:
@@ -210,7 +210,7 @@ test01:
 
 .endif
 
-    j passed
+    ;#test_passed()
 
 .section .data
 

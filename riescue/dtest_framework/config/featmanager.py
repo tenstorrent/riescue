@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field, replace
-from typing import TypeVar, Optional, List
+from typing import TypeVar, Optional, Union
 
 import riescue.lib.enums as RV
 from riescue.lib.feature_discovery import FeatureDiscovery
@@ -130,7 +130,7 @@ class FeatMgr:
     code_offset: Optional[int] = None  # unused?
     randomize_code_location: bool = False
     repeat_times: int = 3
-    cfiles: Optional[List[Path]] = None
+    cfiles: Optional[list[Path]] = None
 
     # bringup mode
     fe_tb: bool = False
@@ -188,12 +188,6 @@ class FeatMgr:
     henvcfg: int = 0
     senvcfg: int = 0
 
-    # gold standard
-    gold_standard_filepath: Optional[str] = None
-    replace_gold_standard: bool = False
-    riescue_d_gold_test: bool = False
-    repo_gold_file_used: bool = False
-
     # enabled features?
     pbmt_ncio: bool = False
     svadu: bool = False
@@ -217,13 +211,13 @@ class FeatMgr:
         new_featmgr.feature = self.feature
         return new_featmgr
 
-    def get_summary(self):
+    def get_summary(self) -> dict[str, Union[bool, int]]:
         """
         Returns an array representation of feature presence.
 
         """
         # FIXME: Should this be a dataclass with a dedicated generate .equ method?
-        presence = dict()
+        presence: dict[str, Union[bool, int]] = dict()
         priv_mode = self.priv_mode
         presence["PRIV_MODE_MACHINE"] = priv_mode == RV.RiscvPrivileges.MACHINE
         presence["PRIV_MODE_SUPER"] = priv_mode == RV.RiscvPrivileges.SUPER

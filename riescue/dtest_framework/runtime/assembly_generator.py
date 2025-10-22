@@ -3,7 +3,7 @@
 
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Optional
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.pool import Pool
@@ -53,7 +53,7 @@ class AssemblyGenerator(ABC):
         self.mp_parallel = self.featmgr.mp_mode == RV.RiscvMPMode.MP_PARALLEL and self.mp_active
         self.mp_simultanous = self.featmgr.mp_mode == RV.RiscvMPMode.MP_SIMULTANEOUS and self.mp_active
 
-        self._equates: Dict[str, str] = {}  # Dictionary of key value pairs to be generated with .equ key, value
+        self._equates: dict[str, str] = {}  # Dictionary of key value pairs to be generated with .equ key, value
 
     @abstractmethod
     def generate(self) -> str:

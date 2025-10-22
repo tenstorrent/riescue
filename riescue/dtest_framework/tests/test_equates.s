@@ -14,21 +14,21 @@
 .section .code, "ax"
 
 test_setup:
-    j passed
+    ;#test_passed()
 
 ;#discrete_test(test=test01)
 test01:
 
 
 .if DEFINE_A==1 && DEFINE_B==1
-    j passed
+    ;#test_passed()
 .endif
 .if CUSTOM_DEFINE_EN==1
-    j passed
+    ;#test_passed()
 .endif
-    j failed
+    ;#test_failed()
 
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 .section .data

@@ -232,6 +232,34 @@ Registers individual test cases within a test file.
     ;#discrete_test(test=test01)
     ;#discrete_test(test=test02, repeat_times=5)
 
+**;#test_passed** - Define Test Passed
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Directive used to end test with a pass.
+Gets replaced with correct code to end test and proceed to next test or successful end of test.
+Can be placed anywhere in test code (inside ``.section .code``, ``.section .data``, etc.)
+
+**Syntax:**
+
+.. code-block:: asm
+
+    ;#test_passed
+
+
+**;#test_failed** - Define Test Failed
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Directive used to end test with a fail.
+Gets replaced with correct code to end test immediately.
+Can be placed anywhere in test code (inside ``.section .code``, ``.section .data``, etc.)
+
+**Syntax:**
+
+.. code-block:: asm
+
+    ;#test_failed
+
+
 Interrupt and Exception Handling
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -1,15 +1,17 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+
+
 """
 OpSys takes care of all the operating system related code including Scheduler
 """
 
 from types import MappingProxyType
-from typing import Optional
+from typing import Optional, Any
 
 import riescue.lib.enums as RV
-from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
 from riescue.dtest_framework.lib.routines import Routines
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 
@@ -38,18 +40,12 @@ class OpSys(AssemblyGenerator):
 
     SHARED_OS_VARIABLES = MappingProxyType(
         {
-            "passed_addr": "passed",
-            "failed_addr": "failed",
             "machine_flags": "0x0",
             "user_flags": "0x0",
             "super_flags": "0x0",
             "machine_area": "0x0",
             "user_area": "0x0",
             "super_area": "0x0",
-            "os_passed_addr": "test_passed",
-            "os_failed_addr": "test_failed",
-            "os_end_test_addr": "os_end_test",
-            "end_test_addr": "end_test",
             "num_harts_ended": "0x0",
             "num_hard_fails": "0x0",
             "excp_ignored_count": "0x0",
@@ -69,17 +65,39 @@ class OpSys(AssemblyGenerator):
         }
     )
 
-    OS_VARIABLE_SIZE = 8
+    # static pointers to OS functions or routines
+    OS_POINTERS = MappingProxyType(
+        {
+            # passed, failed, and end_test are legacy pointers to a jump table entry.
+            # Tests should use ;#test_passed() and ;#test_failed() instead
+            # These will stay to support legacy tests that jump to these addresses directly.
+            "passed_addr": "passed",
+            "failed_addr": "failed",
+            "end_test_addr": "end_test",
+            # Pointers to test passed and failed routines.
+            # ;#test_passed() and #;test_failed() li and jalr to these addresses
+            # syscall table also jumps to these addressses to support tests running in user mode
+            "os_passed_addr": "test_passed",
+            "os_failed_addr": "test_failed",
+            "os_end_test_addr": "os_end_test",
+        }
+    )
+
     EOT_WAIT_FOR_OTHERS_TIMEOUT = 500000
     MAX_OS_BARRIER_TRIES = 50000
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
         assert not (self.featmgr.linux_mode and self.mp_active), "Linux mode and not MP mode are not supported together currently"
 
         # Build OS Data variables
         self.per_hart_variables: dict[str, str] = dict(OpSys.PER_HART_OS_VARIABLES)
         self.shared_variables: dict[str, Optional[str]] = dict(OpSys.SHARED_OS_VARIABLES)
+        self.os_pointers: dict[str, str] = dict(OpSys.OS_POINTERS)
+        if self.xlen == RV.Xlen.XLEN64:
+            self.os_variable_size = 8
+        else:
+            self.os_variable_size = 4
 
         if self.featmgr.user_interrupt_table:
             self.shared_variables["user_interrupt_table_addr"] = "USER_INTERRUPT_TABLE"
@@ -169,6 +187,10 @@ class OpSys(AssemblyGenerator):
 
         User mode uses ECALL while other modes load addresses from .text section.
         """
+        # FIXME: this is getting deprecated
+        # Going to be moving towards ;#test_passed, ;#test_failed labels in the test code and letting the
+        # AssemblyWriter replace the code with the correct jump table entries in place.
+        # This allows for ending a test from any place in code, not just code that's in the .code section (within 2 GiB li range)
 
         # Add end of the test passed and failed routines
         # USER mode always needs to do ecall to exit from the discrete_test and muist be placed in user accessible pages
@@ -178,7 +200,7 @@ class OpSys(AssemblyGenerator):
             # be beyond the 2GB limit addressable by auipc instructions. Those jumps have to be replaced by a directive which adds
             # "li a0, passed_addr; ld a1, 0(a0); jalr ra, 0(a1);"
             return """
-                .section .code
+                .section .code, "ax"
                 passed:
                     li x31, 0xf0000001  # Schedule test
                     ecall
@@ -197,7 +219,7 @@ class OpSys(AssemblyGenerator):
             # be beyond the 2GB limit addressable by auipc instructions. Those jumps have to be replaced by a directive which adds
             # "li a0, passed_addr; ld a1, 0(a0); jalr ra, 0(a1);"
             return """
-                .section .code
+                .section .code, "ax"
                 passed:
                     li t0, os_passed_addr
                     ld t1, 0(t0)
@@ -350,18 +372,29 @@ class OpSys(AssemblyGenerator):
         #   ld t1, 0(t0)
         #   jalr t1
 
+        if self.xlen == RV.Xlen.XLEN64:
+            var_type = "dword"
+        else:
+            var_type = "word"
+
         os_data_section = """
         .section .os_data, "aw"
-        # OS data
         """
 
+        os_data_section += "\n# OS Per Hart Variables\n"
         for var in self.per_hart_variables:
             os_data_section += f"{var}_mem:\n"
-            os_data_section += "\n".join([f"    .dword {self.per_hart_variables[var]}" for _ in range(self.featmgr.num_cpus)]) + "\n"
+            os_data_section += "\n".join([f"    .{var_type} {self.per_hart_variables[var]}" for _ in range(self.featmgr.num_cpus)]) + "\n"
 
+        os_data_section += "\n# OS Shared Variables\n"
         for var in self.shared_variables:
             os_data_section += f"{var}_mem:\n"
-            os_data_section += f"    .dword {self.shared_variables[var]}\n"
+            os_data_section += f"    .{var_type} {self.shared_variables[var]}\n"
+
+        os_data_section += "\n# OS Pointers\n"
+        for var in self.os_pointers:
+            os_data_section += f"{var}_ptr:\n"
+            os_data_section += f"    .{var_type} {self.os_pointers[var]}\n"
 
         return os_data_section
 
@@ -392,17 +425,21 @@ class OpSys(AssemblyGenerator):
         """
         offset_adder = 0
 
-        def build_text(variable_name, offset):
+        def build_text(variable_name: str, offset: int) -> str:
             return f".equ {variable_name:35}, os_data + {offset}\n"
 
+        equates += "\n"
         for variable_name in self.per_hart_variables:
             equates += build_text(variable_name, offset_adder)
-            offset_adder += self.featmgr.num_cpus * OpSys.OS_VARIABLE_SIZE
+            offset_adder += self.featmgr.num_cpus * self.os_variable_size
 
         for variable_name in self.shared_variables:
             equates += build_text(variable_name, offset_adder)
-            offset_adder += OpSys.OS_VARIABLE_SIZE
+            offset_adder += self.os_variable_size
 
+        for variable_name in self.os_pointers:
+            equates += build_text(variable_name, offset_adder)
+            offset_adder += self.os_variable_size
         equates += "\n"
         return equates
 

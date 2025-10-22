@@ -10,9 +10,8 @@ from typing import Optional, Union
 import os
 
 import riescue.lib.logger as RiescueLogger
-from riescue.lib.json_argparse import JsonArgParser
 from riescue.lib.rand import RandNum, initial_random_seed
-from riescue.dtest_framework.types import GeneratedFiles
+from riescue.dtest_framework.artifacts import GeneratedFiles
 from riescue.dtest_framework.parser import Parser
 from riescue.dtest_framework.config import FeatMgr, FeatMgrBuilder
 from riescue.dtest_framework.pool import Pool
@@ -203,12 +202,12 @@ class RiescueD(CliBase):
         RiescueLogger.from_clargs(args=cl_args, default_logger_file=test_logfile)
 
         featmgr = self.configure(args=cl_args)
-        generator = self.generate(featmgr)
+        self.generate(featmgr)
         if elaborate_only:
             log.info("Elaboration complete. Exiting...")
             return self.generated_files
 
-        self.build(featmgr, generator)
+        self.build(featmgr)
         if run_iss:
             if self.toolchain.simulator is None:
                 raise ValueError("No ISS selected. Provide ISS in toolchain configuration")
@@ -237,11 +236,14 @@ class RiescueD(CliBase):
             featmgr_builder.with_args(args)
         return featmgr_builder.build(rng=self.rng)
 
-    def generate(self, featmgr: FeatMgr) -> Generator:
-        """
-        Generate the test code into an assembly file, linker script, and any additional files.
+    def generate(self, featmgr: FeatMgr) -> GeneratedFiles:
         """
 
+        Generate the test code into an assembly file, linker script, and any additional files.
+
+        Uses :class:`FeatMgr` object to generate the test code. Modifies
+        :returns: The internal :attr:`generated_files` instance, a :class:`GeneratedFiles` object containing paths to generated files.
+        """
         # Copy test s file to current directory
         try:
             shutil.copy(self.testfile, self.run_dir)
@@ -261,25 +263,27 @@ class RiescueD(CliBase):
 
         # Call various generators
         test_gen = Generator(rng=self.rng, pool=self.pool, featmgr=featmgr, run_dir=self.run_dir)
-        test_gen.generate(file_in=self.testfile, assembly_out=self.generated_files.assembly)
-        return test_gen
+        test_gen.generate(file_in=self.testfile, generated_files=self.generated_files)
+        return self.generated_files
 
-    def build(self, featmgr: FeatMgr, generator: Generator):
+    def build(self, featmgr: FeatMgr, generator: Optional[Generator] = None) -> GeneratedFiles:
         """
         Compile and disassemble the test code.
 
-        TODO: Re-evaluate generated files and generated outputs routing, where output files should be documented, etc.
-
         :param featmgr: ``FeatMgr`` object
-        :param generator: ``Generator`` object
-        :param generated_files: ``GeneratedFiles`` object
+        :param generator: [Deprecated] ``Generator`` object, currently ignored
+        :returns: The internal :attr:`generated_files` instance, a :class:`GeneratedFiles` object containing paths to generated files.
         """
 
+        if generator is not None:
+            log.warning("generator parameter is deprecated and will be removed in a future version.")
+
         compiler = self.toolchain.compiler
+        linker_script = self.generated_files.linker_script
         # fmt: off
         compiler_args = [
             "-I", str(self.run_dir),
-            "-T", str(generator.linker_script),
+            "-T", str(linker_script),
             "-o", str(self.generated_files.elf),
             str(self.generated_files.assembly),
         ]
@@ -302,17 +306,21 @@ class RiescueD(CliBase):
             args=disassembler_args,
         )
 
+        return self.generated_files
+
     def simulate(
         self,
         featmgr: FeatMgr,
         iss: Union[Spike, Whisper],
         whisper_config_json_override: Optional[Path] = None,
-    ):
+    ) -> Path:
         """
         Run test code through ISS
 
         :param featmgr: ``FeatMgr`` object
+        :param iss: ``Spike`` or ``Whisper`` object
         :param whisper_config_json_override: Optional path to whisper config json file to override default
+        :return: Path to ISS log file
         """
         # In wysiwyg mode, we use a different end-of-test mechanism where we look for x31=0xc001c0de to be written
         # This is not supported by whisper, so we are using --endpc to the end of the test in whisper
@@ -396,11 +404,11 @@ class RiescueD(CliBase):
             for line in iss_lines:
                 if "x31" in line and "c001c0de" in line:
                     correct_wysiwyg_exit = True
-                    exitstatus = 0
             if not correct_wysiwyg_exit:
                 raise RunnerError(f"WYSIWYG mode failed to find the correct exit value - last line {line}")
 
-        print("\nTest \x1b[0;30;42m PASSED \x1b[0m successfully on ISS\n")
+        log.info("\tTest \x1b[0;30;42m PASSED \x1b[0m successfully on ISS\n")
+        return iss_log
 
     def _resolve_path(self, file: Union[str, Path]) -> Path:
         """

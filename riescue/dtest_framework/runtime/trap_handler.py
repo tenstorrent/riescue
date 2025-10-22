@@ -9,8 +9,6 @@ Notes:
     Wherever hartid is used, it is freshly retrieved so that fewer assumptions about GPR use are made.
 """
 
-from typing import Dict
-
 import riescue.lib.enums as RV
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 from riescue.dtest_framework.lib.routines import Routines
@@ -100,7 +98,7 @@ class InterruptHandler:
             self.xret = "sret"
         self.vector_count = xlen.value - 1
 
-        self.vector_table: Dict[int, InterruptServiceRoutine] = {}  # Maps vector_num -> ISR
+        self.vector_table: dict[int, InterruptServiceRoutine] = {}  # Maps vector_num -> ISR
 
         # Macro and Label names
         self.trap_entry_label = trap_entry

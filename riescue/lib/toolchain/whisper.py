@@ -25,6 +25,7 @@ class Whisper(Tool):
         whisper_max_instr: int = 2000000,
         whisper_memory_size: str = "",
         whisper_dumpmem: Optional[str] = None,
+        whisper_startpc: Optional[int] = None,
     ):
         if whisper_args is None:
             whisper_args = []
@@ -41,6 +42,8 @@ class Whisper(Tool):
         ]
         if whisper_memory_size:
             args += ["--memorysize", whisper_memory_size]
+        if whisper_startpc:
+            args += ["--startpc", whisper_startpc]
         self.dumpmem_arg = whisper_dumpmem
         super().__init__(path=whisper_path, env_name="WHISPER_PATH", tool_name="whisper", args=args)
 
@@ -54,6 +57,7 @@ class Whisper(Tool):
         whisper_parser.add_argument("--whisper_max_instr", type=int, default=2000000, help="Max instructions to simulate on whisper")
         whisper_parser.add_argument("--whisper_memory_size", type=str, default="0x10000000000000000", help="Size of whisper memory")
         whisper_parser.add_argument("--whisper_dumpmem", required=False, type=str, default=None, help="Dump memory command to pass to the simulator. Use @ to reference symbols in elf file")
+        whisper_parser.add_argument("--whisper_startpc", required=False, type=int, default=None, help="Start pc to pass to the simulator")
         # fmt: on
 
     @classmethod
@@ -72,6 +76,7 @@ class Whisper(Tool):
             whisper_max_instr=args.whisper_max_instr,
             whisper_memory_size=args.whisper_memory_size,
             whisper_dumpmem=args.whisper_dumpmem,
+            whisper_startpc=args.whisper_startpc,
         )
 
     def process_dumpmem_arg(self, elf_file: Path) -> str:

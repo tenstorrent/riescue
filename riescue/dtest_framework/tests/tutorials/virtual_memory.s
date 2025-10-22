@@ -7,7 +7,7 @@
 .section .code, "ax"
 
 test_setup:
-    j passed
+    ;#test_passed()
 
 ;#random_data(name=my_word, type=bits32, and_mask=0xFFFFFFFF)
 
@@ -21,12 +21,12 @@ test_paging:
     lw t1, 0(t0)
     li t2, my_word
     beq t1, t2, paging_passed # Assert the loaded virtual address is reading data correctly
-    j failed
+    ;#test_failed()
 paging_passed:
-    j passed
+    ;#test_passed()
 
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 .section .data
 ;#init_memory @virtual_address

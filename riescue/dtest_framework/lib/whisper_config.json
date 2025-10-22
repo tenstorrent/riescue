@@ -1,6 +1,6 @@
 {
     "xlen" : 64,
-    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zvqdot_zjpm_svpbmt_svadu_sstc",
+    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zicntr_zihpm_zvqdot_zjpm_svpbmt_svadu_sstc",
     "reset_vec"             : "0x80000000",
     "enable_performance_counters" : "true",
     "perf_count_atomic_load_store" : "true",

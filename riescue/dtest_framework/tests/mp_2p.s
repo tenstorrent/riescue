@@ -76,7 +76,7 @@
 #             discrete_test(s)
 #####################
 test_setup:
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -130,7 +130,7 @@ test01:
         bge t1, x0, done_01
     done_01:
 
-    j passed # Needs support from the scheduler to correctly indicate when no more tests are left.
+    ;#test_passed() # Needs support from the scheduler to correctly indicate when no more tests are left.
 
 
 #####################
@@ -151,7 +151,7 @@ test02:
         addi t1, t1, 1
         blt t1, x0, negative_02
     done_02:
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -170,7 +170,7 @@ test03:
         addi t1, t1, 1
         blt t1, x0, negative_03
     done_03:
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -181,7 +181,7 @@ test03:
 #####################
 #FIXME: this may have been removed as a feature.
 test_cleanup:
-    j passed
+    ;#test_passed()
 
 
 #####################

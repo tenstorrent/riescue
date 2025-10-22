@@ -2,6 +2,7 @@
 - [Open Source Roadmap](#open-source-roadmap)
 - [Installation and Usage](#installation-and-usage)
 - [Contributing](#developing-and-contributing)
+- [RiescueC Supported Extensions](#riescuec-supported-extensions)
 
 ---
 
@@ -146,3 +147,94 @@ Extensible framework for defining, managing, and consuming RISC-V architectural 
 To develop or contribute, you need [Apptainer (formerly Singularity)](https://apptainer.org/).
 
 See the [Contributing page](.github/CONTRIBUTING.md) for information on setting up a developer environment.
+
+
+# RiescueC Supported Extensions
+
+The list of supported features can be found below. RiescueC is aiming to support mandatoy extensions of RVA23U64.
+
+| Extension      | Mandatory | RiescueC Supported Mode | Description |
+|----------------|-----------|-------------------|-------------|
+| RV64I          | x         | Bringup                 | 64-bit base integer instruction set |
+| M              | x         | Bringup                 | Integer multiplication and division |
+| A              | x         | Bringup                 | Atomic instructions |
+| F              | x         | Bringup                 | Single-precision floating-point instructions |
+| D              | x         | Bringup                 | Double-precision floating-point instructions |
+| C              | x         | Bringup                 | Compressed instructions |
+| B              | x         | Bringup                 | Bit-manipulation instructions |
+| V              | x         | Bringup                 | Vector extension |
+| Zicsr          | x         | All           | CSR instructions |
+| Zicntr         | x         | TP                | Base counters and timers |
+| Zihpm          | x         | TP                | Hardware performance counters |
+| Ziccif         | x         |                   | Main memory instruction fetch atomicity |
+| Ziccrse        | x         |                   | Main memory RsrvEventual support |
+| Ziccamoa       | x         |                   | Main memory atomic support |
+| Zicclsm        | x         |                   | Misaligned loads/stores support |
+| Za64rs         | x         |                   | 64-byte reservation sets |
+| Zihintpause    | x         |                   | Pause hint |
+| Zic64b         | x         |                   | 64-byte cache blocks |
+| Zicbom         | x         |                   | Cache-block management instructions |
+| Zicbop         | x         |                   | Cache-block prefetch instructions |
+| Zicboz         | x         |                   | Cache-block zero instructions |
+| Zfhmin         | x         |                   | Half-precision floating-point |
+| Zkt            | x         | TP                | Data-independent execution latency |
+| Zvfhmin        | x         |                   | Vector minimal half-precision floating-point |
+| Zvbb           | x         | Bringup                 | Vector basic bit-manipulation instructions |
+| Zvkt           | x         |                   | Vector data-independent execution latency |
+| Zihintntl      | x         |                   | Non-temporal locality hints |
+| Zicond         | x         | TP                | Integer conditional operations |
+| Zimop          | x         | TP                  | May-be-operations |
+| Zcmop          | x         | TP                  | Compressed may-be-operations |
+| Zcb            | x         | Bringup           | Additional compressed instructions |
+| Zfa            | x         | Bringup           | Additional floating-point instructions |
+| Zawrs          | x         |                   | Wait-on-reservation-set instructions |
+| Supm           | x         |                   | Pointer masking |
+| Zifencei       | x         | TP                | Instruction-Fetch Fence |
+| Ss1p13         | x         |                   | Supervisor architecture version 1.13 |
+| Svbare         | x         | All                | Bare mode virtual-memory translation |
+| Sv39           | x         | TP                | Page-based 39-bit virtual-memory system |
+| Svade          | x         |                   | Page-fault exceptions on A/D bits |
+| Ssccptr        | x         |                   | Main memory page-table read support |
+| Sstvecd        | x         |                   | stvec Direct mode support |
+| Sstvala        | x         |                   | stval faulting address/instruction |
+| Sscounterenw   | x         | TP               | Writable counter enables |
+| Svpbmt         | x         | TP                | Page-based memory types |
+| Svinval        | x         | TP                | Fine-grained address-translation cache invalidation |
+| Svnapot        | x         |                   | NAPOT translation contiguity |
+| Sstc           | x         | TP                | Supervisor-mode timer interrupts |
+| Sscofpmf       | x         |                   | Count overflow and mode-based filtering |
+| Ssnpm          | x         |                   | Pointer masking |
+| Ssu64xl        | x         |                   | UXLEN=64 support |
+| Sha            | x         |                   | Augmented hypervisor extension |
+| H              | x         | All           | Hypervisor extension |
+| Ssstateen      | x         |                   | Supervisor-mode state-enable extension |
+| Shcounterenw   | x         |                   | Hypervisor writable counter enables |
+| Shvstvala      | x         |                   | vstval faulting address/instruction |
+| Shtvala        | x         |                   | htval faulting guest physical address |
+| Shvstvecd      | x         |                   | vstvec Direct mode support |
+| Shvsatpa       | x         |                   | vsatp mode support |
+| Shgatpa        | x         |                   | hgatp mode support |
+| Zvkng          |           |                   | Vector crypto NIST algorithms with GCM |
+| Zvksg          |           |                   | Vector crypto ShangMi algorithms with GCM |
+| Zabha          |           |                   | Byte and halfword atomic memory operations |
+| Zacas          |           |                   | Compare-and-Swap instructions |
+| Ziccamoc       |           |                   | Main memory AMOCASQ support |
+| Zvbc           |           | Bringup           | Vector carryless multiplication |
+| Zama16b        |           |                   | 16-byte misaligned atomicity |
+| Zfh            |           | Bringup           | Scalar half-precision floating-point |
+| Zbc            |           | Bringup           | Scalar carryless multiply |
+| Zicfilp        |           |                   | Landing Pads |
+| Zicfiss        |           |                   | Shadow Stack |
+| Zvfh           |           |                   | Vector half-precision floating-point |
+| Zfbfmin        |           | Bringup           | Scalar BF16 converts |
+| Zvfbfmin       |           | Bringup           | Vector BF16 converts |
+| Zvfbfwma       |           | Bringup           | Vector BF16 widening mul-add |
+| Sv48           |           | TP                | Page-based 48-bit virtual-memory system |
+| Sv57           |           | TP                | Page-based 57-bit virtual-memory system |
+| Zkr            |           |                   | Entropy CSR |
+| Svadu          |           | TP                | Hardware A/D bit updates |
+| Sdtrig         |           |                   | Debug triggers |
+| Ssstrict       |           |                   | Strict reserved encoding behavior |
+| Svvptc         |           |                   | PTE visibility without memory-management fence |
+| Sspm           |           |                   | Supervisor-mode pointer masking |
+

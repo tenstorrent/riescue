@@ -146,7 +146,7 @@
 #             discrete_test(s)
 #####################
 test_setup:
-    j passed
+    ;#test_passed()
 
 
 #####################
@@ -157,7 +157,7 @@ test01:
     li t0, -1
     ld t0, (t0) # Load access fault on purpose
     li t0, 0xc001c0de
-    j passed  # <-- 'j passed' should be used to indicate OS that discrete_test
+    ;#test_passed()  # <-- ';#test_passed()' should be used to indicate OS that discrete_test
     #               hit a pass condition and OS is free to schedule the next test
 
 
@@ -172,7 +172,7 @@ test02:
     j test02
 
     # This should not be reached
-    j failed
+    ;#test_failed()
 
 #####################
 # test_cleanup: RiESCUE defined label
@@ -183,7 +183,7 @@ test02:
 test_cleanup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010002
-    j passed
+    ;#test_passed()
 
 
 #####################

@@ -3,7 +3,7 @@
 
 import re
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Union
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -603,10 +603,10 @@ class Parser:
             self.pool.add_parsed_discrete_test(testname)
 
     @staticmethod
-    def separate_lin_name_map(line):
-        lin_name_maps = re.findall(r"@(.+)", line)[0]
+    def separate_lin_name_map(line: str) -> list[Union[str, list[str]]]:
+        lin_name_maps: str = re.findall(r"@(.+)", line)[0]
         lin_name_maps_sep = lin_name_maps.split(":")
-        ret = []
+        ret: list[Union[str, list[str]]] = []
         if len(lin_name_maps_sep) == 1:
             ret.append(lin_name_maps.strip())
             ret.append([])
@@ -621,10 +621,15 @@ class Parser:
     def parse_init_mem(self, line):
         lin_name = re.findall(r"@(.+)", line)[0]
         lin_name_maps = self.separate_lin_name_map(line)
+        # FIXME: this should be a stronger type instead of a tuple of str + list
         if len(lin_name_maps[1]) == 0:
             lin_name = lin_name_maps[0]
+            if not isinstance(lin_name, str):
+                raise Exception(f"separate_lin_name_map should have returned a string as the first element when len(lin_name_maps[1]) == 0, but got {type(lin_name)}")
             self.pool.add_parsed_init_mem_addr(lin_name)
         else:
+            if not isinstance(lin_name_maps[0], str):
+                raise Exception(f"separate_lin_name_map should have returned a string as the first element when len(lin_name_maps[1]) != 0, but got {type(lin_name_maps[0])}")
             lin_name = lin_name_maps[0].strip()
             maps = lin_name_maps[1]
             for m in maps:
@@ -654,7 +659,7 @@ class Parser:
             self.pool.add_parsed_vectored_interrupt(vectored_interrupt)
 
     def parse_csr_rw(self, line):
-        pattern = r"^;#csr_rw\((?P<csr_name>\w*),\s*(?P<read_or_write>\w*)\)"
+        pattern = r"^;#csr_rw\((?P<csr_name>\w*),\s*(?P<read_or_write>\w*),\s*(?P<direct_rw>\w*)\)"
         match = re.match(pattern, line)
         if match:
             csr_name = match.group("csr_name")
