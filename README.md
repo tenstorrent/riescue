@@ -176,9 +176,9 @@ The list of supported features can be found below. RiescueC is aiming to support
 | Zicbom         | x         |                   | Cache-block management instructions |
 | Zicbop         | x         |                   | Cache-block prefetch instructions |
 | Zicboz         | x         |                   | Cache-block zero instructions |
-| Zfhmin         | x         |                   | Half-precision floating-point |
+| Zfhmin         | x         | Bringup           | Half-precision floating-point |
 | Zkt            | x         | TP                | Data-independent execution latency |
-| Zvfhmin        | x         |                   | Vector minimal half-precision floating-point |
+| Zvfhmin        | x         | Bringup           | Vector minimal half-precision floating-point |
 | Zvbb           | x         | Bringup                 | Vector basic bit-manipulation instructions |
 | Zvkt           | x         |                   | Vector data-independent execution latency |
 | Zihintntl      | x         |                   | Non-temporal locality hints |
@@ -225,7 +225,7 @@ The list of supported features can be found below. RiescueC is aiming to support
 | Zbc            |           | Bringup           | Scalar carryless multiply |
 | Zicfilp        |           |                   | Landing Pads |
 | Zicfiss        |           |                   | Shadow Stack |
-| Zvfh           |           |                   | Vector half-precision floating-point |
+| Zvfh           |           | Bringup           | Vector half-precision floating-point |
 | Zfbfmin        |           | Bringup           | Scalar BF16 converts |
 | Zvfbfmin       |           | Bringup           | Vector BF16 converts |
 | Zvfbfwma       |           | Bringup           | Vector BF16 widening mul-add |
