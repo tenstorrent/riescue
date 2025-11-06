@@ -3,15 +3,14 @@
 #
 import unittest
 
-from riescue.riescuec import RiescueC
+from tests.cli_tests.riescuec.base import BaseRiescueCTest
 
 
-class ZicondTest(unittest.TestCase):
+class ZicondTest(BaseRiescueCTest):
     "Runs ZICOND test plan"
 
     def test_cli(self):
-        args = "--mode tp --test_plan zkt"
-        RiescueC.run_cli(args=args.split())
+        self.run_tp_mode(plan="zkt")
 
 
 if __name__ == "__main__":

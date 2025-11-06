@@ -20,6 +20,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 """
 Convert whisper sim log to standard riscv instruction trace format
 """
@@ -147,7 +149,7 @@ class RiscvInstructionTraceEntry:
 #         #1 0  M 0000000080000000 00000013 r 0000000000000000 0000000000000000 addi     x0, x0, 0
 # All values except rank are in hexadecimal
 #
-def process_whisper_sim_log(whisper_log, csv, full_trace=1):
+def process_whisper_sim_log(whisper_log: Path, csv: Path, full_trace: int = 1) -> None:
     """Process Whisper simulation log.
 
     Extract instruction and affected register information from whisper simulation

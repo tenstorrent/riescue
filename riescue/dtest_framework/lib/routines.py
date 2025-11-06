@@ -5,6 +5,8 @@
 Assembly code routine helper functions that are used in multiple places, such as both OS and test macros.
 """
 
+import riescue.lib.enums as RV
+
 
 class Routines:
     def __init__(self):
@@ -295,12 +297,13 @@ class Routines:
         seed_offset_scale_reg: str,
         target_offset_scale_reg: str,
         num_ignore_reg: str,
-        handler_priv_mode: str,
+        handler_priv_mode: RV.RiscvPrivileges,
+        mhartid_offset: int,
     ) -> str:
         return f"""
                 # simple XORshift random number generator
                 # https://www.javamex.com/tutorials/random_numbers/xorshift.shtml#.VlcaYzKwEV8
-                {Routines.place_retrieve_hartid(dest_reg="t2", priv_mode=handler_priv_mode)}
+                {Routines.place_retrieve_hartid(dest_reg="t2", priv_mode=handler_priv_mode, mhartid_offset=mhartid_offset)}
 
                 # Calculate seed addr offset
                 mv t1, {seed_offset_scale_reg}
@@ -347,27 +350,25 @@ class Routines:
         """
 
     @classmethod
-    def place_retrieve_hartid(cls, dest_reg: str, priv_mode: str) -> str:
-        assert priv_mode in ["M", "S"], f"Invalid priv_mode: {priv_mode}"
+    def place_retrieve_hartid(cls, dest_reg: str, priv_mode: RV.RiscvPrivileges, mhartid_offset: int) -> str:
+        if priv_mode not in [RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER]:
+            raise ValueError(f"Unsupported priv_mode: {priv_mode}")
         routine_string = ""
-        if priv_mode == "M":
+        if priv_mode == RV.RiscvPrivileges.MACHINE:
             routine_string += f"""
                 csrr {dest_reg}, mhartid
             """
-        elif priv_mode == "S":
+        elif priv_mode == RV.RiscvPrivileges.SUPER:
+            # load from hart context if in S mode
+            # why is this not in runtime? It's tied to the state of runtime.
+            # needs hart-local storage offset of mhartid
             routine_string += f"""
                 csrr {dest_reg}, sscratch
+                ld {dest_reg}, {mhartid_offset}({dest_reg})
             """
+        else:
+            raise ValueError(f"Unsupported priv_mode: {priv_mode}")
 
-        return routine_string
-
-    @classmethod
-    def place_store_hartid(cls, dest_csr: str, work_reg: str, priv_mode: str) -> str:
-        assert priv_mode in ["M"], f"Invalid priv_mode: {priv_mode}"
-        routine_string = f"""
-            csrr {work_reg}, mhartid
-            csrw {dest_csr}, {work_reg}
-        """
         return routine_string
 
     @classmethod

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import riescue.lib.common as common
 import riescue.lib.enums as RV
+from riescue.dtest_framework.lib.pma import PmaInfo
 
 if TYPE_CHECKING:
     from riescue.dtest_framework.pool import Pool
@@ -698,70 +699,6 @@ class ParsedReserveMemory:
     and_mask: int = 0xFFFFFFFFFFFFF000
     name: str = ""
     start_addr: int = 0
-
-
-@dataclass
-class PmpInfo:
-    start_addr: int = 0
-    size: int = 0
-    secure: bool = False
-
-
-@dataclass
-class PmaInfo:
-    pma_name: str = ""
-    pma_valid: bool = False  # TODO: Evaluate need for this valid.
-    pma_read: bool = True
-    pma_write: bool = True
-    pma_execute: bool = True
-    pma_memory_type: str = "memory"  # 'io' | 'memory' | 'ch0' | 'ch1'
-    pma_amo_type: str = "arithmetic"  # 'none' | 'logical' | 'swap' | 'arithmetic'
-    pma_cacheability: str = "cacheable"  # 'cacheable' | 'noncacheable'
-    pma_combining: str = "noncombining"  # 'combining' | 'noncombining'
-    pma_routing_to: str = "coherent"  # 'coherent' | 'noncoherent'
-    pma_address: int = 0
-    pma_size: int = 0
-
-    _memory_type_map = {"memory": 0, "io": 1, "ch0": 2, "ch1": 3}
-
-    _amo_type_map = {"none": 0, "logical": 1, "swap": 2, "arithmetic": 3}
-
-    _cacheability_map = {"cacheable": 1, "noncacheable": 0}
-
-    _combining_map = {"combining": 1, "noncombining": 0}
-
-    _routing_to_map = {"coherent": 1, "noncoherent": 0}
-
-    def generate_pma_value(self):
-        # pmacfg CSR format looks like this
-        # 2:0 - Permission, 0: read, 1: write, 2: execute
-        # 4:3 - memory type, 0: memory, 1: io, 2: ch0, 3: ch1
-        # 6:5 - amo type, 0: none, 1: logical, 2: swap, 3: arithmetic
-        # 7 (memory) - cacheability, 1: cacheabl1, 0: noncacheable
-        # 7 (io) - combining, 1: combining, 0: noncombining
-        # 8 - routing to, 1: coherent, 0: noncoherent
-        # 11:9 - reserved 0
-        # 51:12 - address
-        # 57:52 - reserved 0
-        # 63:58 - size (if 0, then pma is invalid)
-        pma_value = 0
-        if not self.pma_valid:
-            pma_value |= self.pma_read << 0
-            pma_value |= self.pma_write << 1
-            if self.pma_execute:
-                pma_value |= self.pma_execute << 2
-            pma_value |= self._memory_type_map[self.pma_memory_type] << 3
-            pma_value |= self._amo_type_map[self.pma_amo_type] << 5
-            if self.pma_memory_type == "memory":
-                pma_value |= self._cacheability_map[self.pma_cacheability] << 7
-            else:  # io
-                pma_value |= self._combining_map[self.pma_combining] << 7
-            pma_value |= self._routing_to_map[self.pma_routing_to] << 8
-            pma_value |= (self.pma_address >> 12) << 12
-            pma_value |= (common.msb(self.pma_size) + 1) << 58
-            # print(f'pma_size: bits: {common.msb(self.pma_size)}, size: {self.pma_size:x}')
-
-        return pma_value
 
 
 @dataclass

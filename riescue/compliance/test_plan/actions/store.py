@@ -20,7 +20,15 @@ class StoreAction(Action):
 
     register_fields = ["value", "memory"]
 
-    def __init__(self, offset: int = 0, memory: Optional[str] = None, value: Optional[str] = None, **kwargs):
+    def __init__(
+        self,
+        offset: int = 0,
+        memory: Optional[str] = None,
+        value: Optional[str] = None,
+        access_size: Optional[int] = None,
+        op: Optional[str] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.offset = offset
         self.memory = memory
@@ -28,6 +36,10 @@ class StoreAction(Action):
 
         self.aligned = True  # TODO: Add support for unaligned loads
         self.expanded = False
+        self.access_size = access_size
+        if self.access_size is not None and self.access_size not in [1, 2, 4, 8]:
+            raise ValueError(f"Invalid access size: {self.access_size}")
+        self.op = op
 
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "StoreAction":
@@ -59,9 +71,6 @@ class StoreAction(Action):
 
         new_actions = []
 
-        if self.offset % 4 != 0:
-            print("not byte aligned?", self.memory)
-
         if self.memory is None:
             random_size = ctx.random_n_width_number(32, 12) & 0xFFFFF000
             # Allocate memory page, place in memory registry
@@ -90,12 +99,19 @@ class StoreAction(Action):
 
         return None
 
-    def _recurse_pick_instruction(self, ctx: LoweringContext, constraints: dict[str, Any]) -> Instruction:
+    def _recurse_pick_instruction(self, ctx: LoweringContext, constraints: dict[str, Any], access_size_instr: Optional[str]) -> Instruction:
         instruction_choices = ctx.instruction_catalog.filter(**constraints)
         selected_instruction = ctx.rng.choice(instruction_choices)
-        if "sp" in selected_instruction.name:
+        if access_size_instr is not None:
+            instruction_choices = [i for i in instruction_choices if i.name.endswith(access_size_instr)]
+        if self.op is not None:
+            instruction_choices = [i for i in instruction_choices if i.name == self.op]
+            if len(instruction_choices) == 0:
+                raise ValueError(f"No instruction found for op: {self.op}")
+            return instruction_choices[0]
+        if "sp" in selected_instruction.name or "sc" in selected_instruction.name:
             # Can't have stack pointer-relative access. Try again
-            selected_instruction = self._recurse_pick_instruction(ctx, constraints)
+            selected_instruction = self._recurse_pick_instruction(ctx, constraints, access_size_instr)
         return selected_instruction
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
@@ -103,7 +119,16 @@ class StoreAction(Action):
         constraints: dict[str, Any] = {"category": Category.STORE}
         if self.offset:
             constraints["has_immediate"] = True
-        selected_instruction = self._recurse_pick_instruction(ctx, constraints)
+        access_size_instr = None
+        if self.access_size == 1:
+            access_size_instr = "b"
+        elif self.access_size == 2:
+            access_size_instr = "h"
+        elif self.access_size == 4:
+            access_size_instr = "w"
+        elif self.access_size == 8:
+            access_size_instr = "d"
+        selected_instruction = self._recurse_pick_instruction(ctx, constraints, access_size_instr)
 
         # Pick offset
         offset_operand = selected_instruction.immediate_operand()

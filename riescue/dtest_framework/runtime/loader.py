@@ -1,299 +1,112 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
 import logging
-from collections import deque
 from pathlib import Path
+from typing import Any
+
 import riescue.lib.common as common
 import riescue.lib.enums as RV
-from riescue.lib.rand import RandNum
 from riescue.lib.counters import Counters
-from riescue.dtest_framework.lib.routines import Routines
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 
 log = logging.getLogger(__name__)
 
 
 class Loader(AssemblyGenerator):
-    """Assembly code generator for RISC-V system initialization and test environment setup.
+    """
+    Genereates Loader assembly code for initializing the test runtime environment.
 
-    The Loader class is responsible for generating assembly code that establishes a known
-    system state after reset and prepares the runtime environment for test execution.
-
-    This class handles the complete system initialization sequence including:
-
-    CPU State Initialization
-    ------------------------
-    - Integer and floating-point register initialization
-    - Vector register initialization
-    - Stack pointer allocation
-    - Endianness configuration
-    - Hart ID caching in scratch CSRs
-
-    CSR Configuration
-    -----------------
-    - ISA and extension configuration
-    - Status register configuration
-    - Exception and interrupt delegation
-    - Trap vector base address setup
-    - Counter configuration
-
-    Memory Management
-    -----------------
-    - Page table setup and configuration
-    - SATP register configuration (page table root, ASID, paging mode)
-    - PMP (Physical Memory Protection) region setup
-    - PMA (Physical Memory Attributes) configuration
-
-    Privilege Mode Management
-    -------------------------
-    - Machine to supervisor mode transitions
-    - Hypervisor mode setup for virtualized environments
-    - User mode preparation
-
-    Interrupt and Exception Handling
-    ---------------------------------
-    - Interrupt delegation configuration
-    - Exception handler setup
-    - Trap vector initialization
-
-    :param kwargs: Keyword arguments passed to parent AssemblyGenerator
-    :type kwargs: dict
+    Assumes booting at _start address in machine mode.
+    Initializes registers (int, fp, vector if supported) and CSRs
+    Sets up test runtime environment (paging, interrupts, etc.)
 
     .. note::
-       The generated assembly code varies based on the feature manager configuration,
-       including WYSIWYG mode, Linux mode, paging mode, and privilege level settings.
+        This sets initial mtvec to loader panic (fast fail during loader)
+        If virtualized test, will set vstvec to trap handler
+        If delegating exceptions to supervisor, will set stvec to trap handler
+        Otherwise, mtvec gets trap handler.
 
-    .. warning::
-       This class generates low-level assembly code that directly manipulates system
-       state and CSRs. Incorrect configuration may result in system instability.
+        This means that switching privlige modes is not allowed.
+
+    Jumps to runtime privilege mode, and hands control to scheduler when finished.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        self.priv_mode = self.featmgr.priv_mode
         self.paging_mode = self.featmgr.paging_mode
         self.counters = Counters(rng=self.rng)
 
         self.trap_entry_label = self.featmgr.trap_handler_label  #: Trap entry label. Defaults to trap_entry Value ``*tvec`` is loaded with
+        self.scheduler_start_label = self.scheduler_init_label  #: Scheduler start label. This is where the loader jumps to when finished.
+
+        if self.featmgr.bringup_pagetables:
+            # If bringup_pagetables is enabled, skip scheduler
+            self.scheduler_start_label = list(self.pool.discrete_tests.keys())[0]
+
+        # registere loader variables
+        self.zero_data = self.variable_manager.register_shared_variable("zero_data", 0x0)
+
+        self.panic_cause = "LOADER_PANIC_CAUSE"
+        self.register_equate(self.panic_cause, "13")
 
     def generate(self) -> str:
-        # If wysiwyg mode, then we don't need any loader code
-        big_endian = self.featmgr.big_endian
-        if self.featmgr.wysiwyg and not self.featmgr.bringup_pagetables:
-            return self.base_loader(wysiwyg=self.featmgr.wysiwyg, big_endian=big_endian)
-
         if self.featmgr.linux_mode:
-            return """
-            .section .text
-            .global _start
-            _start:
-            call main
-            li a7, 93 # SYS_exit
-            li a0, 0  # exit code
+            return self.linux_loader()
 
-            main:
+        code = self.base_loader()
+        code += self.init_int_registers()
 
-                call schedule_tests
+        if not self.featmgr.wysiwyg:
+            code += self.load_panic_address()
+        if self.featmgr.big_endian:
+            code += self.enable_big_endian()
+        if self.featmgr.csr_init or self.featmgr.csr_init_mask:
+            code += self.init_csr_code()
+        if self.featmgr.wysiwyg:
+            return code
 
-                ret
-
-            """
-
-        code = self.base_loader(wysiwyg=self.featmgr.wysiwyg, big_endian=big_endian)
         if self.featmgr.counter_event_path is not None:
             code += self.enable_counters(event_path=self.featmgr.counter_event_path)
 
-        # High level requirements for each privilege and paging modes
-        # * machine
-        #   * paging disabled
-        #   * do not switch to super
-        #   * identity mapping for all the page_mapping
-        #   * (temporary) set mcounteren to 0x2 -> enable time control
+        code += self.set_misa_bits()
+        code += self.set_mstatus()
 
-        # * super
-        #   * switch to super and stay in super all along
-        #   * paging enabled
-        #     * identity map code|data
-        #   * paging disabled
-        #     * identity mapping for all the page_mapping
-
-        # * user
-        #   * switch to super initially
-        #   * paging enabled
-        #     * identity map code|data
-        #     * enable paging
-        #     * switch to user in schedule_tests
-        #     * 'j passed|failed' => switch to super
-        #   * paging disabled
-        #     * identity mapping for all the page_mapping
-        #     * switch to user in schedule_tests
-        #     * 'j passed|failed' => switch to super
-
-        code += """
-
-        init_tests:
-            # Initialize test configuration like privilege
-            # We should be in Machine mode at this point
-            # Set MISA bits based on enabled features
-            csrr t0, misa  # Read current MISA value
-            """
-
-        # Add MISA bits based on enabled features
-        misa_bits = self.featmgr.get_misa_bits()
-        code += f"""
-            # OR in new MISA bits with existing value
-            li t1, 0x{misa_bits:x}
-            or t0, t0, t1
-            csrw misa, t0
-            csrr t1, misa  # Read back to verify
+        if not self.featmgr.disable_wfi_wait:
+            # RVTOOLS-4204 for mcounteren force enable
+            code += """
+        loader__enable_mcounteren:
+            li t0, 0x2
+            csrw mcounteren, t0
         """
 
-        code += """
-        cache_mhartid:
-        """
-        # No guarantee that s1 remains untouched, but it is assumed that the dest_csr will be left alone.
-        code += Routines.place_store_hartid(dest_csr="sscratch", work_reg="t0", priv_mode="M")
-        # if we are going to be in virtualized mode, then also update vsscratch csr
-        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
-            code += Routines.place_store_hartid(dest_csr="vsscratch", work_reg="t0", priv_mode="M")
+        if self.featmgr.feature.is_supported("f") or self.featmgr.feature.is_supported("d"):
+            code += self.init_fp_registers()
+        if self.featmgr.feature.is_supported("v"):
+            code += self.init_vector_registers()
+        code += self.hart_context_loader()
 
-        # Set mstatus.SUM, so we can access user pages from supervisor
-        mstatus_sum_set = "0x00040000"  # mstatus[SUM] = 1
-        code += f"""
-        set_mstatus_sum:
-            # Set mstatus.SUM=1, so we can access user pages from supervisor
-            li t0, {mstatus_sum_set}
-            csrrs t0, mstatus, t0
-
-        """
-
-        # Set mstatus.FS and VS to 11, so we can access user pages from supervisor
-        mstatus_fsvs_set = "0x2200"
-        # RVTOOLS-4204 for mcounteren force enable
-        code += f"""
-        set_mstatus_fsvs:
-            li t0, {mstatus_fsvs_set}
-            csrrs x0, mstatus, t0
-
-            {"" if self.featmgr.disable_wfi_wait else "li t0, 0x2"}
-            {"" if self.featmgr.disable_wfi_wait else "csrw mcounteren, t0"}
-
-            # Initialize FP and Vector registers if supported
-            {self.generate_fp_init_code() if self.featmgr.feature.is_supported("f") or self.featmgr.feature.is_supported("d") else ""}
-
-            # Initialize Vector registers if supported
-            {self.generate_vector_init_code() if self.featmgr.feature.is_supported("v") else ""}
-
-        """
-        # Setup pmacfg* if requested
         if self.featmgr.needs_pma:
             code += self.setup_pma()
-        # Setup pmpaddr*/cfg* if requested
         if self.featmgr.setup_pmp:
             code += self.setup_pmp()
-        # if self.featmgr.enable_secure_mode:
         if self.featmgr.secure_mode:
-            code += """
-              # .equ BIT_SWID, 0
-              .equ matp_csr, 0x7c7
-              # Set MATP.SWID=1, so we can access secure pages from supervisor
-              ori x1, x1, 0x1
-              # csrs	matp_csr, x1  #set swid bit in matp
-              csrs	0x7c7, x1  #set swid bit in matp
-            """
-        # Switch to supervisor if the test privilege is SUPER|USER
-        # We don't need to switch privilege if MACHINE
-        if self.priv_mode != RV.RiscvPrivileges.MACHINE:
-            # Setup medeleg, so we can handle all the exceptions at supervisor level since our
-            # OS is in supervisor page
+            code += self.setup_secure_mode()
 
-            medeleg_val = 0
-            if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
-                medeleg_val = 0xFFFFFFFFFFFFFFFF
+        # Handle menvcfg
+        if self.test_priv != RV.RiscvPrivileges.MACHINE:
+            code += self.setup_menvcfg()
 
-            if self.featmgr.medeleg != 0xFFFFFFFFFFFFFFFF:
-                medeleg_val = self.featmgr.medeleg
+        # Switch to handler privilege mode
+        if self.handler_priv != RV.RiscvPrivileges.MACHINE:
+            code += self.setup_trap_delegation()
+            code += self.setup_tvec()
 
-            # if self.featmgr.deleg_excp_to == 'super':
-            code += f"""
-                setup_medeleg:
-                    # _if we are in supervisor or user mode, we will handle all the exceptions in
-                    # supervisor mode
-                    li t0, 0x{medeleg_val:x}
-                    csrw medeleg, t0
-
-                    """
-
-            # Also setup intial value of mideleg
-            mideleg_val = 0
-
-            mode_enabled_interrupts = ""
-            if self.featmgr.interrupts_enabled:
-                mode_enabled_interrupts = "ENABLE_MIE"
-
-            if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
-                mideleg_val = (1 << 9) | (1 << 5) | (1 << 1) | (1 << 11) | (1 << 7) | (1 << 3)  # Enables SEI, STI, SSI and MEI, MTI, MSI
-                if self.featmgr.interrupts_enabled:
-                    mode_enabled_interrupts = "ENABLE_SIE # Delegating to supervisor mode, enabling interrupts to supervisor mode by defualt"
-
-            if self.featmgr.mideleg != 0xFFFFFFFFFFFFFFFF:
-                hideleg_val = self.featmgr.mideleg
-
-            code += f"""
-                setup_mideleg:
-                    {mode_enabled_interrupts}
-                    li t0, 0x{mideleg_val:x}
-                    csrw mideleg, t0
-                    """
-
-            # Handle menvcfg
-            menvcfg_val = 1 << 63
-            if self.featmgr.disable_wfi_wait:
-                menvcfg_val = 0  # FIXME: temporarily enable stce at all times to deal with stimecmp. RVTOOLS-4204
-            # Enable svpbmt when randomization kicks in for pbmp NCIO
-            if self.featmgr.pbmt_ncio:
-                menvcfg_val |= 1 << 62
-            # Enable svadu when randomization kicks in for ad-bit randomization
-            if self.featmgr.svadu:
-                menvcfg_val |= 1 << 61
-            if menvcfg_val != 0:
-                code += f"""
-                    loader_setup_menvcfg:
-                        li t0, 0x{menvcfg_val:x}
-                        csrs menvcfg, t0
-                        """
-
-            if self.featmgr.menvcfg != 0:
-                menvcfg_val |= self.featmgr.menvcfg
-
-                code += f"""
-                    setup_menvcfg:
-                        li t0, 0x{menvcfg_val:x}
-                        csrw menvcfg, t0
-                    """
-
-            # Also setup MTVEC with excp_entry
-            code += f"""
-                la t0, {self.trap_entry_label}
-                csrw mtvec, t0
-                """
-
-            # if smstateen is requested, then we need to setup mstateen0 to allow hstateen writes from hypervisor
-            if self.featmgr.setup_stateen:
-                code += """
-                    loader_setup_mstateen:
-                        li t0, 1<<63 | 1<<62
-                        csrw mstateen0, t0
-                    """
-
-            # Clear satp before switching to supervisor mode
-            code += "csrw satp, x0\n"
-
-            # If we are in virtualized mode then we need to switch to hypervisor and execute
-            # everything below in VS-mode, since this is almost the OS code
             if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
-                code += "csrw vsatp, x0\n"  # Clear satp before switching to VS mode
+                code += "\nloader__switch_to_vs:\n"
+                code += "csrw satp, x0\n"
+                code += "csrw vsatp, x0\n"  # Clear satp registers before switching to VS mode
                 # Switch to HS mode
                 code += self.switch_test_privilege(
                     from_priv=RV.RiscvPrivileges.MACHINE,
@@ -301,134 +114,60 @@ class Loader(AssemblyGenerator):
                     jump_label="enter_hypervisor",
                     switch_to_vs=True,
                 )
-
             else:
+                # Clear satp before switching to supervisor mode
+                code += "\nloader__switch_to_super:\n"
+                code += "csrw satp, x0\n"
                 code += self.switch_test_privilege(
                     from_priv=RV.RiscvPrivileges.MACHINE,
-                    to_priv=RV.RiscvPrivileges.SUPER,
-                    jump_label="post_switch_to_super",
+                    to_priv=self.handler_priv,
+                    jump_label="loader__post_switch_to_handler",
                 )
+            code += "\nloader__post_switch_to_handler:\n"
+        else:
+            # If we are in machine mode, we need to setup mtvec to point to the trap handler
+            code += self.setup_tvec()
 
-        elif self.featmgr.interrupts_enabled:
-            code += "ENABLE_MIE\n"  # still want to enable interrupts in loader if in machine mode
-
-        # FIXME: these nops get pasted into the assembly file with inconsistent indentation.
-        code += "nop\n"
-        code += "nop\n"
-        code += "nop\n"
-        code += "nop\n"
-        code += "post_switch_to_super:\n"
-
-        # _If we are in user mode and paging is enabled, we need to use ECALL to get in and out
-        # of the USER <-> SUPER modes between test and OS code
-        if not self.featmgr.bringup_pagetables:
-            if self.priv_mode != RV.RiscvPrivileges.MACHINE:
-                xtvec = "stvec"
-            else:
-                xtvec = "mtvec"
-
-            interrupt_entry_code = ["# Base Address to jump to during trap", f"setup_{xtvec}:"]
-            if self.featmgr.user_interrupt_table:
-                log.warning("Using user_interrupt_table is deprecated. Use ;#vectored_interrupt(index, label) in source code instead.")
-                interrupt_entry_code.extend(["li t0, user_interrupt_table_addr", "ld t0, 0(t0)"])
-            else:
-                interrupt_entry_code.append(f"la t0, {self.trap_entry_label}")
-            interrupt_entry_code.append(f"csrw {xtvec}, t0")
-            code += "\n".join(interrupt_entry_code)
-
-        # Handle menvcfg
-        senvcfg_val = 0
+        # Handle senvcfg
         if self.featmgr.senvcfg != 0:
-            senvcfg_val = self.featmgr.senvcfg
-
             code += f"""
-                setup_senvcfg:
-                    li t0, {senvcfg_val}
+                load__setup_senvcfg:
+                    li t0, {self.featmgr.senvcfg}
                     csrw senvcfg, t0
 
                     """
 
-        # If paging is enabled, switch to supervisor and enable paging
+        # Enable paging, must be in M / S to enable paging
         if self.paging_mode != RV.RiscvPagingModes.DISABLE:
             code += self.enable_paging()
 
-        # Jump to schedule the tests in opsys
-        schedule_label = "schedule_tests"
-
-        # Since --bringup_pagetables imply wysiwyg mode, we don't need to schedule the tests
-        # Also, jump to the first test after setting up configuration
-        if self.featmgr.bringup_pagetables:
-            schedule_label = list(self.pool.discrete_tests.keys())[0]
-        code += f"""
-init_mepc_label:
-    j {schedule_label}
-
-{self.kernel_panic(name="loader_panic")}
-        """
+        if self.test_priv == RV.RiscvPrivileges.USER:
+            # Need to be in M mode to schedule tests
+            code += "    li x31, 0xf0000001\n"
+            code += "    ecall\n"
+        code += "\nloader__done:\n"
+        code += f"    j {self.scheduler_start_label}"
+        code += "\n" + self.kernel_panic(name="loader_panic", cause=self.panic_cause)
 
         return code
 
-    def setup_pmp(self) -> str:
-        "Generate code to setup PMP registers"
-        # Implement a queue to keep track of pmp numbers from 0-63
-        log.info(f"Setting up PMPs: {self.pool.pmp_regions}")
+    # Loader code
+    def linux_loader(self) -> str:
+        "Returns the loader used for linux mode"
+        return f"""
+.section .text
+.global _start
+_start:
+call main
+li a7, 93 # SYS_exit
+li a0, 0  # exit code
 
-        code = ""
-        for pmp in self.pool.pmp_regions.encode():
-            for addr in pmp.addr:
-                addr_start, addr_size = addr.range()
+main:
+    call {self.scheduler_init_label}
+    ret
+"""
 
-                code += f"""
-                # Setup {addr.name} covering [0x{addr_start:x}, 0x{addr_start + addr_size:x}] A={addr.addr_matching.name}
-                li t0, 0x{addr.address:x}
-                csrw {addr.name}, t0
-                """
-            code += f"""
-            # Setup {pmp.cfg.name} for {pmp.addr[0].name} to {pmp.addr[-1].name}
-            li t0, 0x{pmp.cfg.value:x}
-            csrw {pmp.cfg.name}, t0
-            """
-        return code
-
-    def setup_pma(self) -> str:
-        "Generate code to setup PMA registers"
-        pmacfg_start_addr = 0x7E0
-        code = ""
-        # Setup default pmas for dram
-        if self.pool.pma_dram_default:
-            pma_dram = self.pool.pma_dram_default
-            pma_addr = 0x7E0 + (self.featmgr.num_pmas - 1)
-            code += f"""
-            setup_pma_dram:
-                # Setting up dram pma with {pma_dram}
-                li t0, 0x{pma_dram.generate_pma_value():x}
-                csrw 0x{pma_addr:x}, t0
-            """
-
-        # Setup pmas for io
-        if self.pool.pma_io_default:
-            pma_io = self.pool.pma_io_default
-            pma_addr = 0x7E0 + (self.featmgr.num_pmas - 2)
-            code += f"""
-            setup_pma_io:
-                # Setting up io pma with {pma_io}
-                li t0, 0x{pma_io.generate_pma_value():x}
-                csrw 0x{pma_addr:x}, t0
-            """
-
-        if self.pool.pma_regions:
-            for i, region_name in enumerate(self.pool.pma_regions):
-                region = self.pool.pma_regions[region_name]
-                pmacfg_addr = pmacfg_start_addr + i
-                code += f"""
-                setup_pma{i}:
-                    # Setting up pmacfg{i} with {region}
-                    li t0, 0x{region.generate_pma_value():x}
-                    csrw 0x{pmacfg_addr:x}, t0
-                """
-        return code
-
-    def base_loader(self, wysiwyg: bool = False, big_endian: bool = False) -> str:
+    def base_loader(self) -> str:
         """
         Basic loader, initialize integer registers. Optionally allocated stack pointer and big-endian mode.
         """
@@ -440,67 +179,96 @@ init_mepc_label:
 
 _start:
 """
-        if wysiwyg:
-            code += "nop\n"
-        else:
-            code += """
-# load panic address to mtvec
-    la t0, loader_panic
-    csrw mtvec, t0
-    nop
-"""
 
-        # Initialize all integer registers to 0
-        code += "init_int_register:\n"
-        for i in range(1, 32):
-            code += f"    li x{i}, 0x0\n"
+        return code
 
-        # Stack doesn't get allocated in generator during wysiwyg
-        if not wysiwyg:
-            if self.featmgr.num_cpus > 1:
-                code += """
-                    calc_stack_pointer:
-                    # Calculate hart's stack os_stack_start = os_stack + (page_size*hartID)
-                    # Assumes stack size of 0x1000. Later this should be set with the equates, e.g.
-
-                    csrr sp, mhartid
-                    beqz sp, load_stack_pointer
-
-                    li t1, 0x1000
-                    # Multiply 0x1000 * hartid, avoids using M instructions in case unsupported
-                    mult_stack_pointer:
-                        add t0, t0, t1
-                        addi sp, sp, -1
-                        bnez sp, mult_stack_pointer
-                    load_stack_pointer:
-                        li sp, os_stack
-                        sub sp, sp, t0
-                        li t0, 0
-                        li t1, 0
-                """
-            else:
-                # When running single cpu, we dont do the stack arithmetic based on hartid. This allows for
-                # single hart runs to run on any hart
-                code += """
-                    load_stack_pointer:
-                        li sp, os_stack
-                    """
-
-        if big_endian:
-            mstatus_big_endian_set = "0x0000003000000040"
-            code += f"""
+    # env setup code
+    def enable_big_endian(self) -> str:
+        "Generate code to enable big-endian mode"
+        mstatus_big_endian_set = "0x0000003000000040"
+        return f"""
             set_mstatus_bigendian:
                 # set mstatus.MBE == 1, mstatus.SBE==1, mstatus.UBE == 1 to automatically switch to big-endian mode
                 li t0, {mstatus_big_endian_set}
                 csrrs t0, mstatus, t0
             """
 
-        # Initialize CSRs based on command line arguments
-        if self.featmgr.csr_init or self.featmgr.csr_init_mask:
-            code += self.generate_csr_init_code()
+    def enable_counters(self, event_path: Path) -> str:
+        """Assume you are in machine mode.
+
+        Steps:
+
+        - generate event ID
+        - assign event ID to hpmcounter
+        - enable counters
+
+        These are all handled within counters package of dtest lib.
+        """
+        code = ""
+        code += "\n        counter_enable:\n"
+        code += self.counters.init_regs(event_path=event_path)
         return code
 
-    def enable_paging(self):
+    def set_misa_bits(self):
+        "Generate code to set MISA bits. Adds MISA bits based on enabled features"
+        code = f"""
+loader__set_misa_bits:
+    li t0, 0x{self.featmgr.get_misa_bits():x} # OR in new MISA bits with existing value
+    csrrs t0, misa, t0
+            """
+
+        return code
+
+    def set_mstatus(self) -> str:
+        """
+        Generate code to set mstatus.
+        Sets mstatus.SUM=1, so we can access user pages from supervisor
+        Conditionally sets mstatus.FS and mstatus.VS to 01 and 01, so we can access user pages from supervisor
+        """
+        code = "\n# Set mstatus.SUM=1, enables accessing user pages from supervisor"
+        mstatus_value = 1 << 18  # Set mstatus.SUM, so we can access user pages from supervisor
+
+        if self.featmgr.feature.is_supported("f") or self.featmgr.feature.is_supported("d"):
+            mstatus_value |= (0b01) << 13  # Set mstatus.FS = 01
+            code += "\n# Set mstatus.FS = 01"
+        if self.featmgr.feature.is_supported("v"):
+            mstatus_value |= (0b01) << 9  # Set mstatus.VS = 11
+            code += "\n# Set mstatus.VS = 01"
+
+        if self.featmgr.interrupts_enabled:
+            mstatus_value |= 1 << 3  # Enable interrupts
+            code += "\n# Interrupts enabled"
+            if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
+                mstatus_value |= 1 << 1  # Enable supervisor
+                code += "\n# Supervisor interrupts enabled"
+
+        code += f"""
+loader__set_mstatus:
+    li t0, 0x{mstatus_value:x}
+    csrrs t0, mstatus, t0
+"""
+        return code
+
+    def setup_secure_mode(self) -> str:
+        """
+        Generate code to setup secure mode.
+
+        .. note::
+
+            Uses custom CSR, matp.
+            Future runtime improvements need to make this flexible where users can define secure mode.
+            Alternatively, users can avoid using secure mode.
+        """
+        code = """
+        loader__setup_secure_mode:
+            .equ matp_csr, 0x7c7
+            # Set MATP.SWID=1, so we can access secure pages from supervisor
+            ori x1, x1, 0x1
+            csrs	0x7c7, x1  #set swid bit in matp
+            """
+        return code
+
+    def enable_paging(self) -> str:
         enable_paging_code = ""
         os_map = self.pool.get_page_map("map_os")
         os_sptbr = os_map.sptbr
@@ -527,8 +295,7 @@ _start:
         satp_val |= common.set_bits(original_value=satp_val, bit_hi=63, bit_lo=60, value=mode_val)
 
         enable_paging_code += f"""
-        # PAGING_SETUP_START
-        enable_paging:
+        loader__enable_paging:
             # Enable paging by writing CSR SATP.MODE = {mode_name} (1)
             ;os_sptbr = 0x{os_sptbr:x}
             li x1, 0x{satp_val:x}
@@ -539,73 +306,181 @@ _start:
         # When MPRV=1, load and store memory addresses are translated and protected, and endianness is applied, as though the current privilege mode were set to MPP.
         # Need to also set MPP to S
         # This gets reset when mRET is executed
-        if self.priv_mode == RV.RiscvPrivileges.MACHINE:
+        if self.test_priv == RV.RiscvPrivileges.MACHINE:
             enable_paging_code += """
                 li t0, ((1 << 17) | (1 << 11))    # Set MPRV=1 and MPP=01 (supervisor)
                 csrrs x0, mstatus, t0
                 li t0, (1<<12) # Clear mstatus[12]
                 csrrc x0, mstatus, t0
             """
-        enable_paging_code += """\npaging_enabled:  # Adding this label for LS testbench to jump to
-            nop
-        # PAGING_SETUP_END
+        return enable_paging_code + "\n"
+
+    def hart_context_loader(self) -> str:
         """
+        Code for loading scratch register with hart context.
+        Places hart context pointer in scratch register(s).
 
-        return enable_paging_code
+        Some configurations have just M, so can't be greedy with scratch registers (M + S)
+        But if we can write to S then supervisor-level code can use S scratch register and avoid ecalls
 
-    def switch_to_super(self, label_to_jump):
-        """Assume you are in machine mode and you are switching to supervisor mode.
+        Since test scheduler runs in M mode if test is M/U, or S mode if test is S mode,
+        need to store in whatever scratch register is accessible by scheduler
 
-        Steps:
-
-        - update mpec csr with PC where you want to jump after the mret
-        - write mstatus.mpp[12:11] = 'b01
-        - execute mret => switch to supervisor and jump to pc=mpec
+        FIXME: If it's possilbe to get the scheduler and the exception handler to run in the same privilege mode that would be great :)
+        It would mean that we only need one scratch register for all Runtime code
         """
-        s = ""
-        s += f"""
-            # Switch to supervisor first
-            # Setup MEPC for the return label of MRET
-            la x1, {label_to_jump}
-            csrw mepc, x1
-        """
+        scratch_regs = [self.scratch_reg]
+        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
+            scratch_regs.append("vsscratch")
 
-        mstatus_mpp = "0x00001000"  # mstatus[12:11] = 01
+        if self.test_priv == RV.RiscvPrivileges.SUPER:
+            scratch_regs.append("sscratch")
+        return "\n" + self.variable_manager.initialize(scratch_regs=scratch_regs) + "\n"
 
-        s += f"""
-            li x1, {mstatus_mpp}
-            csrrc x0, mstatus, x1
+    def setup_pmp(self) -> str:
+        "Generate code to setup PMP registers"
+        # Implement a queue to keep track of pmp numbers from 0-63
+        log.info(f"Setting up PMPs: {self.pool.pmp_regions}")
 
-            # After the execution of mret, we switch to correct privilege
-            # mode and jump to the next instruction
-            mret
-        """
-
-        return s
-
-    def enable_counters(self, event_path: Path) -> str:
-        """Assume you are in machine mode.
-
-        Steps:
-
-        - generate event ID
-        - assign event ID to hpmcounter
-        - enable counters
-
-        These are all handled within counters package of dtest lib.
-        """
         code = ""
-        if event_path is None:
-            raise Exception("Counters should be enabled with event path. No event_path pased in with enable_counters")
-        code += "\n        counter_enable:\n"
-        code += self.counters.init_regs(event_path=event_path)
+        for pmp in self.pool.pmp_regions.encode():
+            for addr in pmp.addr:
+                addr_start, addr_size = addr.range()
+
+                code += f"""
+                # Setup {addr.name} covering [0x{addr_start:x}, 0x{addr_start + addr_size:x}] A={addr.addr_matching.name}
+                li t0, 0x{addr.address:x}
+                csrw {addr.name}, t0
+                """
+            code += f"""
+            # Setup {pmp.cfg.name} for {pmp.addr[0].name} to {pmp.addr[-1].name}
+            li t0, 0x{pmp.cfg.value:x}
+            csrw {pmp.cfg.name}, t0
+            """
         return code
 
-    def generate_csr_init_code(self):
-        """Generate code to initialize CSRs based on command line arguments."""
+    def setup_pma(self) -> str:
+        "Generate code to setup PMA registers"
+        pmas = self.pool.pma_regions.consolidated_entries()
+        if not pmas:
+            return ""
+
+        if len(pmas) > self.featmgr.num_pmas:
+            raise ValueError(f"Number of PMAs requested ({len(pmas)}) is less than the number of PMAs available ({self.featmgr.num_pmas})")
+
+        pmacfg_start_addr = 0x7E0
+        code = "\nloader__setup_pma:\n"
+        pma_addr = pmacfg_start_addr
+        log.info("Setting up PMAs")
+        for i, pma in enumerate(pmas):
+            code += f"""
+                # Setting up pmacfg{i} for {str(pma)}
+                li t0, 0x{pma.generate_pma_value():x}
+                csrw 0x{pma_addr:x}, t0
+            """
+            pma_addr += 1
+        return code
+
+    def setup_trap_delegation(self) -> str:
+        """
+        Generate code to setup exception and interrupt delegation.
+
+        FIXME: Interrupts should be enabled by default.
+        """
+        medeleg_val = 0
+        if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
+            # delegate all exceptions to supervisor
+            medeleg_val = 0xFFFFFFFFFFFFFFFF
+
+        if self.featmgr.medeleg != 0xFFFFFFFFFFFFFFFF:
+            medeleg_val = self.featmgr.medeleg
+        code = f"""
+loader__setup_medeleg:
+    li t0, 0x{medeleg_val:x}
+    csrw medeleg, t0
+
+loader__setup_mideleg:"""
+
+        mideleg_val = 0
+        if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
+            mideleg_val = (1 << 9) | (1 << 5) | (1 << 1) | (1 << 11) | (1 << 7) | (1 << 3)  # Enables SEI, STI, SSI and MEI, MTI, MSI
+        code += f"""
+    li t0, 0x{mideleg_val:x}
+    csrw mideleg, t0
+                """
+        return code
+
+    def setup_menvcfg(self) -> str:
+        """
+        Generate code to setup menvcfg.
+        Configuration's menvcfg is OR'd with default menvcfg.
+        """
+
+        code = "\nloader__setup_menvcfg:"
+        menvcfg_val = 1 << 63  # Enable stce by default
+        if self.featmgr.disable_wfi_wait:
+            menvcfg_val = 0  # FIXME: temporarily enable stce at all times to deal with stimecmp. RVTOOLS-4204
+        if self.featmgr.pbmt_ncio:
+            menvcfg_val |= 1 << 62  # Enable svpbmt when randomization kicks in for pbmp NCIO
+        if self.featmgr.svadu:
+            menvcfg_val |= 1 << 61  # Enable svadu when randomization kicks in for ad-bit randomization
+
+        if self.featmgr.menvcfg != 0:
+            menvcfg_val |= self.featmgr.menvcfg
+        if menvcfg_val != 0:
+            code += f"""
+                    li t0, 0x{menvcfg_val:x}
+                    csrs menvcfg, t0
+                    """
+        return code
+
+    def setup_tvec(self) -> str:
+        """
+        Generate code to setup mtvec and/or stvec.
+
+        If handler privilege is super, set stvec. mtvec still points to loader panic
+        If handler privilege is machine, set mtvec.
+
+        If running the code in VS mode, will be delegating exceptions to virtual supervior .
+        Need to point vstvec to trap handler, and mtvec / stvec to loader panic
+        """
+        code = "\nloader__setup_tvec:\n"
+
+        if self.featmgr.user_interrupt_table:
+            log.error("Using user_interrupt_table is deprecated. Use ;#vectored_interrupt(index, label) in source code instead.")
+            code += "li t0, user_interrupt_table_addr\n"
+            code += "ld t0, 0(t0)\n"
+        else:
+            code += f"la t0, {self.trap_entry_label}\n"
+        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
+            # delegating exceptions to VS; runtime and test should be staying in this mode
+            # M and HS modes shouldn't be getting any exceptions
+            code += "csrw vstvec, t0\n"
+        elif self.handler_priv == RV.RiscvPrivileges.SUPER:
+            code += "csrw stvec, t0\n"
+        else:
+            code += "csrw mtvec, t0\n"
+        return code
+
+    def setup_mstateen(self) -> str:
+        """
+        Generate code to setup mstateen.
+        If smstateen is requested, need to setup mstateen0 to allow hstateen writes from hypervisor
+
+        """
+        code = """
+loader__setup_mstateen:
+    li t0, 1<<63 | 1<<62
+    csrw mstateen0, t0"""
+
+        return code
+
+    # register initialization code
+    def init_csr_code(self):
+        """Generate code to initialize CSRs."""
         if not self.featmgr.csr_init and not self.featmgr.csr_init_mask:
             return ""
-        code = "\n# Initialize CSRs based on command line arguments"
+        code = "\n# Initialize CSRs"
         code += "\n\tinit_cmdline_csrs:"
 
         # Handle direct CSR writes
@@ -651,90 +526,54 @@ _start:
 
         return code
 
-    def generate_fp_init_code(self):
-        """Generate FP register initialization code if FP extensions are supported"""
-        if not (self.featmgr.feature.is_supported("f") or self.featmgr.feature.is_supported("d")):
-            return ""
+    def init_int_registers(self) -> str:
+        "generates code to initialize all registers to 0"
+        code = "loader__init_int_register:\n"
+        for i in range(1, 32):
+            code += f"    li x{i}, 0x0\n"
+        return code
 
-        return """
-            # Initialize FP registers
-            li t0, check_excp
-            fld f0 , 0(t0)
-            fld f1 , 0(t0)
-            fld f2 , 0(t0)
-            fld f3 , 0(t0)
-            fld f4 , 0(t0)
-            fld f5 , 0(t0)
-            fld f6 , 0(t0)
-            fld f7 , 0(t0)
-            fld f8 , 0(t0)
-            fld f9 , 0(t0)
-            fld f10, 0(t0)
-            fld f11, 0(t0)
-            fld f12, 0(t0)
-            fld f13, 0(t0)
-            fld f14, 0(t0)
-            fld f15, 0(t0)
-            fld f16, 0(t0)
-            fld f17, 0(t0)
-            fld f18, 0(t0)
-            fld f19, 0(t0)
-            fld f20, 0(t0)
-            fld f21, 0(t0)
-            fld f22, 0(t0)
-            fld f23, 0(t0)
-            fld f24, 0(t0)
-            fld f25, 0(t0)
-            fld f26, 0(t0)
-            fld f27, 0(t0)
-            fld f28, 0(t0)
-            fld f29, 0(t0)
-            fld f30, 0(t0)
-            fld f31, 0(t0)
+    def init_fp_registers(self, use_fmv: bool = False):
         """
+        Generate FP register initialization code if FP extensions are supported.
+        Default behavior is to load from zero_data (poitner to a zeroed out double word in memory)
 
-    def generate_vector_init_code(self):
+        :param use_fmv: use fmv.d.x to initialize FP registers instead of an fld. Some implementations might prefer fld if it's quicker than casting
+        """
+        if not (self.featmgr.feature.is_supported("f") or self.featmgr.feature.is_supported("d")):
+            raise RuntimeError("FP extensions are not supported but init_fp_registers is called")
+        code = ["# Initialize FP and Vector registers if supported", "loader__init_fp_registers:"]
+
+        if not use_fmv:
+            code.append(self.zero_data.load_immediate("t0"))
+        for i in range(32):
+            if use_fmv:
+                code.append(f"fmv.d.x   f{i}, x0")
+            else:
+                code.append(f"fld   f{i}, 0(t0)")
+        return "\n" + "\n".join(code) + "\n"
+
+    def init_vector_registers(self):
         """Generate vector register initialization code if vector extension is supported"""
         if not self.featmgr.feature.is_supported("v"):
-            return ""
+            raise RuntimeError("Vector extension is not supported but init_vector_registers is called")
+        code = ["# Initialize Vector Registers", "loader__init_vector_registers:"]
+        code += [
+            "li x4, 0x0",
+            "li x5, 0x4",
+            "li x6, 0xd8",
+            "vsetvl x4,x5,x6",
+        ]
+        for i in range(32):
+            code.append(f"vmv.v.x v{i},  x0")
+        return "\n" + "\n".join(code) + "\n"
 
+    # panic code
+    def load_panic_address(self) -> str:
+        "load panic address to mtvec. If loader error, fails immediately instead of infinte reset-0 loop"
         return """
-            # Initialize Vector Registers
-            li x4, 0x0
-            li x5, 0x4
-            li x6, 0xd8
-            li t0, check_excp
-            vsetvl x4,x5,x6
-            vmv.v.x v0,  x0
-            vmv.v.x v1,  x0
-            vmv.v.x v2,  x0
-            vmv.v.x v3,  x0
-            vmv.v.x v4,  x0
-            vmv.v.x v5,  x0
-            vmv.v.x v6,  x0
-            vmv.v.x v7,  x0
-            vmv.v.x v8,  x0
-            vmv.v.x v9,  x0
-            vmv.v.x v10, x0
-            vmv.v.x v11, x0
-            vmv.v.x v12, x0
-            vmv.v.x v13, x0
-            vmv.v.x v14, x0
-            vmv.v.x v15, x0
-            vmv.v.x v16, x0
-            vmv.v.x v17, x0
-            vmv.v.x v18, x0
-            vmv.v.x v19, x0
-            vmv.v.x v20, x0
-            vmv.v.x v21, x0
-            vmv.v.x v22, x0
-            vmv.v.x v23, x0
-            vmv.v.x v24, x0
-            vmv.v.x v25, x0
-            vmv.v.x v26, x0
-            vmv.v.x v27, x0
-            vmv.v.x v28, x0
-            vmv.v.x v29, x0
-            vmv.v.x v30, x0
-            vmv.v.x v31, x0
-        """
+loader__load_panic_address:
+    la t0, loader_panic
+    csrw mtvec, t0
+    nop
+"""

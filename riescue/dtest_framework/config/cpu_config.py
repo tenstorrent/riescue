@@ -80,7 +80,7 @@ class CpuConfig:
         """
 
         memory = Memory.from_dict(cfg.get("mmap", {}))
-        features = FeatureDiscovery.from_dict_with_overrides(cfg.get("features", {}), feature_overrides)
+        features = FeatureDiscovery.from_dict_with_overrides(cfg, feature_overrides)
         tg = TestGeneration.from_dict(cfg.get("test_generation", {}))
 
         # reset PC might be encoded as a string ``0x8000_0000`` or direct integer ``0`` ; need to support both

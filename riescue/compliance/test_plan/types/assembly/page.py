@@ -39,8 +39,10 @@ class Page(AssemblyBase):
     flags: Optional[PageFlags] = PageFlags.VALID | PageFlags.READ | PageFlags.WRITE | PageFlags.EXECUTE
     page_cross_en: bool = False
     num_pages: Optional[int] = 1
-    and_mask: str = "0xff_ffff_f000"  # Mask for generating memory addresses
+    and_mask: str = "0xffff_ffff_f000"  # Mask for generating memory addresses
     or_mask: str = "0x00000000"  # unused, will be implemented later
+    modify: bool = False
+    buffer_page: bool = True  #: Indicates that the memory isn't shared with other tests and memory after shouldn't be accessed. Adds a buffer page after the memory.
 
     def __post_init__(self):
         self.phys_name = f"{self.name}_phys"
@@ -48,13 +50,6 @@ class Page(AssemblyBase):
     def emit(self) -> str:
         "Generate code needed to request memory allocation"
         code: list[str] = []
-        and_mask = self.and_mask if self.and_mask else "0xff_ffff_f000"
-        if self.start_addr is None:
-            code.append(f";#random_addr(name={self.name},  type=linear, size=0x{self.size:x}, and_mask={and_mask})")
-            code.append(f";#random_addr(name={self.phys_name},  type=physical, size=0x{self.size:x}, and_mask={and_mask})")
-        else:
-            code.append(f";#reserve_memory(name={self.name}, start_addr=0x{self.start_addr:x},  type=linear, size=0x{self.size:x})")
-            code.append(f";#reserve_memory(name={self.phys_name}, start_addr=0x{self.start_addr:x},  type=physical, size=0x{self.size:x})")
 
         page_flags = []
         if self.flags is not None:
@@ -82,6 +77,8 @@ class Page(AssemblyBase):
                 page_flags.append("a=1")
             if PageFlags.DIRTY in self.flags:
                 page_flags.append("d=1")
+        if self.modify:
+            page_flags.append("modify_pt=1")
         page_flags_str = ", ".join(page_flags)
 
         # Generate multiple page mappings based on num_pages
@@ -120,8 +117,36 @@ class Page(AssemblyBase):
             # Single page - use configured page_size or default
             if self.page_size is not None:
                 first_page_size_str = self.page_size.name.lower().replace("size_", "") + "b"
+                first_page_size_bytes = page_size_bytes
             else:
                 first_page_size_str = "4kb"
+                first_page_size_bytes = PageSize.SIZE_4K.value
+
+        # Choose alignment mask based on the computed first page size (after upsizing),
+        # so the base VA/PA are aligned correctly for superpages.
+        if first_page_size_bytes == PageSize.SIZE_256T.value:
+            and_mask = "0xffff_0000_0000_0000"
+        elif first_page_size_bytes == PageSize.SIZE_512G.value:
+            and_mask = "0xffff_ff80_0000_0000"
+        elif first_page_size_bytes == PageSize.SIZE_1G.value:
+            and_mask = "0xffff_c000_0000"
+        elif first_page_size_bytes == PageSize.SIZE_2M.value:
+            and_mask = "0xff_ffe0_0000"
+        elif self.modify:
+            and_mask = "0xffff_ffff_ffff_f000"
+        else:
+            # default to 4KB alignment
+            and_mask = "0xffff_ffff_f000"
+
+        size = self.size
+        if self.buffer_page:
+            size += 0x1000  # just make the VM a bit larger than the actual memory, and don't map it
+        if self.start_addr is None:
+            code.append(f";#random_addr(name={self.name},  type=linear, size=0x{size:x}, and_mask={and_mask})")
+            code.append(f";#random_addr(name={self.phys_name},  type=physical, size=0x{self.size:x}, and_mask={and_mask})")
+        else:
+            code.append(f";#reserve_memory(name={self.name}, start_addr=0x{self.start_addr:x},  type=linear, size=0x{size:x})")
+            code.append(f";#reserve_memory(name={self.phys_name}, start_addr=0x{self.start_addr:x},  type=physical, size=0x{self.size:x})")
 
         for i in range(pages_to_generate):
             if i == 0:

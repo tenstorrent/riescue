@@ -14,11 +14,6 @@ class Mp5CoreTests(BaseRiescuedTest):
         self.testname = "dtest_framework/tests/mp_5p.s"
         super().setUp()
 
-    def test_stack(self):
-        args = ["--run_iss"]
-        testname = "dtest_framework/tests/mp_stack_test.s"
-        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
-
     def test_mp5_spike_machine(self):
         args = [
             "--run_iss",

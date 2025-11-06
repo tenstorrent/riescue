@@ -218,30 +218,13 @@ class AssemblyWriter:
 
             parsed_line = line.strip()
             if parsed_line.startswith(";#test_passed"):
-                if self.featmgr.priv_mode == RV.RiscvPrivileges.USER:
-                    replaced_lines = [
-                        "li x31, 0xf0000001  # Test Passed; Schedule test",
-                        "ecall",
-                    ]
-                else:
-                    replaced_lines = [
-                        "li t0, os_passed_addr",
-                        "ld t1, 0(t0)",
-                        "jr t1",
-                    ]
+                # runtime should probably be the one generating this code
+                # maybe make a public method on runtime to generate this code.
+                replaced_lines = self.runtime.test_passed()
+
                 line = line + "\n\t" + "\n\t".join(replaced_lines)
             if parsed_line.startswith(";#test_failed"):
-                if self.featmgr.priv_mode == RV.RiscvPrivileges.USER:
-                    replaced_lines = [
-                        "li x31, 0xf0000002  # Test Failed; End test with fail",
-                        "ecall",
-                    ]
-                else:
-                    replaced_lines = [
-                        "li t0, os_failed_addr",
-                        "ld t1, 0(t0)",
-                        "jr t1",
-                    ]
+                replaced_lines = self.runtime.test_failed()
                 line = line + "\n\t" + "\n\t".join(replaced_lines)
 
             parsed_lines.append(line)

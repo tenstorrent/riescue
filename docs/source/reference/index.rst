@@ -9,5 +9,6 @@ Complete reference material for RiESCUE tools, organized by type of information.
 
    python_api/index
    riescue_test_file/index
+   riescue_runtime/index
    config/index
 

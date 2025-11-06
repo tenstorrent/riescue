@@ -67,7 +67,7 @@ class BasicTest(BaseRiescueCTest):
         bringup_json = self.test_dir / "bringup.json"
         bringup_test = {
             "arch": "rv64",
-            "include_extensions": ["m_ext", "f_ext"],
+            "include_extensions": ["m_ext"],
             "include_groups": [],
             "include_instrs": [],
             "exclude_groups": [],
@@ -91,7 +91,7 @@ class BasicTest(BaseRiescueCTest):
         bringup_json = self.test_dir / "bringup.json"
         bringup_test = {
             "arch": "rv64",
-            "include_extensions": ["m_ext", "f_ext"],
+            "include_extensions": ["m_ext"],
             "include_groups": [],
             "include_instrs": [],
             "exclude_groups": [],

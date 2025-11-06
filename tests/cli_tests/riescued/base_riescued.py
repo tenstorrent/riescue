@@ -96,7 +96,8 @@ class BaseRiescuedTest(unittest.TestCase):
         for i in range(iterations):
             with self.subTest(seed=i):
                 seed = str(i + starting_seed)
-                command = ["--testname", testname, "--run_dir", str(self.test_dir)] + cli_args + ["--seed", seed]
+                test_dir = self.test_dir / f"seed_{seed}"
+                command = ["--testname", testname] + cli_args + ["--seed", seed] + ["--run_dir", str(test_dir)]
                 msg = f"test \n\t./riescued.py {' '.join(str(c) for c in command)}"
                 print("Running " + msg)
                 result = RiescueD.run_cli(args=command)

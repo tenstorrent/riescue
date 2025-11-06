@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Optional, Union
 
 from .base import BaseMode
-from riescue.compliance.src.riscv_instr_generator import InstrGenerator
-from riescue.compliance.src.riscv_test_generator import TestGenerator
+from riescue.compliance.src.instr_generator import InstrGenerator
+from riescue.compliance.src.test_generator import TestGenerator
 from riescue.compliance.config import ResourceBuilder, Resource
 from riescue.compliance.src.comparator import Comparator
-from riescue.compliance.src.riscv_instr_builder import InstrBuilder
+from riescue.compliance.src.instr_builder import InstrBuilder
 from riescue.riescued import RiescueD
 from riescue.lib.toolchain import Spike, Whisper, Toolchain
 from riescue.lib.rand import RandNum
@@ -20,7 +20,7 @@ from riescue.lib.rand import RandNum
 log = logging.getLogger(__name__)
 
 
-class BringupMode(BaseMode):
+class BringupMode(BaseMode[Resource]):
     """
     Runs RiescueC Test Plan generation flow.
     """
@@ -123,32 +123,19 @@ class BringupMode(BaseMode):
         log.info(f"PAGING_G_MODE: {resource.featmgr.paging_g_mode}")
 
         # Parse opcodes and generate the tree for all the extensions.
-        self.instr_generator = InstrGenerator(resource)
-
-        # Forms instruction class templates from the instruction records. TODO replace with a generic instruction class
-        self.instr_builder = InstrBuilder(resource)
-
-        # Instantiate the Riescue-D test generator
-        self.test_generator = TestGenerator(resource)
+        instr_generator = InstrGenerator(resource)
+        test_generator = TestGenerator(resource)
 
         # Get the instruction records, dictionaries of things like name, opcode, variable fields, etc.
         sim_instrs = resource.get_sim_set()
 
         # Turn the instruction records into classes that can be crossed with the configurations, instantiated and generated, just missing configuration and label at this point.
-        sim_classes = self.instr_builder.build_classes(sim_instrs)
+        sim_classes = InstrBuilder.build_dynamic_classes(sim_instrs)
 
-        resource.instr_classes = sim_classes  # Old code did this through cross talk between and so could escape user's notice.
-
-        # Generate the instructions by determining the configration, assigning the configuration, and the calling the setup methods.
-        self.instr_generator.generate_instructions_with_config_and_repeat_combinations(sim_classes)
-
-        # Generate the riescue_d testcase for the first pass
-        instrs = resource.get_instr_instances()
-
+        instrs = instr_generator.generate_instructions(sim_classes)
         log.info(f"Generated {len(instrs)} instructions")
-
-        self.test_generator.process_instrs(instrs, iteration=1)
-        testfiles = self.test_generator.testfiles()
+        test_generator.process_instrs(instrs, iteration=1)
+        testfiles = test_generator.testfiles()
 
         # Run the First pass
         first_pass = None
@@ -162,23 +149,24 @@ class BringupMode(BaseMode):
             return first_pass.generated_files.elf  # FIXME: Does RiescueC bringup actually support multiple testfiles?
 
         # Parse the first pass log and generate the second pass testcase.
-        self.test_generator.process_instrs(instrs, iteration=2)
-        testfiles = self.test_generator.testfiles()
-        testcases = self.test_generator.testcases()
+        test_generator.process_instrs(instrs, iteration=2)
+        testfiles = test_generator.testfiles()
+        testcases = test_generator.testcases()
 
         # run second pass
         last_rd = None
         if resource.compare_iss:
             # Comparator for invoking riescue-d framework
+            # FIXME: this isn't tested. It should be fixed or removed.
             self.comparator = Comparator(resource)
-            for _, testcase in testcases.items():
-                last_rd = self._rd_run_iss(Path(testcase.testname), ["whisper", "spike"], resource, toolchain)
+            for testcase in testcases:
+                last_rd = self._rd_run_iss(testcase.testname, ["whisper", "spike"], resource, toolchain)
                 self.comparator.compare_logs(testcase)
         else:
             for testfile in testfiles:
                 # FIXME: This is flimsy, if there really aren't multiple files then this should just return the file rather than re-assigning a temp
                 last_rd = self._rd_run_iss(Path(testfile), resource.second_pass_iss, resource, toolchain)
-                self._clean_up(testfile, output_format=resource.output_format)
+                self._clean_up(str(testfile), output_format=resource.output_format)
         if last_rd is None:
             raise ValueError("Didn't run a final RiescueD instance")
         return last_rd.generated_files.elf

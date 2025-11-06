@@ -134,6 +134,17 @@ class FeatMgrBuilder:
         if self.paging_g_mode == RV.RiscvPagingModes.SV39:
             self.paging_mode = Candidate(RV.RiscvPagingModes.SV39, RV.RiscvPagingModes.DISABLE)
 
+        # validate priv_mode, only use priv_modes supported by platform
+        priv_mode_candiadtes: list[RV.RiscvPrivileges] = []
+        for priv_mode in self.priv_mode:
+            if priv_mode in featmgr.supported_priv_modes:
+                priv_mode_candiadtes.append(priv_mode)
+        if len(priv_mode_candiadtes) == 0:
+            platform_supported_modes = ", ".join(str(priv_mode) for priv_mode in featmgr.supported_priv_modes)
+            config_chosen_modes = ", ".join(str(priv_mode) for priv_mode in self.priv_mode)
+            raise ValueError(f"No privilege mode supported by the platform (platform supports {platform_supported_modes} but user requested {config_chosen_modes})")
+        self.priv_mode = Candidate(*priv_mode_candiadtes)
+
         # Handle pbmt randomization using feature system
         # is pbmt_ncio_randomization supposed to be pbmt_ncio_probability?
         feature_discovery = featmgr.cpu_config.features
@@ -168,10 +179,12 @@ class FeatMgrBuilder:
             featmgr.paging_mode = RV.RiscvPagingModes.DISABLE
 
         # exception delegation
-        if featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
-            featmgr.deleg_excp_to = RV.RiscvPrivileges.MACHINE
-        elif featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
+        if featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
+            # if test env virtualized, should not be running machine mode tests
+            featmgr.priv_mode = RV.RiscvPrivileges.SUPER
             featmgr.deleg_excp_to = RV.RiscvPrivileges.SUPER
+        elif featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
+            featmgr.deleg_excp_to = RV.RiscvPrivileges.MACHINE
 
         return featmgr
 

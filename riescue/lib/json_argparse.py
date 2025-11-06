@@ -1,13 +1,15 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
 
 import argparse
 import json
 from pathlib import Path
+from typing import Any, Optional
 
 
-def auto_base_int(x) -> int:
+def auto_base_int(x: str) -> int:
     "Used by CmdLine as a 'type' to auto-cast strings/integers to an int. Adds help message for errors"
     valid_vals = """
     Values should be prefixed with 0x, 0b, or nothing e.g.:
@@ -38,7 +40,7 @@ class JsonArgParser(argparse.ArgumentParser):
     type_map = {"int": int, "str": str, "hex": auto_base_int, "binary": auto_base_int, "auto_int": auto_base_int, "bool": bool, "float": float, "Path": Path, "list": list}
 
     @classmethod
-    def from_json(cls, cmdline_json, parent_groups=None, **kwargs):
+    def from_json(cls, cmdline_json: Path, parent_groups: Optional[list[Any]] = None, **kwargs: Any) -> "JsonArgParser":
         """
         Configure parser from JSON file with argument definitions. Requires an `args` key in the JSON that has a list of `_groups` and arguments passed to `add_argument()`
         Other top-level keys are passed to the ArgumentParser constructor.
@@ -100,10 +102,10 @@ class JsonArgParser(argparse.ArgumentParser):
         parser.add_json_args(argument_info)
         return parser
 
-    def __init__(self, formatter_class=argparse.RawTextHelpFormatter, **kwargs):
+    def __init__(self, formatter_class: type[argparse.HelpFormatter] = argparse.RawTextHelpFormatter, **kwargs: Any) -> None:
         super().__init__(formatter_class=formatter_class, **kwargs)
 
-    def add_json_args(self, argument_dict: dict) -> None:
+    def add_json_args(self, argument_dict: dict[str, Any]) -> None:
         """
         Add arguments to the parser from a dictionary.
 
@@ -141,7 +143,7 @@ class JsonArgParser(argparse.ArgumentParser):
             else:
                 self._add_arg(k, v, parser=None)
 
-    def _add_arg(self, dest: str, arg_item: dict, parser) -> None:
+    def _add_arg(self, dest: str, arg_item: dict[str, Any], parser: Optional[Any] = None) -> None:
         """
         Pops name out of arg_item dictionary, casts type from type_map, and calls parser.add_argument()
         """
@@ -166,12 +168,12 @@ class JsonArgParser(argparse.ArgumentParser):
             parser = self
         parser.add_argument(*name_list, dest=dest, **arg_item)
 
-    def print_help(self, file=None):
+    def print_help(self, file: Optional[Any] = None):
         super().print_help()
 
         # Default helper formatter class does not handle hierarchial groups
         # Loop through all groups and print hierarchial groups
-        def recurse_subgroups(fmt, group, parent_title=None):
+        def recurse_subgroups(fmt: argparse.HelpFormatter, group: Any, parent_title: Optional[str] = None) -> None:
             if group._action_groups is not None:
                 parent_title = group.title if parent_title is None else f"{parent_title} -> {group.title}"
                 for g in group._action_groups:

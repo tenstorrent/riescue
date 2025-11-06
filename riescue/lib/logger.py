@@ -1,14 +1,16 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+
 import os
 import sys
 import logging
 import argparse
 from pathlib import Path
+from typing import Optional
 
 from logging import ERROR as ERROR
-from logging import WARNING as WARN
 from logging import INFO as INFO
 from logging import DEBUG as DEBUG
 
@@ -26,7 +28,7 @@ class MaxSizeHandler(logging.Handler):
     Errors throw LoggerError
     """
 
-    def __init__(self, filename, max_bytes, mode="a"):
+    def __init__(self, filename: Path, max_bytes: int, mode: str = "a"):
         super().__init__()
         self.filename = filename
         self.max_bytes = max_bytes
@@ -39,7 +41,7 @@ class MaxSizeHandler(logging.Handler):
         #     print("log file already exists, deleting it")
         self.stream = open(self.filename, self.mode)
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord):
         if os.path.getsize(self.filename) > self.max_bytes:
             error = "Error: Logger MaxSizeFileHandler file size exceeded" f"- wrote {os.path.getsize(self.filename)} / {self.max_bytes} bytes"
             raise RuntimeError(error)
@@ -87,7 +89,7 @@ def add_arguments(parser: argparse.ArgumentParser):
     logger_parser.add_argument("--logger_verbose", dest="verbose_logging", action="store_true", default=False, help="Enable verbose logging (filename, function name)")
 
 
-def from_clargs(args: argparse.Namespace, default_logger_file=None):
+def from_clargs(args: argparse.Namespace, default_logger_file: Optional[Path] = None) -> None:
     "Create a Logger instance from command-line arguments. Optional `default_logger_file` if `--logger_file` argument isn't used"
     logger_file = args.logger_file
     if args.logger_file is None:
@@ -174,7 +176,7 @@ def close_logger():
     logger.setLevel(logging.WARNING)
 
 
-def set_package_log_level(package_name, level):
+def set_package_log_level(package_name: str, level: int) -> None:
     """
     Set log level for a package and all its modules for all modules loaded
     This is a workaround for propagate=False, to avoid polluting the root logger

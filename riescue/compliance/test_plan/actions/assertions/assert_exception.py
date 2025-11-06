@@ -72,7 +72,7 @@ class AssertExceptionAction(AssertionBase):
         self.fault_label = ctx.unique_label("fault_label")  # label for faulting action(s)
         self.excp_return_label = ctx.unique_label("excp_return_label")  # Label macro returns to after exception
 
-        exception_label = LabelAction(step_id=ctx.new_label(), name=self.fault_label)
+        exception_label = LabelAction(step_id=ctx.new_label(), name=self.fault_label, instruction_pointer=True)
         exception_return_label = LabelAction(step_id=ctx.new_label(), name=self.excp_return_label)
         jum_to_fail = AssertionJumpToFail(step_id=ctx.new_value_id())
 

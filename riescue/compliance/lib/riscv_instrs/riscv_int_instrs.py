@@ -51,7 +51,7 @@ class RiscvIntInstr(InstrBase):
         super().__init__(resource_db, name, label)
 
         # for attr in variable_fields:
-        for attr in self.__dir__():
+        for attr in dir(self):
             if attr in ["rs1", "rs2", "rs3", "c_rs2"]:
                 setattr(self, attr, RiscvXregister(resource_db=self.resource_db, name="", size=5, reg_manager=self._reg_manager, field_name=attr))
                 self._srcs.append(getattr(self, attr))

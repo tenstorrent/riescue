@@ -1,12 +1,13 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+
 import csv
 import re
 import logging
-from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import riescue.lib.enums as RV
 from riescue.compliance.src.riscv_dv import (
@@ -15,6 +16,7 @@ from riescue.compliance.src.riscv_dv import (
 )
 from riescue.compliance.lib.testcase import TestCase
 from riescue.compliance.config import Resource
+from riescue.compliance.lib.riscv_instrs.base import InstrBase
 
 log = logging.getLogger(__name__)
 
@@ -30,29 +32,100 @@ class TestGenerator:
 
     def __init__(self, resource_db: Resource):
         self.resource_db = resource_db
-        self.state_tracker: OrderedDict[str, Optional[list[str]]] = OrderedDict()
-        self._testcases: OrderedDict[str, TestCase] = OrderedDict()
-        self.label_match_re_prog = re.compile(r"[0-9a-fA-F]+ \<(.*?)\>:")
 
-    def process_instrs(self, mnemonics: dict[str, Any], iteration: int = 1):
+        # NOTE: don't need OrderedDict unless we are using reversed() or move_to_end()
+        # after python 3.7, dictionaries preserve insertion order by default
+
+        self.state_tracker: dict[str, Optional[list[str]]] = {}
+        self._testcases: list[TestCase] = []
+        self._limited_instrs: list[InstrBase] = []  # Original list of instructions to process.
+        self._label_match_re_prog = re.compile(r"[0-9a-fA-F]+ \<(.*?)\>:")
+
+    def process_instrs(self, instructions: dict[str, InstrBase], iteration: int = 1):
         """
         Generates the first pass and second pass testcases depending on the iteration.
-        Testcases are generated for the mnemonics provided
+        Testcases are generated for the instructions provided
 
 
-        :param mnemonics: Dictionary of instruction mnemonics to process
+        :param instructions: Dictionary of instruction instructions to process
         :param iteration: Pass number (1 for first pass, >1 for subsequent passes)
 
         """
         if iteration == 1:
             log.info("Generating test (first pass)...")
-            self.generate_test(mnemonics, iteration)
+            self._generate_test(instructions, iteration)
         else:
             log.info("Generating test (second pass)...")
-            self.process_log()
-            self.generate_test(mnemonics, iteration)
+            self._process_log()
+            self._generate_test(instructions, iteration)
 
-    def write_header(self, paging_mode, privilege_mode, test_environment):
+    def _generate_test(self, instrs: dict[str, InstrBase], iteration: int):
+        """Generate test files by organizing instructions into testcases.
+
+        Groups instructions by test configuration, creates TestCase objects,
+        and writes test files. Handles instruction limits per file and
+        test configuration grouping.
+
+        :param instrs: Dictionary of instruction objects to generate tests for
+        :param iteration: Current iteration number for test generation
+        """
+
+        instrs_per_file: list[InstrBase] = []
+        instr_cnt_per_file = 0
+        testcase_num = 1
+        instr_cnt = 0
+        self._testcases = []
+        max_instr_per_file = self.resource_db.max_instr_per_file  # min(self.resource_db.max_instr_per_file, len(instrs.items()))
+
+        if iteration == 1:
+            # Running this for now because the code got tangled up with snippets.
+            # It is better to request the code when we want to print it rather than cache it here.
+            for key, instr in instrs.items():
+                instrs[key].first_pass_snippet = instr.get_pre_setup()  # cache the code for later use
+
+            self.limited_instrs = instrs.values()  # FIXME: constructor should know about this and create an empty list instead of doing it here.
+            # This preserves some state if RiscvTestGenerator is re-used
+
+        # Wrangle the mode(s) we actually did end up using after randomly choosing one combination in the config manager.
+        test_config_to_instrs: dict[str, list[InstrBase]] = {}
+        # FIXME if instructions are were stored already sorted by test config, they wouldn't require reorganization here. That wasn't done in the interest of making as few changes as possible.
+        for instr in self.limited_instrs:
+            privilege_mode = instr.test_config["privilege_mode"]
+            paging_mode = instr.test_config["paging_mode"]
+            test_config_string = paging_mode + "_" + privilege_mode
+            if test_config_string not in test_config_to_instrs:
+                test_config_to_instrs[test_config_string] = []
+            test_config_to_instrs[test_config_string].append(instr)
+
+        for test_config_string, _instrs in test_config_to_instrs.items():
+            instr_cnt = 0
+
+            for instr in _instrs:
+                instrs_per_file.append(instr)
+                instr_cnt_per_file += 1
+                instr_cnt += 1
+
+                if instr_cnt_per_file == max_instr_per_file or instr_cnt == len(_instrs):
+                    signature = self.resource_db.generate_test_path(iteration, testcase_num)
+                    testcase = TestCase(signature, instrs_per_file, self.resource_db)
+                    self._testcases.append(testcase)
+                    # FIXME: These should be strongly typed
+                    privilege_mode = instr.test_config["privilege_mode"]
+                    paging_mode = instr.test_config["paging_mode"]
+                    test_environment = instr.test_config["test_environment"]
+                    self._write_file(
+                        iteration,
+                        testcase_num,
+                        testcase,
+                        paging_mode,
+                        privilege_mode,
+                        test_environment,
+                    )
+                    testcase_num += 1
+                    instr_cnt_per_file = 0
+                    instrs_per_file = []
+
+    def _write_header(self, paging_mode: str, privilege_mode: str, test_environment: str) -> list[str]:
         """
         RiescueD parses this information anyways, ensures privilege / paging mode is set correctly.
 
@@ -62,7 +135,7 @@ class TestGenerator:
         :param test_environment: Test execution environment
         :returns: List of header comment lines
         """
-        header = []
+        header: list[str] = []
         header.append(";#test.name       sample_test")
         header.append(";#test.author     dkoshiya@tenstorrent.com")
         header.append(";#test.arch       rv64")
@@ -71,8 +144,8 @@ class TestGenerator:
         header.append(f";#test.cpus       {self.resource_db.num_cpus}")
         if self.resource_db.num_cpus > 1:
             header.append(f";#test.mp_mode       {self.resource_db.mp_mode}")
-            if self.resource_db.parallel_scheduling_mode != "" and self.resource_db.mp_mode == "parallel":
-                header.append(f";#test.parallel_scheduling_mode       {self.resource_db.parallel_scheduling_mode}")
+            if self.resource_db.mp_mode == RV.RiscvMPMode.MP_PARALLEL:
+                header.append(f";#test.parallel_scheduling_mode       {self.resource_db.parallel_scheduling_mode.value}")
         header.append(f";#test.paging     {paging_mode}")
         header.append(";#test.category   arch")
         header.append(";#test.class      vector")
@@ -80,7 +153,7 @@ class TestGenerator:
 
         return header
 
-    def process_body(self, iteration, testcase_num, body, instrs):
+    def _process_body(self, iteration: int, testcase_num: int, body: list[str], instrs: list[InstrBase]) -> None:
         """Generate test body content for instructions.
 
         Processes instruction list to create test body, handling both first and second pass
@@ -92,7 +165,7 @@ class TestGenerator:
         :param instrs: List of instructions to process
         """
 
-        if self.resource_db.combine_compliance_tests == 1:
+        if self.resource_db.combine_compliance_tests:
             body.append("########################")
             body.append("# test1 : all instrs, up to max number per testfile")
             body.append("########################\n")
@@ -103,7 +176,7 @@ class TestGenerator:
             num_instrs = len(instrs)
             for test_num, instr in enumerate(instrs):
                 snippet = instr.first_pass_snippet
-                if self.resource_db.combine_compliance_tests == 0:
+                if not self.resource_db.combine_compliance_tests:
                     body.append("########################")
                     body.append(f"# test{str(test_num+1)} : {instr.name.upper()}")
                     body.append("########################\n")
@@ -113,10 +186,10 @@ class TestGenerator:
                 for line in snippet:
                     body.append(line)
 
-                if self.resource_db.combine_compliance_tests == 1:
-                    body.append(instr.setup._pass_one_pre_appendix)
+                if self.resource_db.combine_compliance_tests:
+                    body.append(instr.setup.pass_one_pre_appendix)
 
-                if (self.resource_db.combine_compliance_tests == 0) or (test_num == (num_instrs - 1)):
+                if not self.resource_db.combine_compliance_tests or test_num == (num_instrs - 1):
                     if self.resource_db.wysiwyg:
                         body.append("\n")
                     else:
@@ -125,7 +198,7 @@ class TestGenerator:
             for test_num, instr in enumerate(instrs):
                 snippet = instr.first_pass_snippet + instr.get_post_setup(self.state_tracker[instr.label + f"_{testcase_num}"])
 
-                if self.resource_db.combine_compliance_tests == 0:
+                if not self.resource_db.combine_compliance_tests:
                     body.append("########################")
                     body.append(f"# test{str(test_num+1)} : {instr.name.upper()}")
                     body.append("########################\n")
@@ -135,7 +208,7 @@ class TestGenerator:
                 for line in snippet:
                     body.append(line)
 
-    def write_file(
+    def _write_file(
         self,
         iteration: int,
         testcase_num: int,
@@ -159,9 +232,9 @@ class TestGenerator:
         :param test_environment: Test execution environment
         """
 
-        header = self.write_header(paging_mode, privilege_mode, test_environment)
+        header = self._write_header(paging_mode, privilege_mode, test_environment)
 
-        body = []
+        body: list[str] = []
 
         # Keep the first pass as a dummy pass for WYSIWYG mode to extract the
         # state for self checking code
@@ -178,7 +251,7 @@ class TestGenerator:
             body.append("test_setup:")
             body.append(";#test_passed()")
 
-        self.process_body(iteration, testcase_num, body=body, instrs=testcase.instrs)
+        self._process_body(iteration, testcase_num, body=body, instrs=testcase.instrs)
 
         # Keep the first pass as a dummy pass for WYSIWYG mode to extract the
         # state for self
@@ -266,99 +339,23 @@ class TestGenerator:
 
         # FIXME: Shouldn't be accessing private data section.
         for instr in testcase.instrs:
-            if instr._data_section:
-                body = body + instr._data_section
+            if instr.data_section:
+                body = body + instr.data_section
 
         with open(testcase.testname, "w") as output_file:
             output_file.write("\n".join(header + body))
             output_contents = "\n".join(header + body)
             log.debug(f"Wrote to {testcase.testname}: \n{output_contents}")
 
-    def get_pre_setup_snippets(self, instrs: dict[str, Any], iteration: int):
-        """Generate pre-setup code snippets for first pass instructions.
-
-        Extracts and caches the pre-setup code snippets from instructions
-        during the first iteration pass.
-
-        :param instrs: Dictionary of instructions to process
-        :param iteration: Current iteration number
-        """
-        if iteration == 1:
-            for key, instr in instrs.items():
-                instrs[key].first_pass_snippet = instr.get_pre_setup()
-
-    def generate_test(self, instrs: dict[str, Any], iteration: int):
-        """Generate test files by organizing instructions into testcases.
-
-        Groups instructions by test configuration, creates TestCase objects,
-        and writes test files. Handles instruction limits per file and
-        test configuration grouping.
-
-        :param instrs: Dictionary of instruction objects to generate tests for
-        :param iteration: Current iteration number for test generation
-        """
-
-        instrs_per_file: list[Any] = []
-        instr_cnt_per_file = 0
-        testcase_num = 1
-        instr_cnt = 0
-        self._testcases = OrderedDict()
-        max_instr_per_file = self.resource_db.max_instr_per_file  # min(self.resource_db.max_instr_per_file, len(instrs.items()))
-
-        if iteration == 1:
-            self.get_pre_setup_snippets(
-                instrs, iteration
-            )  # Running this for now because the code got tangled up with snippets. It is better to request the code when we want to print it rather than cache it here.
-
-            self.limited_instrs = instrs.values()  # FIXME: constructor should know about this and create an empty list instead of doing it here.
-            # This preserves some state if RiscvTestGenerator is re-used
-
-        # Wrangle the mode(s) we actually did end up using after randomly choosing one combination in the config manager.
-        test_config_to_instrs: OrderedDict[str, list[Any]] = OrderedDict()
-        # FIXME if instructions are were stored already sorted by test config, they wouldn't require reorganization here. That wasn't done in the interest of making as few changes as possible.
-        for instr in self.limited_instrs:
-            privilege_mode = instr.test_config["privilege_mode"]
-            paging_mode = instr.test_config["paging_mode"]
-            test_config_string = paging_mode + "_" + privilege_mode
-            if test_config_string not in test_config_to_instrs:
-                test_config_to_instrs[test_config_string] = []
-            test_config_to_instrs[test_config_string].append(instr)
-
-        for test_config_string, _instrs in test_config_to_instrs.items():
-            instr_cnt = 0
-
-            for instr in _instrs:
-                instrs_per_file.append(instr)
-                instr_cnt_per_file += 1
-                instr_cnt += 1
-
-                if instr_cnt_per_file == max_instr_per_file or instr_cnt == len(_instrs):
-                    signature = str(self.resource_db.generate_test_path(iteration, testcase_num))
-                    testcase = TestCase(signature, instrs_per_file, self.resource_db)
-                    self._testcases[signature] = testcase
-                    # FIXME: These should be strongly typed
-                    privilege_mode = instr.test_config["privilege_mode"]
-                    paging_mode = instr.test_config["paging_mode"]
-                    test_environment = instr.test_config["test_environment"]
-                    self.write_file(
-                        iteration,
-                        testcase_num,
-                        testcase,
-                        paging_mode,
-                        privilege_mode,
-                        test_environment,
-                    )
-                    testcase_num += 1
-                    instr_cnt_per_file = 0
-                    instrs_per_file = []
-
-    def process_log(self):
+    def _process_log(self):
         """Process simulation logs to extract execution state information.
+
+        This writes the test to a CSV file. The path to the CSV file is stored in the ``TestCase`` object.
 
         :raises ValueError: If unknown ISS type is specified
         """
 
-        for _, testcase in self._testcases.items():
+        for testcase in self._testcases:
             csv_log = Path(testcase.csv_log)
             log = Path(testcase.log)
             if not log.exists():
@@ -370,10 +367,11 @@ class TestGenerator:
             else:
                 raise ValueError(f"Unknown ISS {self.resource_db.first_pass_iss}")
 
-        for testcase_num, testcase in enumerate(self._testcases.values(), 1):
-            self.process_testcase(testcase, testcase_num)
+        # why do we skip the first testcase?
+        for testcase_num, testcase in enumerate(self._testcases, 1):
+            self._process_testcase(testcase, testcase_num)
 
-    def process_disassembly(self, testcase: TestCase) -> dict[str, str]:
+    def _process_disassembly(self, testcase: TestCase) -> dict[str, str]:
         """Extract address-to-label mappings from disassembly file.
 
         :param testcase: TestCase object containing disassembly file path
@@ -386,19 +384,16 @@ class TestGenerator:
         with open(dis, "r") as dis_file:
             lines = dis_file.readlines()
             for line in lines:
-                label_dis = self.label_match_re_prog.search(line)
+                label_dis = self._label_match_re_prog.search(line)
                 if label_dis is not None:
                     addr_to_label[line.split()[0].lstrip("0").rstrip(":")] = label_dis.group(1)
 
         return addr_to_label
 
-    def cross_reference_dissassembly_with_log(self, addr_to_label: dict[str, str], csv_log_file_name: str) -> dict[str, list[str]]:
+    def _cross_reference_dissassembly_with_log(self, addr_to_label: dict[str, str], csv_log_file: Path) -> dict[str, list[str]]:
         label_to_state: dict[str, list[str]] = dict()
-        csv_log_file_path = Path(csv_log_file_name)
-        if not csv_log_file_path.exists():
-            csv_log_file_path = self.resource_db.run_dir / csv_log_file_name
 
-        with open(csv_log_file_path, "r") as log:
+        with open(csv_log_file, "r") as log:
             reader = csv.reader(log)
             for line in reader:
                 addr = line[0].lstrip("0")
@@ -408,7 +403,7 @@ class TestGenerator:
 
         return label_to_state
 
-    def store_states(
+    def _store_states(
         self,
         label_to_state: dict[str, list[str]],
         testcase: TestCase,
@@ -424,26 +419,26 @@ class TestGenerator:
             # Sometimes state is None
             self.state_tracker[instr.label + f"_{testcase_num}"] = label_to_state.pop(instr.label, None)
 
-    def process_testcase(self, testcase: TestCase, testcase_num: int):
+    def _process_testcase(self, testcase: TestCase, testcase_num: int):
         """Process testcase to extract state information.
 
         :param testcase: TestCase object to process
         :param testcase_num: Testcase number
         """
-        addr_to_label = self.process_disassembly(testcase)
-        label_to_state = self.cross_reference_dissassembly_with_log(addr_to_label, testcase.csv_log)
-        self.store_states(label_to_state, testcase, testcase_num)
+        addr_to_label = self._process_disassembly(testcase)
+        label_to_state = self._cross_reference_dissassembly_with_log(addr_to_label, testcase.csv_log)
+        self._store_states(label_to_state, testcase, testcase_num)
 
-    def testfiles(self) -> list[str]:
+    def testfiles(self) -> list[Path]:
         """Get list of generated testfiles.
 
-        :returns: List of testfile names
+        :returns: List of testfile paths
         """
-        return [testcase.testname for _, testcase in self._testcases.items()]
+        return [testcase.testname for testcase in self._testcases]
 
-    def testcases(self) -> OrderedDict[str, TestCase]:
-        """Get dictionary of generated testcases.
+    def testcases(self) -> list[TestCase]:
+        """Get list of generated testcases.
 
-        :returns: Dictionary of testcase signatures to TestCase objects
+        :returns: List of testcase objects
         """
         return self._testcases

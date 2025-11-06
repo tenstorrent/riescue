@@ -19,7 +19,7 @@ class MemoryAction(Action):
 
     register_fields: list[str] = []
 
-    def __init__(self, size: int, page_size: PageSize, flags: PageFlags, page_cross_en: bool = False, num_pages: int = 1, **kwargs):
+    def __init__(self, size: int, page_size: PageSize, flags: PageFlags, modify: bool = False, page_cross_en: bool = False, num_pages: int = 1, **kwargs):
         super().__init__(**kwargs)
         self.constraints = {}
         self.size = size
@@ -28,6 +28,7 @@ class MemoryAction(Action):
         self.num_pages = num_pages
         self.page_cross_en = page_cross_en
         self.data: list[Any] = [".dword 0xc001c0de"]
+        self.modify = modify
 
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "MemoryAction":
@@ -40,7 +41,16 @@ class MemoryAction(Action):
             num_pages = 1
         else:
             num_pages = step.step.num_pages
-        return cls(step_id=step_id, size=step.step.size, page_size=step.step.page_size, flags=step.step.flags, page_cross_en=step.step.page_cross_en, num_pages=num_pages, **kwargs)
+        return cls(
+            step_id=step_id,
+            size=step.step.size,
+            page_size=step.step.page_size,
+            flags=step.step.flags,
+            page_cross_en=step.step.page_cross_en,
+            num_pages=num_pages,
+            modify=step.step.modify,
+            **kwargs,
+        )
 
     def repr_info(self) -> str:
         return f"[size=0x{self.size:x}]"

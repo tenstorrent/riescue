@@ -119,10 +119,20 @@ class Legalizer:
 
         dest_registers: dict[str, Instruction] = {instr.instruction_id: instr for instr in instructions}
 
+        # fault labels need to point to faulting instruction, so can't insert a li between
+        fault_label = None
         for instruction in instructions:
-            new_instructions = self._resolve_casts(instruction, dest_registers, ctx)
-            casted_instructions.extend(new_instructions)
-
+            if isinstance(instruction, Label) and instruction.instruction_pointer:
+                fault_label = instruction
+            elif fault_label:
+                new_instructions = self._resolve_casts(instruction, dest_registers, ctx)
+                if len(new_instructions) > 0:
+                    new_instructions.insert(len(new_instructions) - 1, fault_label)
+                casted_instructions.extend(new_instructions)
+                fault_label = None
+            else:
+                new_instructions = self._resolve_casts(instruction, dest_registers, ctx)
+                casted_instructions.extend(new_instructions)
         return casted_instructions
 
     def _resolve_casts(self, instruction: Instruction, dest_registers: dict[str, Instruction], ctx: LoweringContext) -> list[Instruction]:

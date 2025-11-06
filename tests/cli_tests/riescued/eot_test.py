@@ -65,6 +65,14 @@ class FailTests(BaseRiescuedTest):
         args = ["--run_iss", "--eot_fail_value", "0x1"]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 
+    def test_cli_pass_mp_parallel(self):
+        "Test that uses non-standard EOT pass value. Will appear as a pass"
+        default_args = ["--run_iss", "--eot_fail_value", "0x1", "--num_cpus", "2", "--mp_mode", "parallel"]
+        for deleg in ["machine", "super"]:
+            for test_priv in ["machine", "super", "user"]:
+                args = default_args + ["--test_priv_mode", test_priv, "--deleg_excp_to", deleg]
+                self.run_riescued(testname=self.testname, cli_args=args, iterations=1)
+
     def test_cli_fail_dead(self):
         "Test that uses non-standard EOT fail value with eot_fail overwritten. FIXME: Check that test writes 0xDEAD on failure"
         fail_code = 0xDEAD

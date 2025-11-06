@@ -1,13 +1,17 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+# pyright: reportUnnecessaryIsInstance=false
+# pyright: reportMissingTypeStubs=false
+
 import logging
 
 from typing import Any, Optional, TYPE_CHECKING
 
 from coretp import StepIR, Instruction
 from coretp.step import Arithmetic
-from coretp.rv_enums import Category, OperandType
+from coretp.rv_enums import Category
 from riescue.compliance.test_plan.actions import Action
 from riescue.compliance.test_plan.context import LoweringContext
 
@@ -32,7 +36,7 @@ class ArithmeticAction(Action):
         src2: Optional[str] = None,
         imm: Optional[int] = None,
         op: Optional[str] = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         super().__init__(**kwargs)
 
@@ -44,14 +48,17 @@ class ArithmeticAction(Action):
             raise ValueError("Arithmetic action cannot have both two source register and an immediate operand")
 
     def repr_info(self) -> str:
+        op = ""
+        if self.op is not None:
+            op = "op=" + self.op
         if isinstance(self.imm, int):
             imm = f"0x{self.imm:x}"
         else:
             imm = self.imm
-        return f"'{self.src1}', '{self.src2}', {imm}"
+        return f"'{self.src1}', '{self.src2}', {imm}, {op}"
 
     @classmethod
-    def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "Action":
+    def from_step(cls, step_id: str, step: StepIR, **kwargs: Any) -> "ArithmeticAction":
         if TYPE_CHECKING:
             assert isinstance(step.step, Arithmetic)
 

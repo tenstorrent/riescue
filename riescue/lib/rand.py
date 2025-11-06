@@ -1,11 +1,14 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+
 import random
 import abc
 from typing import TypeVar, Optional, Sequence
 
 T = TypeVar("T")
+U = TypeVar("U")
 
 
 def initial_random_seed() -> int:
@@ -42,45 +45,16 @@ class RandNum:
         rand.random_in_range(1, 10)  # Returns 7
     """
 
-    def __init__(self, seed, distribution="uniform"):
+    def __init__(self, seed: int, distribution: str = "uniform"):
         self.rand = random.Random(seed)
-        self._seed = seed
-        if seed is not None:
-            self.seed_set = True
-        else:
-            self.seed_set = False
-
+        self.seed = seed
         self.distribution = DistributionFactory.create(distribution, self.rand)
-
-    def seed(self, seed: int):
-        """Set the internal random number generator's seed. Can only set seed once.
-
-        :param seed: Seed value for reproducible randomness
-        :type seed: int
-        :returns: None
-
-        :raises ValueError: If seed is already set
-        """
-        if self.seed_set:
-            raise ValueError("Seed already set")
-        self.seed_set = True
-        self._seed = seed  # Book keeping for get_seed()
-        self.rand.seed(seed)
 
     def get_seed(self) -> int:
         """
-        Get the current seed value.
+        Return the seed used for the random number generator.
         """
-        if self._seed is None:
-            raise ValueError("Seed was not set. Call RandNum.seed() first.")
-        return self._seed
-
-    def set_master_seed(self, seed) -> None:
-        """
-        Set the seed for compatibility with older seed method usage.
-        """
-        print("Warning: Deprecated set_master_seed() method. Initialize RandNum with seed or use RandNum.seed() method. Setting seed")
-        self.seed(seed)
+        return self.seed
 
     def random(self) -> float:
         """Generate a random float from the chosen distribution.
@@ -91,7 +65,7 @@ class RandNum:
         """
         return self.distribution.random()
 
-    def random_in_range(self, range_lo: int, range_hi: int, range_step=1) -> int:
+    def random_in_range(self, range_lo: int, range_hi: int, range_step: int = 1) -> int:
         """Generate a random integer within the specified range.
 
         :param range_lo: Lower bound of the range (inclusive)
@@ -111,7 +85,7 @@ class RandNum:
         choice = self.distribution.random_in_range(range_lo, range_hi, range_step)
         return choice
 
-    def random_index_in(self, x: list):
+    def random_index_in(self, x: list[T]) -> int:
         """Return a random valid index from the given list.
 
         :param x: List to select index from
@@ -140,7 +114,7 @@ class RandNum:
         rand_index = self.random_index_in(x)
         return x[rand_index]
 
-    def sample(self, x: list, num_samples: int):
+    def sample(self, x: list[T], num_samples: int) -> list[T]:
         """
         Return a sample of the specified size from the given list.
 
@@ -158,7 +132,7 @@ class RandNum:
             raise ValueError(f"Sample size {num_samples} greater than collection size {len(x)}")
         return self.rand.sample(x, num_samples)
 
-    def random_in_bitrange(self, bitrange_lo, bitrange_hi, bitrange_step=1) -> int:
+    def random_in_bitrange(self, bitrange_lo: int, bitrange_hi: int, bitrange_step: int = 1) -> int:
         """Return a random integer using bit manipulation within the specified bit range.
 
         :param bitrange_lo: Lower bound of the bit range (inclusive)
@@ -178,7 +152,7 @@ class RandNum:
         choice = self.distribution.random_in_range(bitrange_lo, bitrange_hi)
         return self.rand.getrandbits(choice) & (-bitrange_step)
 
-    def random_nbit(self, bits) -> int:
+    def random_nbit(self, bits: int) -> int:
         """Return a random integer with the specified number of bits.
 
         :param bits: Number of bits in the generated integer
@@ -211,7 +185,7 @@ class RandNum:
         """
         return self.random_in_range(0, 100)
 
-    def with_probability_of(self, percent) -> bool:
+    def with_probability_of(self, percent: int) -> bool:
         """Return True with the specified percent likelihood.
 
         :param percent: Probability percentage (0-100)
@@ -229,7 +203,7 @@ class RandNum:
 
         return False
 
-    def random_key_value(self, d: dict):
+    def random_key_value(self, d: dict[T, U]) -> tuple[list[T], U]:
         """Return a random key and its corresponding value from the dictionary.
 
         :param d: Dictionary to select from
@@ -249,7 +223,7 @@ class RandNum:
         val = d[key[0]]
         return key, val
 
-    def random_key_in(self, d: dict):
+    def random_key_in(self, d: dict[T, int]) -> list[T]:
         """Return a list containing a randomly selected key from the dictionary.
 
         :param d: Dictionary to select from
@@ -265,10 +239,10 @@ class RandNum:
         """
         if not d:
             raise ValueError("Cannot select from empty dictionary")
-        retval = self.rand.choices(list(d.keys()), tuple(d.values()), k=1)
+        retval = self.rand.choices(list(d.keys()), weights=list(d.values()), k=1)
         return retval
 
-    def random_choice_weighted(self, x: dict):
+    def random_choice_weighted(self, x: dict[T, int]) -> T:
         """Return a randomly selected key from the dictionary, weighted by its value.
 
         Keys with higher values have a higher probability of being selected.
@@ -288,7 +262,7 @@ class RandNum:
             raise ValueError("Cannot select from empty dictionary")
         return self.rand.choices(list(x.keys()), weights=list(x.values()), k=1)[0]
 
-    def shuffle(self, lst: list):
+    def shuffle(self, lst: list[T]) -> None:
         """Randomly reorder the elements in the list in-place.
 
         :param lst: List to be shuffled
@@ -320,7 +294,7 @@ class RandNum:
         """
         return self.rand.choice(x)
 
-    def choices(self, x, weights=None, k=1):
+    def choices(self, x: Sequence[T], weights: Optional[Sequence[int]] = None, k: int = 1) -> list[T]:
         """
         Return a list of k unique random elements from the list x.  Uses random.Random.choices()
 
@@ -370,7 +344,7 @@ class RandomDistribution(abc.ABC):
     def __init__(self, rand: random.Random):
         self.rand = rand
 
-    def _clamp(self, value):
+    def _clamp(self, value: float) -> float:
         if value < 0.0:
             # Return a positive value that's likely to be close to 0.0
             value = self.rand.betavariate(0.2, 5.0)
@@ -381,8 +355,8 @@ class RandomDistribution(abc.ABC):
 
         return value
 
-    def random_in_range(self, lo, hi, step=1) -> int:
-        if not (isinstance(lo, int) and isinstance(hi, int) and isinstance(step, int) and (hi > lo) and (step > 0)):
+    def random_in_range(self, lo: int, hi: int, step: int = 1) -> int:
+        if not ((hi > lo) and (step > 0)):
             raise ValueError("lo, hi, and step must be integers and hi > lo and step > 0")
         value = int((hi - lo) * (self.rand.random()))
         value -= value % step
@@ -405,7 +379,7 @@ class RandomTriangular(RandomDistribution):
 
 
 class RandomBeta(RandomDistribution):
-    def __init__(self, rand: random.Random, alpha=2.0, beta=2.0):
+    def __init__(self, rand: random.Random, alpha: float = 2.0, beta: float = 2.0):
         super().__init__(rand)
         self.alpha = alpha
         self.beta = beta
@@ -415,7 +389,7 @@ class RandomBeta(RandomDistribution):
 
 
 class RandomExponential(RandomDistribution):
-    def __init__(self, rand: random.Random, lambd=1.0):
+    def __init__(self, rand: random.Random, lambd: float = 1.0):
         super().__init__(rand)
         self.lambd = lambd
 
@@ -424,7 +398,7 @@ class RandomExponential(RandomDistribution):
 
 
 class RandomLogNormal(RandomDistribution):
-    def __init__(self, rand: random.Random, mu=-2.0, sigma=0.5):
+    def __init__(self, rand: random.Random, mu: float = -2.0, sigma: float = 0.5):
         super().__init__(rand)
         self.mu = mu
         self.sigma = sigma
@@ -434,7 +408,7 @@ class RandomLogNormal(RandomDistribution):
 
 
 class RandomGaussian(RandomDistribution):
-    def __init__(self, rand: random.Random, mu=-0.5, sigma=0.5):
+    def __init__(self, rand: random.Random, mu: float = -0.5, sigma: float = 0.5):
         super().__init__(rand)
         self.mu = mu
         self.sigma = sigma

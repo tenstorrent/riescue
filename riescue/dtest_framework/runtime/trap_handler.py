@@ -82,15 +82,16 @@ class InterruptHandler:
 
     def __init__(
         self,
-        privilege_mode: str,
+        privilege_mode: RV.RiscvPrivileges,
         trap_entry: str = "trap_entry",
         default_trap_handler: str = "default_trap_handler",
         xlen: RV.Xlen = RV.Xlen.XLEN64,
     ):
         self.privilege_mode = privilege_mode
-        if self.privilege_mode not in ["M", "S"]:
-            raise ValueError(f"Privilege mode {self.privilege_mode} not supported")
-        if self.privilege_mode == "M":
+        if self.privilege_mode not in [RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER]:
+            raise ValueError(f"Privilege mode {self.privilege_mode.value} not supported, supported modes are Machine and Super")
+
+        if self.privilege_mode == RV.RiscvPrivileges.MACHINE:
             self.xip = "mip"
             self.xret = "mret"
         else:
@@ -309,7 +310,7 @@ class TrapHandler(AssemblyGenerator):
 
         self.interrupt_handler = InterruptHandler(
             trap_entry=self.trap_entry_label,
-            privilege_mode=self.handler_priv_mode,
+            privilege_mode=self.handler_priv,
             default_trap_handler=self.trap_handler_label,
         )
 
@@ -328,8 +329,10 @@ class TrapHandler(AssemblyGenerator):
             self.xret = "mret"
             self.xip = "mip"
             self.tvec = "mtvec"
+        self.panic_cause = "TRAP_HANDLER_PANIC_CAUSE"
 
     def generate(self) -> str:
+        self.register_equate(self.panic_cause, "11")
 
         for interrupts in self.pool.parsed_vectored_interrupts:
             self.interrupt_handler.register_vector(interrupts.index, interrupts.label, indirect=True)
@@ -350,60 +353,32 @@ class TrapHandler(AssemblyGenerator):
                 jalr ra, t0
             """
 
-        code += f"""
-            # get hartid
-            {Routines.read_tval(dest_reg="t0", priv_mode=self.handler_priv_mode)}
-            {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv_mode)}
-            slli {self.hartid_reg}, {self.hartid_reg}, 3 # Multiply saved hartid by 8 to get offset
+        check_excp_actual_pc = self.variable_manager.get_variable("check_excp_actual_pc")
+        check_excp_actual_cause = self.variable_manager.get_variable("check_excp_actual_cause")
+        check_excp_return_pc = self.variable_manager.get_variable("check_excp_return_pc")
 
-            # Save the exception cause / code
-            csrr t1, {self.xcause}
-            li t3, check_excp_actual_cause
-            add t3, t3, {self.hartid_reg} # Add offset for this harts check_excp_actual_cause element
-            sd t1, 0(t3)
+        code += f" csrr t1, {self.xcause}\n"
+        code += self.ecall_handler()
 
-            # Save exception PC
-            csrr t0, {self.xepc}
-            li t3, check_excp_actual_pc
-            add t3, t3, {self.hartid_reg} # Add offset for this harts check_excp_actual_pc element
-            sd t0, 0(t3)
-            """
-
-        code += f"""
-            srli {self.hartid_reg}, {self.hartid_reg}, 3 # Restore saved hartid rather than offset
-        """
-
-        # Check for ECALL functions
-        code += f"""
-        # 0 if (ECALL_FROM_USER < cause < ECALL_FROM_VS ) j syscall
-        # 0 else j check_exception
-
-        li t0, {RV.RiscvExcpCauses.ECALL_FROM_USER.value}
-        blt t1, t0, {self.check_exception_label}
-        li t0, {RV.RiscvExcpCauses.ECALL_FROM_MACHINE.value}
-        bgt t1, t0, {self.check_exception_label}
-        j {self.syscall_table_label}
-        """
-
+        # TODO: Do we really need to save the trap info to memory?
+        # Does it make sense if it's only used for the trap and then not used again?
+        # Test code shouldn't rely on runtime-variables for this unless it's through a macro
+        # Only place that relies on this is the os_check_excp function.
+        # Should this be removed if they aren't really useful and only add latency?
         code += f"""
         {self.check_exception_label}:
+            {check_excp_actual_cause.store(src_reg="t1"):<40}  # Save check_excp_actual_cause
+            csrr t0, {self.xepc}
+            {check_excp_actual_pc.store(src_reg="t0"):<40}  # Save check_excp_actual_pc
+
             {self.os_check_excp(return_label='return_to_host', xepc=self.xepc, xret=f"j {self.trap_exit_label}")}
 
             ecall_from_machine:
             ecall_from_supervisor:
             return_to_host:
 
-            # get hartid
-            {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv_mode)}
-            slli {self.hartid_reg}, {self.hartid_reg}, 3 # Multiply saved hartid by 8 to get offset
-
-            # Update the return PC from check_excp_return_pc
-            li t3, check_excp_return_pc
-            add t3, t3, {self.hartid_reg} # Add offset for this harts check_excp_return_pc element
-            ld t0, 0(t3)
-            sd x0, 0(t3)
+            {check_excp_return_pc.load_and_clear(dest_reg="t0"):<35}  # check_excp_return_pc
             csrw {self.xepc}, t0
-            srli {self.hartid_reg}, {self.hartid_reg}, 3 # Restore saved hartid rather than offset
         """
 
         # Call post handler user code
@@ -418,8 +393,24 @@ class TrapHandler(AssemblyGenerator):
         code += "\n" + self.trap_exit()
 
         # kernel panic code, should be unreachable since trap_exit does an xret
-        code += "\n" + self.kernel_panic(name=self.trap_panic_label)
+        code += "\n" + self.kernel_panic(name=self.trap_panic_label, cause=self.panic_cause)
         return code
+
+    def ecall_handler(self) -> str:
+        """
+        Generates the ECALL handler code.
+        essentially does
+            if (ECALL_FROM_USER < cause < ECALL_FROM_VS ) j syscall
+            else j check_exception
+
+        Assumes that t1 contains the exception cause
+        """
+        return f"""li t0, {RV.RiscvExcpCauses.ECALL_FROM_USER.value} # Checking for ecall
+        blt t1, t0, {self.check_exception_label}
+        li t0, {RV.RiscvExcpCauses.ECALL_FROM_MACHINE.value}
+        bgt t1, t0, {self.check_exception_label}
+        j {self.syscall_table_label}
+        """
 
     def save_context(self) -> str:
         """
@@ -431,6 +422,8 @@ class TrapHandler(AssemblyGenerator):
         save_context = ""
         if self.featmgr.cfiles is not None:
             save_context += self._save_regs()
+        else:
+            save_context += self.variable_manager.enter_trap_context(scratch=self.scratch_reg)
 
         save_context += f"""
             la t0, {self.trap_panic_label}
@@ -447,6 +440,8 @@ class TrapHandler(AssemblyGenerator):
         restore_context = ""
         if self.featmgr.cfiles is not None:
             restore_context += self._restore_regs()
+        else:
+            restore_context += self.variable_manager.exit_trap_context(scratch=self.scratch_reg)
 
         restore_context += f"""
             la t1, {self.trap_entry_label}
@@ -477,9 +472,6 @@ class TrapHandler(AssemblyGenerator):
             beq t0, x0, {self.exception_handler_label}  # If the interrupt bit is 0, exception
 
             {self.interrupt_handler_label}:
-            {Routines.place_retrieve_hartid(dest_reg="t0", priv_mode=self.handler_priv_mode)} # Get hartid
-            bne t0, x0, test_failed                  # FIXME: Only handles interrupts for hartid0
-
             li t0, 0
             # Clear the pending interrupt by writing a 0;
             # FIXME: This will clear nested interrupts. We don't want that.

@@ -140,8 +140,8 @@ class BranchSetup(InstrSetup):
         self.write_pre(f"{target_label}:")
         self.write_pre("\tnop")
         if self.resource_db.combine_compliance_tests:
-            self._pass_one_pre_appendix += f"{self.conclusion_label} :\n"
-            self._pass_one_pre_appendix += "\tnop\n"
+            self.pass_one_pre_appendix += f"{self.conclusion_label} :\n"
+            self.pass_one_pre_appendix += "\tnop\n"
 
     def post_setup(self, modified_arch_state, instr):
         if not self.resource_db.wysiwyg:

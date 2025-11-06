@@ -5,15 +5,13 @@ import json
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field, replace
-from typing import Optional, Any
+from typing import Optional, Any, Union
 
 import riescue.lib.enums as RV
 from riescue.lib.rand import RandNum
-from riescue.lib.instr_info.instr_lookup_json import InstrInfoJson
+from riescue.lib.instr_info.instr_lookup_json import InstrInfoJson, InstrEntry
 from riescue.dtest_framework.config import FeatMgr
-from riescue.compliance.lib.tree import Tree
 from riescue.compliance.lib.fpgen_intf import FpGenInterface
-from riescue.lib.toolchain import Toolchain, Whisper, Spike
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +31,6 @@ class Resource:
 
     """
 
-    tree: Tree = field(default_factory=Tree)  # FIXME: Rename this structure, since tree has node at every level which are homogeneous.
     featmgr: FeatMgr = field(default_factory=FeatMgr)
 
     # Seed management for the framework.
@@ -186,25 +183,16 @@ class Resource:
     # FIXME : Allow just 10 as default. Currently setting this to 100 to avoid multiple file generation for floating point bringup.
     max_instr_per_file: int = 1000
 
-    # Maintains the arch state for every instruction post first-pass.
-    instr_tracker: dict[str, Any] = field(default_factory=dict)  # FIXME: This is state, which shouldn't be in a config class
-
     use_output_filename: bool = False
 
     # If 1, combine discrete compliance tests into one
     combine_compliance_tests: bool = False
-
-    # Maintains a copy of the generated instruction classes.
-    instr_classes: Optional[Any] = None
 
     # Maintains per-instruction configurations.
     instr_configs: dict[str, Any] = field(default_factory=dict)
 
     # Maintains possible configurations for fp instructions
     fp_configs: dict[str, Any] = field(default_factory=dict)
-
-    # Maintains per-test configurations.
-    test_configs: dict[str, Any] = field(default_factory=dict)  # FIXME: data/state, shouldn't be part of config
 
     testcase_name: str = ""
     testfile: Path = Path("bringup.s")
@@ -218,7 +206,6 @@ class Resource:
     fp_config: Path = Path("compliance/tests/configs/rv_d_f_zfh.json")
 
     opcode_files: dict[str, Any] = field(default_factory=dict)
-    output_files: list[str] = field(default_factory=list)  # is this used? not sure
 
     # Logger options
     logfile_path: str = ""
@@ -252,8 +239,6 @@ class Resource:
         new_resource = replace(self, **kwargs)
         if featmgr is not None:
             new_resource.featmgr = featmgr
-        new_resource.tree = Tree()
-        new_resource.instr_tracker = dict()  # FIXME: this is state and should be removed in the future.
         return new_resource
 
     # properties
@@ -320,23 +305,16 @@ class Resource:
             log.warning(f"Instruction {mnemonic} not found in the config file, may be intentional")
             return None
 
-    def groups(self, extension):
-        return self.tree.get_group_names(extension)
-
-    def instrs(self, extension, group):
-        return self.tree.get_instr_names(extension, group)
-
-    def get_sim_set(self) -> list[dict[str, Any]]:
+    def get_sim_set(self) -> list[InstrEntry]:
         """
         Find the instructions to be simulated. (EXTENSION u GROUP u INSTRS ) - (GROUP u INSTRS)
-        FIXME: This should probably return an object / typed class instead of a list of dictionaries. For better debug and type checking.
         """
         self.info.load_data(not_my_xlen=(32 if self.xlen == 64 else 64))
 
-        translated_extensions = []
+        translated_extensions: list[str] = []
         translated_extensions.extend(self.info.translate_riescue_extensions_to_riscv_extensions(self.include_extensions))
 
-        excluded_extensions = []
+        excluded_extensions: list[str] = []
         excluded_extensions.extend(self.info.translate_riescue_extensions_to_riscv_extensions(self.exclude_extensions))
 
         # filter the included groups
@@ -367,49 +345,23 @@ class Resource:
             self.exclude_instrs = list(set(self.exclude_instrs) - mutual_exclusions)
 
         # Determine the sim set
-        included_instructions = self.info.search_instruction_names(translated_extensions, self.include_groups, self.include_instrs)
+        included_instructions: list[str] = self.info.search_instruction_names(translated_extensions, self.include_groups, self.include_instrs)
         excluded_instructions = self.info.search_instruction_names(
             excluded_extensions,
             self.exclude_groups,
             self.exclude_instrs,
             exclude_rules=True,
         )
-        sim_set = set(included_instructions) - set(excluded_instructions)
-        included_instructions = list(sim_set)
-        included_instructions = self.info.get_instr_info(included_instructions)
+        sim_set: set[str] = set(included_instructions) - set(excluded_instructions)
+        included_instructions = sorted(list(sim_set))
 
         # Turn the included_instructions into a list of objects from its tuples.
-        instruction_dictionaries: list[dict[str, Any]] = []
-
-        for instruction in included_instructions:
-            # instruction_object has no attribute called 'name', so we need to add it.
-            instruction_dictionary: dict[str, Any] = json.loads(instruction[2])
-            instruction_dictionary["instruction_id"] = instruction[1]
-            instruction_dictionary["name"] = instruction[0]
-            name = instruction_dictionary["name"]
-            instruction_dictionary["config"] = None
-
-            # Put the values from the key 'variable_fields' into the instruction_dictionary and give them values of None
-            for variable_field in instruction_dictionary["variable_fields"]:
-                instruction_dictionary[variable_field] = None
-
-            if name.startswith("v"):
-                instruction_dictionary["type"] = "Vec"
-            elif (name.startswith("f") or name.startswith("c.f")) and not name == "fence":
-                instruction_dictionary["type"] = "Float"
-            else:
-                instruction_dictionary["type"] = "Int"
-
-            instruction_dictionaries.append(instruction_dictionary)
-
-        if len(instruction_dictionaries) == 0:
+        instruction_entries: list[InstrEntry] = self.info.get_instr_info(included_instructions)
+        if len(instruction_entries) == 0:
             raise ValueError("No instructions found.")
-        return instruction_dictionaries
+        return instruction_entries
 
-    def update_configs(self, instr_configs):
-        self.tree.update_configs(instr_configs)
-
-    def generate_test_path(self, iter, testcase_num) -> Path:
+    def generate_test_path(self, iteration: int, testcase_num: int) -> Path:
         """
         Generate the path to the test case.
 
@@ -423,9 +375,8 @@ class Resource:
         if self.use_output_filename or self.testcase_name != "":
             test_case_name = f"{self.testcase_name}"
         else:
-            test_case_name = f"bringup_{testcase_num}_{self.seed}_{iter}"
+            test_case_name = f"bringup_{testcase_num}_{self.seed}_{iteration}"
         test_path = self.run_dir / test_case_name
-        self.output_files.append(str(test_path))  # FIXME: output_files should be a path if not used anywhere
         return test_path
 
     def check_arch(self, arch):
@@ -442,39 +393,3 @@ class Resource:
 
     def get_extension_string(self):
         return [ext.split("_", 1)[0] for ext in self.include_extensions]
-
-    def add_extension(self, extension):
-        self.tree.add_extension(extension)
-
-    def update_instrs(self, _id: str, instr):
-        self.instr_tracker[_id] = instr
-
-    def traverse_tree(self):
-        self.tree.traverse_tree()
-
-    def get_instr(self, mnemonic):
-        return self.tree.get_instr(mnemonic)
-
-    def get_groups(self, groups):
-        return self.tree.get_groups(groups)
-
-    def get_extension_set(self, ext_names):
-        mnemonics = set()
-        for ext_name in ext_names:
-            mnemonics = mnemonics | self.tree.get_extension_set(ext_name)
-        return mnemonics
-
-    def get_group_set(self, grp_names):
-        mnemonics = set()
-        for grp_name in grp_names:
-            mnemonics = mnemonics | self.tree.get_group_set(grp_name)
-        return mnemonics
-
-    def get_instr_dict(self, mnemonics):
-        instrs = dict()
-        for mnemonic in mnemonics:
-            instrs[mnemonic] = self.get_instr(mnemonic)
-        return instrs
-
-    def get_instr_instances(self) -> dict[str, Any]:
-        return self.instr_tracker

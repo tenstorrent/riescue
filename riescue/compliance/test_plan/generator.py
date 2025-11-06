@@ -93,6 +93,13 @@ class TestPlanGenerator:
         :param test_plan_name: Name of the test plan to use in the generated test case. - FIXME: In the future, maybe have discrete tests store TestPlan name as metadata?
         """
 
+        # filtered discrete tests to only include tests that match the environment
+        filtered_discrete_tests = []
+        for test in discrete_tests:
+            if env.paging_mode in test.env.paging_modes and env.priv in test.env.priv_modes:
+                filtered_discrete_tests.append(test)
+        discrete_tests = filtered_discrete_tests
+
         # Check for conflicting labels
         test_case_names = set()
         for test in discrete_tests:

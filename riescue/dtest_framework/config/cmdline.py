@@ -82,6 +82,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Specify secure mode for the test to be forced. e.g. \n\t--test_secure_mode random \nIf random or any is selected then the probability of secure mode is 20%%",
         type=str,
     )
+    test_env_args.add_argument(
+        "--supported_priv_modes",
+        default=None,
+        help="Specify privilege modes supported by the platform. e.g. \n\t--supported_priv_modes MSU. Default to MSU if not specified",
+        choices=["MSU", "MS", "MU", "M"],
+        type=str,
+    )
 
     eot_args = parser.add_argument_group("End of Test", "Arguments that affect the end of test")
     eot_args.add_argument(

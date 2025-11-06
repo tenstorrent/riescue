@@ -5,8 +5,112 @@
 import yaml
 import json
 import copy
-from collections import OrderedDict
 import pathlib
+from collections import OrderedDict
+from dataclasses import dataclass
+from typing import Union
+
+
+@dataclass
+class InstrEntry:
+    """
+    Class to represent an instruction entry in the source instruction dictionary.
+    This includes all parsed entries from the "Instructions" subdictionary
+
+    "Instruction" entries are encoded as a key and tuple of (``instruction_id``, ``encoded_string``)
+    The ``encoded_string`` is a JSON string that contains the instruction configuration.
+
+    ..code-block:: JSON
+
+        "add": [
+                0,
+                "{\"encoding\": \"0000000----------000-----0110011\", \"extension\": [\"rv_i\"], \"mask\": \"0xfe00707f\",  \
+                \"match\": \"0x33\", \"variable_fields\": [\"rd\", \"rs1\", \"rs2\"],  \
+                \"group\": \"rv32i_compute_register_register\", \"opcode\": \"0x33\"}"
+            ],
+
+    ..note::
+        This ``InstrEntry`` class was added to help with type checking and parsing the instruction entries.
+        This is assuming the encoded JSON strings are escaped to save on space, but there wasn't any documented reason this is using encoded strings.
+
+        It seems to trade off space for speed, where there's less memory overhead for the instructions and they get lazily loaded.
+        This object aims to add type checking and wrap that lazy loading.
+
+    """
+
+    name: str
+    instruction_id: int
+    encoding: str
+    extension: list[str]
+    mask: str
+    match: str
+    variable_fields: list[str]
+    group: str
+    opcode: str
+    extra_fields: dict[str, str]  #: Additional fields that are extension specific. E.g. mop for vector
+    type: str = "Int"
+
+    @classmethod
+    def from_entry(cls, instr_name: str, entry: list[Union[int, str]]) -> "InstrEntry":
+        """
+        classmethod to lazily load the instruction configuration from the instruction JSON.
+
+        Assumes entry is correctly formatted as [instruction_id, encoded_string].
+
+        :param instr_name: The name of the instruction.
+        :param entry: The entry from the instruction dictionary.
+        """
+
+        instr_id, instr_blob = entry
+        if not isinstance(instr_blob, str) or not isinstance(instr_id, int):
+            raise ValueError(f"Expected entry to be list of length 2: {entry} {type(entry)}. Expected a list of [instruction_id, encoded_string].")
+        instruction_entry = json.loads(instr_blob)
+
+        if instr_name.startswith("v"):
+            instr_type = "Vec"
+        elif (instr_name.startswith("f") or instr_name.startswith("c.f")) and not instr_name == "fence":
+            instr_type = "Float"
+        else:
+            instr_type = "Int"
+
+        # any fields that are extension specific
+        known_fields = {"encoding", "extension", "mask", "match", "variable_fields", "group", "opcode"}
+        fields = {key: value for key, value in instruction_entry.items() if key not in known_fields}
+
+        return cls(
+            name=instr_name,
+            instruction_id=instr_id,
+            encoding=instruction_entry["encoding"],
+            extension=instruction_entry["extension"],
+            mask=instruction_entry["mask"],
+            match=instruction_entry["match"],
+            variable_fields=instruction_entry["variable_fields"],
+            group=instruction_entry["group"],
+            opcode=instruction_entry["opcode"],
+            extra_fields=fields,
+            type=instr_type,
+        )
+
+    def to_dict(self) -> dict[str, Union[str, int, list[str], None]]:
+        "Used for backwards compatibility with the old code."
+        instr_dict: dict[str, Union[str, int, list[str], None]] = {
+            "name": self.name,
+            "instruction_id": self.instruction_id,
+            "encoding": self.encoding,
+            "extension": self.extension,
+            "mask": self.mask,
+            "match": self.match,
+            "variable_fields": self.variable_fields,
+            "group": self.group,
+            "opcode": self.opcode,
+            "type": self.type,
+            "config": None,
+        }
+        for variable_field in self.variable_fields:
+            instr_dict[variable_field] = None
+        instr_dict.update(self.extra_fields)
+
+        return instr_dict
 
 
 # Simpler and more easily read and updated instruction info source.
@@ -228,8 +332,6 @@ class InstrInfoJson:
     def rebuild_json(self):
         "Rebuilds JSON from yaml"
 
-        instr_dict_raw = dict()
-        supplementary_dict_raw = dict()
         groups_to_instruction_names = dict()
         with open(self.isa_info_path / self.instr_dict_filename) as f:
             instr_dict_raw = yaml.load(f, Loader=yaml.FullLoader)
@@ -237,6 +339,10 @@ class InstrInfoJson:
             supplementary_dict_raw = yaml.load(f, Loader=yaml.FullLoader)
         with open(self.isa_info_path / self.groups_filename) as f:
             groups_to_instruction_names = yaml.load(f, Loader=yaml.FullLoader)
+
+        assert isinstance(instr_dict_raw, dict)
+        assert isinstance(supplementary_dict_raw, dict)
+        assert isinstance(groups_to_instruction_names, dict)
 
         instr_dict_raw.update(supplementary_dict_raw)
         instr_dict_raw = self.augment_data_with_groups(instr_dict_raw, groups_to_instruction_names)
@@ -296,7 +402,7 @@ class InstrInfoJson:
         else:
             self.rebuild_json()
 
-    def search_instructions_by_extension(self, extension_names: list, exclude_rules) -> list:
+    def search_instructions_by_extension(self, extension_names: list[str], exclude_rules: bool = False) -> list[str]:
         assert self.instr_query_dict["Extensions_To_Instruction_Names"], "Extensions table is empty."
         instrs = list()
         for extension_name in extension_names:
@@ -305,7 +411,7 @@ class InstrInfoJson:
             instrs.extend(self.instr_query_dict["Extensions_To_Instruction_Names"].get(extension_name, []))
         return instrs
 
-    def search_instructions_by_groups(self, group_names: list, exclude_rules) -> list:
+    def search_instructions_by_groups(self, group_names: list[str], exclude_rules: bool = False) -> list[str]:
         # Check that self.instr_query_dict["Groups"] is not an empty dictionary.
         assert self.instr_query_dict["Groups_To_Instruction_Names"], "Groups table is empty."
         instrs = list()
@@ -315,7 +421,7 @@ class InstrInfoJson:
             instrs.extend(self.instr_query_dict["Groups_To_Instruction_Names"].get(group_name, []))
         return instrs
 
-    def filter_instruction_names(self, instruction_names: list, exclude_rules) -> list:
+    def filter_instruction_names(self, instruction_names: list[str], exclude_rules: bool = False) -> list[str]:
         # Check that self.instr_query_dict["Instructions"] is not an empty dictionary.
         assert self.instr_query_dict["Instructions"], "Instructions table is empty."
         instrs = list()
@@ -328,23 +434,23 @@ class InstrInfoJson:
             instrs.append(instr_name)
         return instrs
 
-    def search_instruction_names(self, extension_names, group_names, instruction_names, sorted=False, exclude_rules=False) -> list[str]:
-        instr_names = set()
-        instr_names.update(self.search_instructions_by_extension(extension_names, exclude_rules))
-        instr_names.update(self.search_instructions_by_groups(group_names, exclude_rules))
-        instr_names.update(self.filter_instruction_names(instruction_names, exclude_rules))
-        instr_names = list(instr_names)
+    def search_instruction_names(self, extension_names: list[str], group_names: list[str], instruction_names: list[str], sorted: bool = False, exclude_rules: bool = False) -> list[str]:
+        instr_names_set: set[str] = set()
+        instr_names_set.update(self.search_instructions_by_extension(extension_names, exclude_rules))
+        instr_names_set.update(self.search_instructions_by_groups(group_names, exclude_rules))
+        instr_names_set.update(self.filter_instruction_names(instruction_names, exclude_rules))
+        instr_names: list[str] = list(instr_names_set)
         if sorted:
             instr_names.sort()
-
         return instr_names
 
-    def get_instr_info(self, instruction_names: list, sorted=True) -> list:
-        instrs = list()
+    def get_instr_info(self, instruction_names: list[str]) -> list[InstrEntry]:
+        """
+        Consuming code should use InstrEntry objects instead of dictionaries if possible.
+        This function is provided for backwards compatibility with the old code.
+        """
+        instrs: list[InstrEntry] = list()
         for instr_name in instruction_names:
-            instrs.append([instr_name] + self.instr_query_dict["Instructions"][instr_name])
-
-        if sorted:
-            instrs.sort()
-
+            instr = InstrEntry.from_entry(instr_name, self.instr_query_dict["Instructions"][instr_name])
+            instrs.append(instr)
         return instrs
