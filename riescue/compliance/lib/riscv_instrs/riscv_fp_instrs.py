@@ -30,7 +30,7 @@ class RiscvFpInstr(InstrBase):
         self._rounding_mode = ""
 
         # FIXME : Put this inside a function set_attributes()
-        for attr in self.__dir__():
+        for attr in dir(self):
             if any([self._name.startswith(stem) for stem in ["fs", "fl"]]) and any([self._name.endswith(stem) for stem in ["lw", "ld", "lh", "sw", "sd", "sh"]]) and attr == "rs1":
                 setattr(self, attr, RiscvXregister(resource_db=self.resource_db, name="", size=5, reg_manager=self._reg_manager, field_name=attr))
                 self._srcs.append(getattr(self, attr))

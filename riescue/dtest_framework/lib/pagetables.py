@@ -389,22 +389,35 @@ class PTAttrs(raw_attributes.RawAttributes):
 
     def get_value(self) -> int:
         value = 0
+        if TYPE_CHECKING:
+            assert isinstance(self.rsw, int)
+            assert isinstance(self.reserved, int)
+            assert isinstance(self.pbmt, int)
+            assert isinstance(self.n, int)
+            assert isinstance(self.v, int)
+            assert isinstance(self.r, int)
+            assert isinstance(self.w, int)
+            assert isinstance(self.x, int)
+            assert isinstance(self.u, int)
+            assert isinstance(self.g, int)
+            assert isinstance(self.a, int)
+            assert isinstance(self.d, int)
 
-        value |= common.set_bitn(original=value, bit=0, value=self.v)
-        value |= common.set_bitn(original=value, bit=1, value=self.r)
-        value |= common.set_bitn(original=value, bit=2, value=self.w)
-        value |= common.set_bitn(original=value, bit=3, value=self.x)
-        value |= common.set_bitn(original=value, bit=4, value=self.u)
-        value |= common.set_bitn(original=value, bit=5, value=self.g)
-        value |= common.set_bitn(original=value, bit=6, value=self.a)
-        value |= common.set_bitn(original=value, bit=7, value=self.d)
+        value |= common.set_bitn(original=value, bit=0, value=bool(self.v))
+        value |= common.set_bitn(original=value, bit=1, value=bool(self.r))
+        value |= common.set_bitn(original=value, bit=2, value=bool(self.w))
+        value |= common.set_bitn(original=value, bit=3, value=bool(self.x))
+        value |= common.set_bitn(original=value, bit=4, value=bool(self.u))
+        value |= common.set_bitn(original=value, bit=5, value=bool(self.g))
+        value |= common.set_bitn(original=value, bit=6, value=bool(self.a))
+        value |= common.set_bitn(original=value, bit=7, value=bool(self.d))
         value |= common.set_bits(original_value=value, bit_hi=9, bit_lo=8, value=self.rsw)
         value |= common.set_bits(original_value=value, bit_hi=60, bit_lo=54, value=self.reserved)
         if self.leaf:
             value |= common.set_bits(original_value=value, bit_hi=62, bit_lo=61, value=self.pbmt)
         else:
             value |= common.set_bits(original_value=value, bit_hi=62, bit_lo=61, value=0)
-        value |= common.set_bitn(original=value, bit=63, value=self.n)
+        value |= common.set_bitn(original=value, bit=63, value=bool(self.n))
 
         return value
 

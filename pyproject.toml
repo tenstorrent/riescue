@@ -25,7 +25,7 @@ dependencies = [
     "intervaltree",
     "coverage",
     "pyright[nodejs]",
-    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@914d5e8c97299fb59eb935a71d7414b17d03f6d7",
+    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@ee8271bb1e80e9d1ae689732676d7483db77e3fc",
 ]
 
 [tool.setuptools.package-dir]
@@ -65,3 +65,4 @@ exclude = [
 ]
 pythonVersion = "3.9"
 pythonPlatform = "Linux"
+reportMissingTypeStubs = false

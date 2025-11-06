@@ -6,6 +6,7 @@ from coretp.step import (
     Load,
     Store,
     Memory,
+    ModifyPte,
     Arithmetic,
     CsrRead,
     CsrWrite,
@@ -27,6 +28,7 @@ from riescue.compliance.test_plan.actions import (
     CsrWriteAction,
     CodePageAction,
     CallAction,
+    ModifyPteAction,
     AssertEqualAction,
     AssertNotEqualAction,
     AssertExceptionAction,
@@ -47,4 +49,5 @@ DEFAULT_MAPPINGS: list[tuple[type[TestStep], type[Action]]] = [
     (AssertNotEqual, AssertNotEqualAction),
     (AssertException, AssertExceptionAction),
     (LoadImmediateStep, LiAction),
+    (ModifyPte, ModifyPteAction),
 ]

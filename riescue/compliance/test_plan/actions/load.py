@@ -20,7 +20,14 @@ class LoadAction(Action):
 
     register_fields = ["memory", "rs1"]
 
-    def __init__(self, offset: int = 0, memory: Optional[str] = None, op: Optional[str] = None, **kwargs):
+    def __init__(
+        self,
+        offset: int = 0,
+        memory: Optional[str] = None,
+        op: Optional[str] = None,
+        access_size: Optional[int] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.offset = offset
         self.memory = memory  # Should only ever hold label to memory block
@@ -29,6 +36,10 @@ class LoadAction(Action):
         self.aligned = True  # TODO: Add support for unaligned loads
         self.constraints = {"category": Category.LOAD}
         self.expanded = False
+        self.access_size = access_size
+        self.access_size_instr = None
+        if self.access_size is not None and self.access_size not in [1, 2, 4, 8]:
+            raise ValueError(f"Invalid access size: {self.access_size}")
 
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "LoadAction":
@@ -42,7 +53,14 @@ class LoadAction(Action):
             if isinstance(src, str):
                 memory = src
                 break
-        return cls(step_id=step_id, offset=step.step.offset, memory=memory, **kwargs)
+
+        return cls(
+            step_id=step_id,
+            offset=step.step.offset,
+            memory=memory,
+            access_size=step.step.access_size,
+            **kwargs,
+        )
 
     def repr_info(self) -> str:
         return f"{self.offset}('{self.memory}'))"
@@ -83,14 +101,16 @@ class LoadAction(Action):
             return new_actions
         return None
 
-    def _recurse_pick_instruction(self, ctx: LoweringContext, constraints: dict[str, Any]) -> Instruction:
+    def _recurse_pick_instruction(self, ctx: LoweringContext, constraints: dict[str, Any], access_size_instr: Optional[str]) -> Instruction:
         if self.op is not None:
             return ctx.instruction_catalog.get_instruction(self.op)
         instruction_choices = ctx.instruction_catalog.filter(**constraints)
+        if access_size_instr is not None:
+            instruction_choices = [i for i in instruction_choices if i.name.endswith(access_size_instr)]
         selected_instruction = ctx.rng.choice(instruction_choices)
         if "sp" in selected_instruction.name:
             # Can't have stack pointer-relative access. Try again
-            selected_instruction = self._recurse_pick_instruction(ctx, constraints)
+            selected_instruction = self._recurse_pick_instruction(ctx, constraints, access_size_instr)
         return selected_instruction
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
@@ -99,7 +119,16 @@ class LoadAction(Action):
         constraints: dict[str, Any] = {"category": Category.LOAD}
         if self.offset:
             constraints["has_immediate"] = True
-        selected_instruction = self._recurse_pick_instruction(ctx, constraints)
+        access_size_instr = None
+        if self.access_size == 1:
+            access_size_instr = "b"
+        elif self.access_size == 2:
+            access_size_instr = "h"
+        elif self.access_size == 4:
+            access_size_instr = "w"
+        elif self.access_size == 8:
+            access_size_instr = "d"
+        selected_instruction = self._recurse_pick_instruction(ctx, constraints, access_size_instr)
 
         # Pick offset
         offset_operand = selected_instruction.immediate_operand()

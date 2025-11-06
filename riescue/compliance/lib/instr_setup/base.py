@@ -1,18 +1,23 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
+from typing import TYPE_CHECKING
 
 from riescue.compliance.lib.immediate import Immediate12
 from riescue.compliance.config import Resource
 
+if TYPE_CHECKING:
+    from riescue.compliance.lib.riscv_instrs.base import InstrBase
+
 
 class InstrSetup:
     def __init__(self, resource_db):
-        self._pre_setup_instrs = []
-        self._post_setup_instrs = []
+        self._pre_setup_instrs: list[str] = []
+        self._post_setup_instrs: list[str] = []
         self.resource_db = resource_db
         self._rng = resource_db.rng
         self._asm_instr = ""
-        self._pass_one_pre_appendix = ""
+        self.pass_one_pre_appendix = ""
 
     def do_load_fp_regs(self):
         return self.resource_db.load_fp_regs
@@ -32,18 +37,18 @@ class InstrSetup:
         return v1_nearest_emul_aligned != v2_nearest_emul_aligned
 
     @property
-    def pre_setup_instrs(self):
+    def pre_setup_instrs(self) -> list[str]:
         return self._pre_setup_instrs
 
     @property
-    def post_setup_instrs(self):
+    def post_setup_instrs(self) -> list[str]:
         return self._post_setup_instrs
 
     @property
     def asm_instr(self):
         return self._asm_instr
 
-    def pre_setup(self, instr):
+    def pre_setup(self, instr: InstrBase) -> None:
         pass
 
     def j_pass_ok(self):
@@ -128,7 +133,7 @@ class InstrSetup:
     #    else:
     #        self._pre_setup_instrs.append(cmd)
 
-    def write_pre(self, cmd):
+    def write_pre(self, cmd: str) -> None:
         # assert any(entry.function == "pre_setup" for entry in inspect.stack()[:6])
         self._pre_setup_instrs.append(cmd)
 
@@ -137,7 +142,7 @@ class InstrSetup:
         self._post_setup_instrs.append(cmd)
 
     def write_data(self, instr, cmd):
-        instr._data_section.append(cmd)
+        instr.data_section.append(cmd)
 
     def get_random_reg(self, reg_manager, reg_type="Int"):
         if reg_type.lower() != "vec":

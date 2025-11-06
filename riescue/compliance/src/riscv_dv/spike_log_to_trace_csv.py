@@ -24,6 +24,7 @@ Convert spike sim log to standard riscv instruction trace format
 import argparse
 import re
 import logging
+from pathlib import Path
 
 from riescue.compliance.src.riscv_dv.riscv_trace_csv import RiscvInstructionTraceEntry, RiscvInstructionTraceCsv
 from riescue.compliance.src.riscv_dv.lib import convert_pseudo_instr, gpr_to_abi, setup_logging
@@ -212,7 +213,7 @@ def read_spike_trace(path, full_trace):
             yield (instr, False)
 
 
-def process_spike_sim_log(spike_log, csv, full_trace=0):
+def process_spike_sim_log(spike_log: Path, csv: Path, full_trace: int = 0) -> int:
     """Process SPIKE simulation log.
 
     Extract instruction and affected register information from spike simulation

@@ -74,11 +74,11 @@ class RiscvVecInstr(InstrBase):
         """
         if self._name.endswith(".vvm") or self._name.endswith(".vxm") or self._name.endswith(".vim"):
             setattr(self, "vm", "")
-            assert "vm" in self.__dir__()
+            assert "vm" in dir(self)
         """
         #   In the ISA vm operands are required to be v0
         """
-        if "vm" in self.__dir__():
+        if "vm" in dir(self):
             self._reg_manager.reserve_reg("v0", "Vector")
 
         VARITH_OPCODE = 0b1010111
@@ -116,7 +116,7 @@ class RiscvVecInstr(InstrBase):
         elif opcode == VCRYPTO_OPCODE:
             is_crypto = True
 
-        for attr in self.__dir__():
+        for attr in dir(self):
             if attr in ["rs1", "rs2"]:
                 setattr(self, attr, scalar_reg_type(resource_db=self.resource_db, name="", size=5, reg_manager=self._reg_manager, field_name=attr))
                 self._srcs.append(getattr(self, attr))
@@ -379,11 +379,9 @@ class RiscvVecInstr(InstrBase):
                     elif hex_opcode == hex(0x27):
                         self._setup = VecStoreIndexedUnorderedSegmentedSetup(resource_db=self.resource_db)
                     else:
-                        print("Unhandled instruction: " + str(name))
-                        assert False
+                        raise ValueError(f"Unhandled instruction: {name}")
                 else:
-                    print("Unhandled instruction: " + str(name))
-                    assert False
+                    raise ValueError(f"Unhandled instruction: {name}")
             else:
                 if hex_mop_if_any == hex(0x2):  # Strided vector load store
                     if hex_opcode == hex(0x7):
@@ -402,33 +400,28 @@ class RiscvVecInstr(InstrBase):
                         elif hex_opcode == hex(0x27):
                             self._setup = VecStoreMaskSetup(resource_db=self.resource_db)
                         else:
-                            print("Unhandled instruction: " + str(name))
-                            assert False
+                            raise ValueError(f"Unhandled instruction: {name}")
                     elif hex_24_to_20 == hex(0x10):
                         if hex_opcode == hex(0x7):
                             self._setup = VecLoadUnitStrideFaultFirstSetup(resource_db=self.resource_db)
                         else:
-                            print("Unhandled instruction: " + str(name))
-                            assert False
+                            raise ValueError(f"Unhandled instruction: {name}")
                     elif hex_24_to_20 == hex(0x0):
                         if hex_opcode == hex(0x7):
                             self._setup = VecLoadUnitStrideSetup(resource_db=self.resource_db)
                         elif hex_opcode == hex(0x27):
                             self._setup = VecStoreUnitStrideSetup(resource_db=self.resource_db)
                         else:
-                            print("Unhandled instruction: " + str(name))
-                            assert False
+                            raise ValueError(f"Unhandled instruction: {name}")
                     elif hex_24_to_20 == hex(0x8):
                         if hex_opcode == hex(0x7):
                             self._setup = VecLoadWholeRegSetup(resource_db=self.resource_db)
                         elif hex_opcode == hex(0x27):
                             self._setup = VecStoreWholeRegSetup(resource_db=self.resource_db)
                         else:
-                            print("Unhandled instruction: " + str(name))
-                            assert False
+                            raise ValueError(f"Unhandled instruction: {name}")
                     else:
-                        print("Unhandled instruction: " + str(name))
-                        assert False
+                        raise ValueError(f"Unhandled instruction: {name} hex: {hex_opcode}")
         elif is_crypto:
             if self._name.startswith(("vghsh", "vgmul")):
                 self._setup = VecZvbcSetup(resource_db=self.resource_db)

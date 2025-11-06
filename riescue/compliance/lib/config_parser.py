@@ -4,6 +4,7 @@
 import json
 import copy
 from pathlib import Path
+from typing import Any
 
 from riescue.compliance.config import Resource
 
@@ -13,6 +14,8 @@ class ConfigParser:
         self.resource_db = resource_db
         self._default_config = dict()
         self._user_config = dict()
+
+        self._test_config: dict[str, Any] = dict()
 
         THIS_DIR = Path(__file__).resolve().parent
         compliance_lib = Path(__file__).resolve().parent
@@ -34,7 +37,7 @@ class ConfigParser:
         with open(self.resource_db.default_config) as default_config_file:
             config = json.load(default_config_file)
             self._default_config = config["extensions"]
-            self.resource_db.test_configs = config["test"]
+            self._test_config = config["test"]
             self.parse_default_config()
 
         if self.resource_db.user_config is not None:
@@ -113,7 +116,7 @@ class ConfigParser:
 
         # Parse extension parameters.
         if "test" in self._user_config:
-            self.resource_db.test_configs = self._user_config["test"]
+            self._test_config = self._user_config["test"]
 
         for ext, ext_cfgs in self._default_config.items():
 

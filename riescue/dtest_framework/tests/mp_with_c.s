@@ -17,6 +17,7 @@
 ;#test.summary    respectively as private maps. The first linear address is passed as
 ;#test.summary    argument to two C functions and offset 0x2000 from it (address 0x12000)
 ;#test.summary    is used as a shared buffer (same constant physical address) for IPC.
+;#test.summary    Stack grows down from linear address 0x16000 down to 0x15000.
 ;#test.summary
 
 ;#page_map(name=map0, mode=sv39);
@@ -35,6 +36,9 @@
 
 ;#page_mapping(lin_addr=0x12000, phys_name=&random, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
+;#page_mapping(lin_addr=0x15000, phys_name=&random, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'], page_maps=['map0'])
+
+;#page_mapping(lin_addr=0x15000, phys_name=&random, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'], page_maps=['map1'])
 
 ;#init_memory @0x10000: map0
   .rept 128
@@ -84,6 +88,7 @@ set_map_0:
     csrw satp, x1
     sfence.vma
     li a0, 0x10000
+    li sp, 0x16000
     jal c_func_0
     beq a0, x0, passed_0
     ;#test_failed()
@@ -99,6 +104,7 @@ set_map_1:
     csrw satp, x1
     sfence.vma
     li a0, 0x10000
+    li sp, 0x16000
     jal c_func_1
     beq a0, x0, passed_1
     ;#test_failed()

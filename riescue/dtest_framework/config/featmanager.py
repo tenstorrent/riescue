@@ -106,6 +106,8 @@ class FeatMgr:
     secure_mode: RV.RiscvSecureModes = RV.RiscvSecureModes.NON_SECURE
     deleg_excp_to: RV.RiscvPrivileges = RV.RiscvPrivileges.MACHINE
 
+    supported_priv_modes: set[RV.RiscvPrivileges] = field(default_factory=lambda: {RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER, RV.RiscvPrivileges.USER})
+
     reset_pc: int = 0x8000_0000
     io_htif_addr: Optional[int] = None  # This could probably be use a better name, e.g. eot_addr + note that it defaults to htif in memmap
     eot_pass_value: int = 1

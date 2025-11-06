@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+
 import argparse
 import abc
 from pathlib import Path
@@ -44,7 +46,7 @@ class CliBase(abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
-    def add_arguments(parser):
+    def add_arguments(parser: argparse.ArgumentParser) -> None:
         print("Inside cli_script add_args, override me")
 
     @classmethod
@@ -56,7 +58,7 @@ class CliBase(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def run_cli(cls, **kwargs) -> Any:
+    def run_cli(cls, **kwargs: Any) -> Any:
         pass
 
     # common helper methods

@@ -82,7 +82,6 @@ class CsrWriteAction(Action):
         self.csr_name = csr_name
         self.operation = operation
         self.write_value = value
-        self.use_imm = False
         self.src = src
         self.constraints = {}  # Will be manually picking a CSR instruction
         self.expanded = False
@@ -117,6 +116,7 @@ class CsrWriteAction(Action):
                 write_value = step.value
             # elif step.value is not None:
         if write_value is None:
+            # check if the only input is a register?
             if len(inputs) == 1:
                 src = str(inputs[0])
 
@@ -142,18 +142,24 @@ class CsrWriteAction(Action):
 
         This will return itself as an action.
         """
-
         if self.expanded:
             return None
         else:
             self.expanded = True
+
+            # if src input, don't need to expand
+            if self.src is not None:
+                return [self]
+
             if self.write_value is None:
                 self.write_value = ctx.random_n_width_number()  # random number if none passed in
+            # is a li needed for the write value?
             if isinstance(self.write_value, int):
-                self.use_imm = self.write_value < 64  # if value is less than 64, we can use an imm field
+                self.use_imm = self.write_value < 32
+                need_imm_register = self.write_value > 32  # zimm5 supports only 0..31
             else:
-                self.use_imm = False  # will need a register to load value
-            if not self.use_imm:
+                need_imm_register = False  # no write value to load
+            if need_imm_register:
                 li_id = ctx.new_value_id()
                 load_immediate = LiAction(step_id=li_id, immediate=self.write_value)
                 self.src = li_id
@@ -165,18 +171,16 @@ class CsrWriteAction(Action):
         Selects instruction based on passed oepration. If set_op, clear_op, write_op, will pick a different instruction.
         If set, pick a CSRRS
 
-        if value < 64, use immediate, otherwise need to use a register. If using immediate, set input operand as x0
+        if value < 32, use immediate, otherwise need to use a register. If using immediate, set input operand as x0
 
         generate() responsible for setting correct operand / immediate if needed.
         """
 
         use_imm = False
-        if self.write_value is not None:
+        if self.write_value is not None and self.src is None:
             # if immediate is less than 64 use an immediate. Otherwise, use a register
-            if self.write_value < 64:
-                if not self.use_imm:
-                    raise ValueError(f"Tried to use an immediate value for the write value but {self.use_imm=} for {self.step_id}")
-                use_imm = True
+            # expand() should handle this if needed
+            use_imm = self.write_value < 64
 
         if self.operation == CsrOperation.WRITE:
             if use_imm:

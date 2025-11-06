@@ -194,6 +194,17 @@ class CliAdapter(Adapter):
         else:
             builder.env = to_candidate(RV.RiscvTestEnv.TEST_ENV_BARE_METAL)
 
+        if cmdline.supported_priv_modes:
+            # cmdline restricts choices to MSU, M, MS, MU
+            supported_priv_modes = set()
+            if "M" in cmdline.supported_priv_modes:
+                supported_priv_modes.add(RV.RiscvPrivileges.MACHINE)
+            if "S" in cmdline.supported_priv_modes:
+                supported_priv_modes.add(RV.RiscvPrivileges.SUPER)
+            if "U" in cmdline.supported_priv_modes:
+                supported_priv_modes.add(RV.RiscvPrivileges.USER)
+            featmgr.supported_priv_modes = supported_priv_modes
+
         if cmdline.test_priv_mode:
             builder.priv_mode = to_candidate(RV.RiscvPrivileges[cmdline.test_priv_mode.upper()])
             # if self.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:

@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+from pathlib import Path
+
 from riescue.compliance.config import Resource
 from riescue.compliance.lib.riscv_instrs import InstrBase
 
@@ -18,48 +20,18 @@ class TestCase:
             resource_db     : Handle to the Resource class
             instrs          : Dictionary of all the instructions belonging to a testcase.
 
-    FIXME: This deals directly with files, it should be using Paths instead of strings
     """
 
-    def __init__(self, signature: str, instrs: list[InstrBase], resource_db: Resource) -> None:
-        self._signature = signature
-        self._testname = signature + ".s"
+    def __init__(self, signature: Path, instrs: list[InstrBase], resource_db: Resource) -> None:
+        self.signature = signature
+        self.testname = signature.with_suffix(".s")
         self._resource_db = resource_db
-        self._disassembly = signature + ".dis"
+
+        self.disassembly = signature.with_suffix(".dis")
         if self._resource_db.first_pass_iss == "spike":
-            self._log = signature + "_spike.log"
-            self._csv_log = signature + "_spike_csv.log"
+            self.log = signature.parent / (signature.stem + "_spike.log")
+            self.csv_log = signature.parent / (signature.stem + "_spike_csv.log")
         else:
-            self._log = signature + "_whisper.log"
-            self._csv_log = signature + "_whisper_csv.log"
-        self._instrs = instrs
-
-    @property
-    def testname(self) -> str:
-        return self._testname
-
-    @property
-    def disassembly(self) -> str:
-        return self._disassembly
-
-    @property
-    def log(self) -> str:
-        return self._log
-
-    @property
-    def csv_log(self) -> str:
-        return self._csv_log
-
-    @property
-    def instrs(self) -> list[InstrBase]:
-        return self._instrs
-
-    @property
-    def signature(self) -> str:
-        return self._signature
-
-    def get_spike_logs(self) -> tuple[str, ...]:
-        return tuple([self._signature + "_spike.log", self._signature + "_spike_csv.log"])
-
-    def get_whisper_logs(self) -> tuple[str, ...]:
-        return tuple([self._signature + "_whisper.log", self._signature + "_whisper.log"])
+            self.log = signature.parent / (signature.stem + "_whisper.log")
+            self.csv_log = signature.parent / (signature.stem + "_whisper_csv.log")
+        self.instrs = instrs

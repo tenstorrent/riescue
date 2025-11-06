@@ -14,7 +14,7 @@ from riescue.lib.address import Address
 from riescue.lib.numgen import NumGen
 from riescue.lib.rand import RandNum
 from riescue.dtest_framework.pool import Pool
-from riescue.dtest_framework.parser import PmaInfo, PmpInfo, ParsedPageMapping, Parser, ParsedRandomAddress, ParsedRandomData
+from riescue.dtest_framework.parser import PmaInfo, ParsedPageMapping, Parser, ParsedRandomAddress, ParsedRandomData
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.lib.page_map import Page, PageMap
 from riescue.dtest_framework.generator.assembly_writer import AssemblyWriter
@@ -51,7 +51,7 @@ class Generator:
 
         # Default sections
         self.os_code_sections = ["text"]
-        self.os_data_sections = ["os_data", "os_stack"]
+        self.os_data_sections = ["os_data", "hart_context"]
         self.io_sections = []  # IO sections to be added
         if self.featmgr.io_htif_addr is not None:
             self.io_sections.append("io_htif")  # If unset, don't want to make it a section (and add to linker); this effectively places io_htif after OS code
@@ -140,18 +140,19 @@ class Generator:
         for range in memory.dram_ranges:
             # Setup default PMAs for DRAM
             # FIXME: Did we really mean to only create a PMA for the last dram range?
-            self.pool.pma_dram_default = PmaInfo(pma_address=range.start, pma_size=range.size, pma_memory_type="memory")
-
-            # Also add to pmp regions
+            self.pool.pma_regions.add_region(base=range.start, size=range.size, type="memory")
             self.pool.pmp_regions.add_region(base=range.start, size=range.size)
 
         for range in memory.secure_ranges:
             # Since this secure region, we need to set bit-55 to 1
             start_addr = range.start | 0x0080000000000000
+            self.pool.pma_regions.add_region(base=range.start, size=range.size, type="memory")
             self.pool.pmp_regions.add_region(base=start_addr, size=range.size)
 
-            # Setup pmas
-            self.pool.pma_regions[f"sec_{range.start:x}"] = PmaInfo(pma_address=range.start, pma_size=range.size, pma_memory_type="memory")
+        for range in memory.io_ranges + memory.reserved_ranges:
+            self.pool.pma_regions.add_region(base=range.start, size=range.size, type="io")
+            self.pool.pmp_regions.add_region(base=range.start, size=range.size)
+
         self.addrgen = addrgen.AddrGen(self.rng, memory, self.featmgr.addrgen_limit_indices, self.featmgr.addrgen_limit_way_predictor_multihit)
 
         # Set the linear and physical address bits
@@ -347,13 +348,13 @@ class Generator:
 
         if page_mapping.lin_addr_specified:
             lin_addr_name = page_mapping.lin_name
-            lin_addr = common.str_to_int(page_mapping.lin_addr)
+            lin_addr = int(page_mapping.lin_addr, 0)
         else:
             lin_addr_name = page_mapping.lin_name
 
         if page_mapping.phys_addr_specified:
             phys_addr_name = page_mapping.phys_name
-            phys_addr = common.str_to_int(page_mapping.phys_addr)
+            phys_addr = int(page_mapping.phys_addr, 0)
             addr_inst = Address(name=phys_addr_name, type=RV.AddressType.PHYSICAL, address=phys_addr)
             self.pool.add_random_addr(addr_name=phys_addr_name, addr=addr_inst, allow_duplicate=True)
 
@@ -2005,46 +2006,29 @@ class Generator:
                     start_addr=lin_addr + 0x1000,
                 )
 
-        elif section == "os_stack":
-            if self.featmgr.more_os_pages:
-                # FIXME: This really isnt supported downstream. The loader code only supports stack size of 0x1000.
-                # These extra pages can only be used by the last hart. Also by name shoudln't this be num_cpus+32?
-                num_stack_pages = 32
-            else:
-                num_stack_pages = self.featmgr.num_cpus
-            stack_page_size = 0x1000
+        elif "hart_context" == section:
+            # handle hart context and stack
+            # Acts as hart-local storage for test runtime environment
+            # Used in single and multi-process tests
+            page_size = 0x1000
 
-            # First make an allocation for the full stack, then the individual pages
-            (lin_addr, phys_addr) = self.add_section_handler(
-                name=section + "_end",
-                size=stack_page_size * num_stack_pages,
+            ctx = "hart_context"
+            self.add_section_handler(
+                name=ctx,
+                size=page_size,
                 iscode=False,
-                phys_name="",
+                phys_name=f"__section_{ctx}",
                 identity_map=True,
             )
-            stack_top_addr = lin_addr + (stack_page_size * num_stack_pages)
-
-            alloc_addr = lin_addr + stack_page_size
-            for i in range(1, num_stack_pages):
-                (lin_addr, phys_addr) = self.add_section_handler(
-                    name=f"__section__{section}_{i}",
-                    size=stack_page_size,
+            for hid in range(self.featmgr.num_cpus):
+                stk = f"hart_stack_{hid}"
+                self.add_section_handler(
+                    name=stk,
+                    size=page_size,
                     iscode=False,
-                    phys_name="",
+                    phys_name=f"__section_{stk}",
                     identity_map=True,
-                    start_addr=alloc_addr,
                 )
-                # increment alloc_addr to the next available address
-                alloc_addr = lin_addr + stack_page_size
-
-            # Mark start (lowest address) of stack through equates.
-            # Do not use add_section_handler as it can create overlapping page tables if the stack is just before another section.
-            # The stack start address would be the same as the next section start address. Directly inject into pool skipping page tables.
-            addr_inst = Address(name=section, type=RV.AddressType.LINEAR, address=alloc_addr)
-            self.pool.add_random_addr(addr_name=section, addr=addr_inst)
-
-            addr_inst = Address(name=f"{section}_phys", type=RV.AddressType.PHYSICAL, address=alloc_addr)
-            self.pool.add_random_addr(addr_name=f"{section}_phys", addr=addr_inst)
 
         elif section == "io_htif":
             (lin_addr, phys_addr) = self.add_section_handler(
@@ -2058,7 +2042,7 @@ class Generator:
             # self.pool.add_section(section_name="io_htif")
 
         else:
-            pass
+            log.error(f"Unknown section: {section}")
 
     def add_section_handler(
         self,

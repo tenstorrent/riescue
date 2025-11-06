@@ -87,6 +87,7 @@ class CsrTest(BasicTestBase):
         )
 
         # Basic checks
+        print(text)
         self.assertNotIn("None", text)
         self.assertIn("csr", text, "No CSR instructions found in generated test")
         self.assertIn("mcounteren", text, "No CSR instructions found in generated test")

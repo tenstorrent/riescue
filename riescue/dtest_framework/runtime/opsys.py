@@ -9,7 +9,7 @@ OpSys takes care of all the operating system related code including Scheduler
 """
 
 from types import MappingProxyType
-from typing import Optional, Any
+from typing import Any
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.lib.routines import Routines
@@ -24,49 +24,8 @@ class OpSys(AssemblyGenerator):
     utility functions for discrete test execution and coordination.
     """
 
-    PER_HART_OS_VARIABLES = MappingProxyType(
-        {
-            "check_excp": "0x1",
-            "check_excp_expected_pc": "-1",
-            "check_excp_actual_pc": "-1",
-            "check_excp_return_pc": "-1",
-            "check_excp_skip_pc_check": "0",
-            "check_excp_expected_tval": "-1",
-            "check_excp_expected_cause": "0xff",
-            "check_excp_actual_cause": "0xff",
-            "os_save_ecall_fn_epc": "-1",
-        }
-    )
-
-    SHARED_OS_VARIABLES = MappingProxyType(
-        {
-            "machine_flags": "0x0",
-            "user_flags": "0x0",
-            "super_flags": "0x0",
-            "machine_area": "0x0",
-            "user_area": "0x0",
-            "super_area": "0x0",
-            "num_harts_ended": "0x0",
-            "num_hard_fails": "0x0",
-            "excp_ignored_count": "0x0",
-            "machine_csr_jump_table_flags": "0x0",
-            "super_csr_jump_table_flags": "0x0",
-        }
-    )
-
-    MP_SHARED_OS_VARIABLES = MappingProxyType(
-        {
-            "num_harts": None,
-            "barrier_arrive_counter": "0x0",
-            "barrier_depart_counter": None,
-            "barrier_flag": "0x0",
-            "barrier_lock": "0x0",
-            "hartid_counter": "0x0",
-        }
-    )
-
     # static pointers to OS functions or routines
-    OS_POINTERS = MappingProxyType(
+    POINTERS = MappingProxyType(
         {
             # passed, failed, and end_test are legacy pointers to a jump table entry.
             # Tests should use ;#test_passed() and ;#test_failed() instead
@@ -88,29 +47,33 @@ class OpSys(AssemblyGenerator):
 
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        assert not (self.featmgr.linux_mode and self.mp_active), "Linux mode and not MP mode are not supported together currently"
+        if self.featmgr.linux_mode and self.mp_active:
+            raise ValueError("Linux mode and MP mode are not supported together")
 
         # Build OS Data variables
-        self.per_hart_variables: dict[str, str] = dict(OpSys.PER_HART_OS_VARIABLES)
-        self.shared_variables: dict[str, Optional[str]] = dict(OpSys.SHARED_OS_VARIABLES)
-        self.os_pointers: dict[str, str] = dict(OpSys.OS_POINTERS)
-        if self.xlen == RV.Xlen.XLEN64:
-            self.os_variable_size = 8
-        else:
-            self.os_variable_size = 4
+        self.num_harts_ended = self.variable_manager.register_shared_variable("num_harts_ended", 0x0)
+        self.num_hard_fails = self.variable_manager.register_shared_variable("num_hard_fails", 0x0)
+        self.machine_csr_jump_table_flags = self.variable_manager.register_shared_variable("machine_csr_jump_table_flags", 0x0)
+        self.super_csr_jump_table_flags = self.variable_manager.register_shared_variable("super_csr_jump_table_flags", 0x0)
 
-        if self.featmgr.user_interrupt_table:
-            self.shared_variables["user_interrupt_table_addr"] = "USER_INTERRUPT_TABLE"
-        if self.featmgr.excp_hooks:
-            self.shared_variables["excp_handler_pre_addr"] = "excp_handler_pre"
-            self.shared_variables["excp_handler_post_addr"] = "excp_handler_post"
-        if self.featmgr.vmm_hooks:
-            self.shared_variables["vmm_handler_pre_addr"] = "vmm_handler_pre"
-            self.shared_variables["vmm_handler_post_addr"] = "vmm_handler_post"
         if self.mp_active:
-            self.shared_variables.update(OpSys.MP_SHARED_OS_VARIABLES)
-            self.shared_variables["num_harts"] = str(self.featmgr.num_cpus)
-            self.shared_variables["barrier_depart_counter"] = str(self.featmgr.num_cpus)
+            self.variable_manager.register_shared_variable("barrier_arrive_counter", 0x0)
+            self.variable_manager.register_shared_variable("barrier_flag", 0x0)
+            self.variable_manager.register_shared_variable("barrier_lock", 0x0)
+            self.variable_manager.register_shared_variable("hartid_counter", 0x0)
+            self.variable_manager.register_shared_variable("num_harts", self.featmgr.num_cpus)
+            self.variable_manager.register_shared_variable("barrier_depart_counter", self.featmgr.num_cpus)
+
+        # Runtime Pointers
+        self.runtime_pointers: dict[str, str] = dict(OpSys.POINTERS)
+        if self.featmgr.user_interrupt_table:
+            self.runtime_pointers["user_interrupt_table_addr"] = "USER_INTERRUPT_TABLE"
+        if self.featmgr.excp_hooks:
+            self.runtime_pointers["excp_handler_pre_addr"] = "excp_handler_pre"
+            self.runtime_pointers["excp_handler_post_addr"] = "excp_handler_post"
+        if self.featmgr.vmm_hooks:
+            self.runtime_pointers["vmm_handler_pre_addr"] = "vmm_handler_pre"
+            self.runtime_pointers["vmm_handler_post_addr"] = "vmm_handler_post"
 
     def generate(self) -> str:
         code = ""
@@ -145,21 +108,21 @@ class OpSys(AssemblyGenerator):
             # path and end the test prematurely. So, make failed==passed label
             test_failed:
             """
-        code += """
+        code += f"""
         test_passed:
-            j schedule_tests
+            j {self.scheduler_dispatch_label}
 
     """
         if not self.featmgr.fe_tb:
             code += f"""
         test_failed:
-            li a0, num_hard_fails
-            li t0, 1
-            amoadd.w x0, t0, (a0)
+            {self.num_hard_fails.increment("t0", "a0")}
             li gp, 0x{self.featmgr.eot_fail_value:x}
             j os_end_test
 
         """
+
+        # FIXME: This is linux mode only, and linux mode is mp mode only. Does this need to be in OpSys? Or should it be in LinuxModeScheduler?
         code += "os_rng_orig:\n"
         code += Routines.place_rng_unsafe_reg(
             seed_addr_reg="a1",
@@ -167,7 +130,8 @@ class OpSys(AssemblyGenerator):
             seed_offset_scale_reg="a3",
             target_offset_scale_reg="a4",
             num_ignore_reg="a5",
-            handler_priv_mode=self.handler_priv_mode,
+            handler_priv_mode=self.handler_priv,
+            mhartid_offset=self.variable_manager.get_variable("mhartid").offset,
         )
         code += "\tret\n"
 
@@ -187,14 +151,9 @@ class OpSys(AssemblyGenerator):
 
         User mode uses ECALL while other modes load addresses from .text section.
         """
-        # FIXME: this is getting deprecated
-        # Going to be moving towards ;#test_passed, ;#test_failed labels in the test code and letting the
-        # AssemblyWriter replace the code with the correct jump table entries in place.
-        # This allows for ending a test from any place in code, not just code that's in the .code section (within 2 GiB li range)
-
         # Add end of the test passed and failed routines
         # USER mode always needs to do ecall to exit from the discrete_test and muist be placed in user accessible pages
-        if self.featmgr.priv_mode == RV.RiscvPrivileges.USER:
+        if self.test_priv != self.handler_priv:
             # TODO: Move this from .code to  .section .text_user, "ax"
             # When this change happens, existing tests which jump to passed/failed labels will fail to link since this jump will
             # be beyond the 2GB limit addressable by auipc instructions. Those jumps have to be replaced by a directive which adds
@@ -237,20 +196,48 @@ class OpSys(AssemblyGenerator):
             """
 
     def append_end_test(self):
-        code = f"""
+        code = """
         .align 6; .global tohost_mutex; tohost_mutex: .dword 0; # Used to protect access to tohost
 
         tohost_addr_mem:
             .dword tohost
 
         os_end_test:
+        """
+        if self.mp_parallel:
+            # If parallel mode, holding a lock for other tests. Need to release lock
+
+            # os_end_test is running in handler privilege mode
+            if self.handler_priv == RV.RiscvPrivileges.MACHINE:
+                code += "csrr s1, mhartid\n"
+            else:
+                hartid_offset = self.variable_manager.get_variable("mhartid").offset
+                code += "csrr tp, sscratch\n"
+                code += f"ld s1, {hartid_offset}(tp)\n"
+
+            # loading gp with 1, otherwise it will be garbage value. If it wins tohost_mutex it will write garbage value
+            code += """
+            li gp, 1
+
+            # Check if we are storing nonzero in held_locks for this hart
+            la a0, held_locks
+            li t1, 8
+            mul t1, s1, t1
+            add a0, a0, t1
+
+            ld t1, 0(a0) # Load the lock address
+            beqz t1, skip_lock_release # If zero, we don't hold a lock
+            fence
+            amoswap.w.rl x0, x0, (t1) # Release lock by storing 0.
+
+            skip_lock_release:
+            """
+        code += f"""
         os_write_tohost:
 
         # each hart increments num_harts_ended so that the first one waits till all harts have finished before writing to tohost
         mark_done:
-            li t0, 1
-            li t3, num_harts_ended
-            amoadd.w x0, t0, (t3)
+            {self.num_harts_ended.increment("t0", "t3")}
 
         # MP Specific, check if gp[31] == 1
         # If so, then we detected a core bailed early. We should not write to tohost
@@ -381,21 +368,12 @@ class OpSys(AssemblyGenerator):
         .section .os_data, "aw"
         """
 
-        os_data_section += "\n# OS Per Hart Variables\n"
-        for var in self.per_hart_variables:
-            os_data_section += f"{var}_mem:\n"
-            os_data_section += "\n".join([f"    .{var_type} {self.per_hart_variables[var]}" for _ in range(self.featmgr.num_cpus)]) + "\n"
-
-        os_data_section += "\n# OS Shared Variables\n"
-        for var in self.shared_variables:
-            os_data_section += f"{var}_mem:\n"
-            os_data_section += f"    .{var_type} {self.shared_variables[var]}\n"
-
         os_data_section += "\n# OS Pointers\n"
-        for var in self.os_pointers:
+        for var in self.runtime_pointers:
             os_data_section += f"{var}_ptr:\n"
-            os_data_section += f"    .{var_type} {self.os_pointers[var]}\n"
+            os_data_section += f"    .{var_type} {self.runtime_pointers[var]}\n"
 
+        os_data_section += self.variable_manager.allocate()
         return os_data_section
 
     # Use a precalculated and scaled offset stored in an num_harts elements long array to access data from an array with a more exotic layout.
@@ -419,28 +397,23 @@ class OpSys(AssemblyGenerator):
     def generate_equates(self) -> str:
         equates = ""
         # Some OS data hack
-        equates += """
-            # Test OS data hack:")
-            # These symbols contain the addresses of OS variables that can't be LAd directly"
-        """
         offset_adder = 0
+        if self.xlen == RV.Xlen.XLEN64:
+            os_variable_size = 8
+        else:
+            os_variable_size = 4
 
         def build_text(variable_name: str, offset: int) -> str:
-            return f".equ {variable_name:35}, os_data + {offset}\n"
+            equ = f".equ {variable_name},"
+            return f"{equ:<40} os_data + {offset}\n"
 
         equates += "\n"
-        for variable_name in self.per_hart_variables:
+        equates += "\n# OS Pointers\n"
+        for variable_name in self.runtime_pointers:
             equates += build_text(variable_name, offset_adder)
-            offset_adder += self.featmgr.num_cpus * self.os_variable_size
+            offset_adder += os_variable_size
 
-        for variable_name in self.shared_variables:
-            equates += build_text(variable_name, offset_adder)
-            offset_adder += self.os_variable_size
-
-        for variable_name in self.os_pointers:
-            equates += build_text(variable_name, offset_adder)
-            offset_adder += self.os_variable_size
-        equates += "\n"
+        equates += self.variable_manager.equates(offset=offset_adder)
         return equates
 
     def generate_csr_rw_jump_table(self) -> str:
@@ -483,10 +456,9 @@ class OpSys(AssemblyGenerator):
                     super_code += f"\tj {end_super_label}\n"
 
         # CSR Machine Jump Table 1
-        code = """
+        code = f"""
         .section .csr_machine_0, "ax"
-        li x31, machine_csr_jump_table_flags
-        ld x31, 0(x31)
+        {self.machine_csr_jump_table_flags.load("x31")}
 
 """
         for csr in parsed_csr_accesses:
@@ -510,10 +482,9 @@ class OpSys(AssemblyGenerator):
         ecall
         """
 
-        code += """
+        code += f"""
         .section .csr_super_0, "ax"
-        li x31, super_csr_jump_table_flags
-        ld x31, 0(x31)
+        {self.super_csr_jump_table_flags.load("x31")}
 
 """
         for csr in parsed_csr_accesses:

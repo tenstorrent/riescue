@@ -7,7 +7,8 @@ Developing
 The main dependency needed for developing is a copy of the repo, singularity, and a basic python version installed.
 
 
-Users can install the package in editable mode to make changes to the codebase while still in the package:
+Users can install the package in editable mode to make changes to the codebase while still in the package.
+It's recommended to use a virtual environment to better manage dependencies while developing:
 
 .. code-block:: bash
 
@@ -15,6 +16,8 @@ Users can install the package in editable mode to make changes to the codebase w
     cd riescue
     ./infra/container-build
     ./infra/container-run
+    python3 -m venv .venv
+    source .venv/bin/activate
     pip install -e .
 
 Note that python dependencies are found in the `pyproject.toml` file.
@@ -28,7 +31,7 @@ Singularity container
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Riescue development uses Singularity to manage the development environment. See the `Apptainer docs <https://apptainer.org/docs/admin/main/installation.html>`_ for information on installing Apptainer.
 
-All dependencies can be found listed in the ``infra/Container.def`` file.
+ISS and python dependencies can be found listed in the ``infra/Container.def`` file. The RISC-V GNU toolchain is not included in the container by default.
 Users looking to add to their own container or manage dependencies should refer to this file for all dependencies used.
 
 To source dependencies with singularity, users need to build the container.

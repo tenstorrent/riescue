@@ -33,6 +33,7 @@ class MemoryRegistry:
             flags=data_memory.flags,
             data=data_memory.data,
             num_pages=data_memory.num_pages,
+            modify=data_memory.modify,
         )
 
     def allocate_code(self, name: str, code_page: "CodePageAction") -> None:

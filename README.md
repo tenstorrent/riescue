@@ -55,7 +55,13 @@ Test Plan or `riescuec --mode tp` mode generates directed tests using `TestPlan`
 
 `TestScenarios` provide a set of python data structures describing sequences of instructions and environmental configuration to test architectural and privilege scenarios. RiescueC consumes these scenarios and generates test ELFs using the underlying `RiescueD` framework.
 
-More documentation and information to come in future updates
+It can be ran by including the extension name
+
+```sh
+riescuec --mode tp --test_plan zicond
+```
+
+See below to find all supported test plans, in [RiescueC Supported Extensions](#riescuec-supported-extensions). See the [TP Mode Tutorial](https://docs.tenstorrent.com/riescue/tutorials/riescuec/test_plan_tutorial.html) for more info.
 
 
 

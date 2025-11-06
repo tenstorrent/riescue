@@ -201,7 +201,7 @@ class Hypervisor(AssemblyGenerator):
         code += self.switch_test_privilege(
             RV.RiscvPrivileges.SUPER,
             RV.RiscvPrivileges.SUPER,
-            "post_switch_to_super",
+            "loader__post_switch_to_handler",
             switch_to_vs=True,
         )
 
@@ -360,7 +360,8 @@ class Hypervisor(AssemblyGenerator):
                     ld t0, 0(t0)
                     jalr ra, t0
             """
-
+        check_excp_actual_cause = self.variable_manager.get_variable("check_excp_actual_cause")
+        check_excp_actual_pc = self.variable_manager.get_variable("check_excp_actual_pc")
         code += f"""
             check_guest_exceptions:
                 # Check guest exceptions by reading vscause
@@ -369,13 +370,11 @@ class Hypervisor(AssemblyGenerator):
                 # bnez t0, handle_guest_exception
                 # Save the exception cause / code
                 csrr t1, {self.xcause}
-                li t3, check_excp_actual_cause
-                sd t1, 0(t3)
+                {check_excp_actual_cause.store(src_reg="t1")}
 
                 # Save exception PC
                 csrr t0, {self.xepc}
-                li t3, check_excp_actual_pc
-                sd t0, 0(t3)
+                {check_excp_actual_pc.store(src_reg="t0")}
                 """
 
         if self.generate_trap_handler:
@@ -459,12 +458,12 @@ class Hypervisor(AssemblyGenerator):
         """
         Return to guest
         """
+
+        check_excp_return_pc = self.variable_manager.get_variable("check_excp_return_pc")
         code = f"""
             return_to_guest:
                 # Return to guest
-                li t3, check_excp_return_pc
-                ld t0, 0(t3)
-                sd x0, 0(t3)
+                {check_excp_return_pc.load_and_clear(dest_reg="t0")}
                 csrw {self.xepc}, t0
         """
 

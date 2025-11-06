@@ -1,6 +1,11 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+
+from pathlib import Path
+from typing import Any, Optional
+
 from riescue.lib.json_argparse import JsonArgParser as JsonArgumentParser
 
 
@@ -12,7 +17,14 @@ class CmdLine:
     .. seealso:: :func:`riescue.lib.json_argparse.JsonArgParser.from_json` for recommended usage in new code.
     """
 
-    def __init__(self, cmdline_json, args_to_process=None, parser_extensions=None, parent_groups=None, **kwargs):
+    def __init__(
+        self,
+        cmdline_json: Path,
+        args_to_process: Optional[list[str]] = None,
+        parser_extensions: Optional[list[Any]] = None,
+        parent_groups: Optional[list[Any]] = None,
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize CmdLine with JSON configuration file.
 
@@ -24,8 +36,6 @@ class CmdLine:
 
         # Parser extensions are added to the main parser. They can create subgroups and add arguments to them.
         if parser_extensions is not None:
-            if not isinstance(parser_extensions, (list, tuple)):
-                raise TypeError(f"parser_extensions must be a list or tuple, got {type(parser_extensions)}")
             for obj in parser_extensions:
                 if not hasattr(obj, "add_arguments"):
                     raise AttributeError(f"parser_extensions objects {obj} does not have an 'add_args' method.")
@@ -35,7 +45,7 @@ class CmdLine:
 
         self.args = self.parser.parse_args(args_to_process)
 
-    def parse_args(self, args=None):
+    def parse_args(self, args: Optional[list[str]] = None) -> Any:
         """
         Placeholder for returning args
 

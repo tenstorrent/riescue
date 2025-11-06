@@ -62,7 +62,7 @@ class FpGenInterface:
 
         # use the seed from riescue
         self._seed = seed
-        self._fpgen_api = FpGenApi(self._seed, self._db_paths, fast_fpgen)
+        self._fpgen_api = fpgen_api_module(self._seed, self._db_paths, fast_fpgen)
 
     def get_data(self, instr_name, num_bytes, config_in, size):
         """
@@ -130,6 +130,9 @@ class FpGenInterface:
 
         Convert the returned data from string to hex number type
         """
+        if self._fpgen_api is None:
+            logger.warning("FPgen is not available")
+            return []
         data = list(self._fpgen_api.get_source_operands_for_result(config))
         data_convert = []
 
@@ -147,9 +150,3 @@ class FpGenInterface:
 
         # data_convert: [[instr_name, rs1_val, rs2_val, rs3_val, rd_val]]
         return data_convert
-
-
-# For test purpose
-if __name__ == "__main__":
-    data = FpGenInterface().get_data("fadd.s")
-    print(data)

@@ -13,22 +13,15 @@ class InterruptHandlerTest(unittest.TestCase):
     Test the InterruptHandler module.
     """
 
-    def test_invalid_privilege_mode(self):
-        """
-        Test that an invalid privilege mode causes an error.
-        """
-        with self.assertRaises(ValueError):
-            InterruptHandler(privilege_mode="X")
-
     def test_valid_privilege_modes(self):
         """
         Test valid privilege modes work correctly.
         """
-        handler_m = InterruptHandler(privilege_mode="M")
+        handler_m = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE)
         self.assertEqual(handler_m.xip, "mip")
         self.assertEqual(handler_m.xret, "mret")
 
-        handler_s = InterruptHandler(privilege_mode="S")
+        handler_s = InterruptHandler(privilege_mode=RV.RiscvPrivileges.SUPER)
         self.assertEqual(handler_s.xip, "sip")
         self.assertEqual(handler_s.xret, "sret")
 
@@ -36,7 +29,7 @@ class InterruptHandlerTest(unittest.TestCase):
         """
         Test vector registration works correctly.
         """
-        handler = InterruptHandler(privilege_mode="M")
+        handler = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE)
 
         # Register a custom handler
         handler.register_vector(16, "custom_handler", indirect=False)
@@ -56,7 +49,7 @@ class InterruptHandlerTest(unittest.TestCase):
         """
         Test marking vectors as invalid works correctly.
         """
-        handler = InterruptHandler(privilege_mode="M")
+        handler = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE)
 
         # Mark a vector as invalid
         handler.mark_invalid_vector(20)
@@ -69,7 +62,7 @@ class InterruptHandlerTest(unittest.TestCase):
         """
         Test marking multiple vectors as invalid works correctly.
         """
-        handler = InterruptHandler(privilege_mode="M")
+        handler = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE)
 
         # Mark multiple vectors as invalid
         handler.mark_invalid_vectors([25, 26, 27])
@@ -83,7 +76,7 @@ class InterruptHandlerTest(unittest.TestCase):
         """
         Test marking a vector as default works correctly.
         """
-        handler = InterruptHandler(privilege_mode="M")
+        handler = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE)
 
         # Mark a vector as default
         handler.mark_vector_as_default(30)
@@ -96,7 +89,7 @@ class InterruptHandlerTest(unittest.TestCase):
         """
         Test that reserved interrupts are marked as invalid by default.
         """
-        handler = InterruptHandler(privilege_mode="M")
+        handler = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE)
 
         # Check reserved interrupt indices
         for reserved_idx in InterruptHandler.reserved_interrupt_indicies:
@@ -107,7 +100,7 @@ class InterruptHandlerTest(unittest.TestCase):
         """
         Test that assembly generation produces expected output.
         """
-        handler = InterruptHandler(privilege_mode="M")
+        handler = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE)
 
         # Generate assembly code
         asm_code = handler.generate()
@@ -128,7 +121,7 @@ class InterruptHandlerTest(unittest.TestCase):
         """
         Test that supervisor mode uses correct CSRs.
         """
-        handler = InterruptHandler(privilege_mode="S")
+        handler = InterruptHandler(privilege_mode=RV.RiscvPrivileges.SUPER)
 
         # Generate assembly code
         asm_code = handler.generate()
@@ -145,17 +138,17 @@ class InterruptHandlerTest(unittest.TestCase):
         """
         Test vector bounds are respected based on XLEN.
         """
-        handler_64 = InterruptHandler(privilege_mode="M", xlen=RV.Xlen.XLEN64)
+        handler_64 = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE, xlen=RV.Xlen.XLEN64)
         self.assertEqual(handler_64.vector_count, 63)
 
-        handler_32 = InterruptHandler(privilege_mode="M", xlen=RV.Xlen.XLEN32)
+        handler_32 = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE, xlen=RV.Xlen.XLEN32)
         self.assertEqual(handler_32.vector_count, 31)
 
     def test_default_interrupt_vectors(self):
         """
         Test that default interrupt vectors are correctly initialized.
         """
-        handler = InterruptHandler(privilege_mode="M")
+        handler = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE)
 
         # Check that standard RISC-V interrupts have default handlers
         for interrupt_enum in RV.RiscvInterruptCause:
@@ -168,7 +161,7 @@ class InterruptHandlerTest(unittest.TestCase):
         """
         Test that platform-custom interrupts (16+) have default handler.
         """
-        handler = InterruptHandler(privilege_mode="M")
+        handler = InterruptHandler(privilege_mode=RV.RiscvPrivileges.MACHINE)
 
         # Check vectors 16 and above (except reserved ones)
         for i in range(16, handler.vector_count):

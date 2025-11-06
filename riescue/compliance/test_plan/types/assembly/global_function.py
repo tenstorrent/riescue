@@ -70,7 +70,6 @@ class GlobalFunction(Block):
         Clobbering means the register's value is changed by the function
         """
         clobbered_registers: set[Register] = set()
-        # print("computing clobbered registers")
         for instruction in instructions:
             dest = instruction.destination
             if dest is not None and dest.is_register():

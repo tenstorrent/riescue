@@ -9,6 +9,7 @@ import copy
 from typing import Optional, TYPE_CHECKING
 
 import riescue.lib.enums as RV
+from riescue.dtest_framework.lib.pma import PmaRegion
 from riescue.dtest_framework.lib.pmp import PmpRegion
 from riescue.dtest_framework.parser import (
     PmaInfo,
@@ -21,6 +22,7 @@ from riescue.dtest_framework.parser import (
     ParsedVectoredInterrupt,
     ParsedCsrAccess,
 )
+from riescue.dtest_framework.config.memory import Memory
 from riescue.lib.address import Address
 from riescue.dtest_framework.lib.discrete_test import DiscreteTest
 
@@ -65,9 +67,7 @@ class Pool:
         self.page_mappings: dict[str, ParsedPageMapping] = dict()
         self.page_maps: dict[str, "PageMap"] = dict()
         self.sections: dict[str, int] = dict()
-        self.pma_dram_default: Optional[PmaInfo] = None
-        self.pma_io_default: Optional[PmaInfo] = None
-        self.pma_regions: dict[str, PmaInfo] = dict()  # name -> PmaInfo
+        self.pma_regions: PmaRegion = PmaRegion()
         self.pmp_regions: PmpRegion = PmpRegion()
 
         # os include files
@@ -235,7 +235,7 @@ class Pool:
                     if parsed_addr.pma_info.pma_size == 0:
                         parsed_addr.pma_info.pma_size = parsed_addr.size
                     parsed_addr.pma_info.pma_address = addr.address
-                    self.pma_regions[addr_name] = parsed_addr.pma_info
+                    self.pma_regions.add_entry(parsed_addr.pma_info)
 
     def get_random_addrs(self) -> dict[str, "Address"]:
         return self.random_addrs

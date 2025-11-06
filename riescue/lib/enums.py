@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+
 from __future__ import annotations
 from enum import Enum, auto, IntEnum
 
@@ -25,7 +27,7 @@ class RiscvPmpAddressMatchingModes(MyEnum):
     NAPOT = 3
 
     @classmethod
-    def str_to_enum(cls, mode):
+    def str_to_enum(cls, mode: str) -> RiscvPmpAddressMatchingModes:
         if mode == "off":
             return cls.OFF
         elif mode == "tor":
@@ -72,11 +74,11 @@ class DataType(MyEnum):
     FP64 = auto()
 
     @classmethod
-    def is_int(cls, data_type):
+    def is_int(cls, data_type: DataType) -> bool:
         return (data_type == cls.INT8) or (data_type == cls.INT16) or (data_type == cls.INT32) or (data_type == cls.INT64)
 
     @classmethod
-    def is_fp(cls, data_type):
+    def is_fp(cls, data_type: DataType) -> bool:
         return (data_type == cls.FP8) or (data_type == cls.FP16) or (data_type == cls.FP32) or (data_type == cls.FP64)
 
 
@@ -106,7 +108,7 @@ class RiscvPrivileges(MyEnum):
     USER = auto()
 
     @classmethod
-    def enum_to_str(cls, priv):
+    def enum_to_str(cls, priv: RiscvPrivileges) -> str:
         if priv == cls.MACHINE:
             return "machine"
         elif priv == cls.SUPER:
@@ -175,11 +177,11 @@ class RiscvPageSizes(MyEnum):
         return self.name[1:]
 
     @classmethod
-    def str_to_enum(cls, pagesize: str):
+    def str_to_enum(cls, pagesize: str) -> "RiscvPageSizes":
         return cls["S" + pagesize.upper()]
 
     @classmethod
-    def weights(cls, pagesize: RiscvPageSizes):
+    def weights(cls, pagesize: RiscvPageSizes) -> int:
         """
         Returns the weight of the given pagesize
         """
@@ -199,7 +201,7 @@ class RiscvPageSizes(MyEnum):
             raise ValueError(f"page size: {pagesize} is unrecognized")
 
     @classmethod
-    def memory(cls, pagesize: RiscvPageSizes):
+    def memory(cls, pagesize: RiscvPageSizes) -> int:
         if pagesize == cls.S4KB:
             return 0x1000
         elif pagesize == cls.S4MB:
@@ -253,7 +255,7 @@ class RiscvPagingModes(MyEnum):
     SV57 = auto()
 
     @classmethod
-    def max_levels(cls, mode):
+    def max_levels(cls, mode: RiscvPagingModes) -> int:
         """
         Return number of levels for a paging mode
         """
@@ -272,7 +274,7 @@ class RiscvPagingModes(MyEnum):
         return levels
 
     @classmethod
-    def index_bits(cls, mode, level):
+    def index_bits(cls, mode: RiscvPagingModes, level: int) -> tuple[int, int]:
         """
         Return index bits per pagetable level
         """
@@ -318,12 +320,12 @@ class RiscvPagingModes(MyEnum):
             else:
                 raise ValueError(f"{mode} only has pagetable levels 0,1,2,3,4 and not {level}")
         else:
-            pass
+            raise ValueError("paging mode disabled doesn't have index bits")
 
         return index_bits
 
     @classmethod
-    def pt_entry_size(cls, mode):
+    def pt_entry_size(cls, mode: RiscvPagingModes) -> int:
         """
         Return pagetable entry size in bytes
         """
@@ -342,11 +344,11 @@ class RiscvPagingModes(MyEnum):
         return entry_size
 
     @classmethod
-    def supported_pagesizes(cls, mode):
+    def supported_pagesizes(cls, mode: RiscvPagingModes) -> list[RiscvPageSizes]:
         """
         Return supported pagesizes for a page mode
         """
-        pagesizes = list()
+        pagesizes: list[RiscvPageSizes] = list()
         if mode == RiscvPagingModes.SV32:
             pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S4MB]
         elif mode == RiscvPagingModes.SV39:
@@ -361,7 +363,7 @@ class RiscvPagingModes(MyEnum):
         return pagesizes
 
     @classmethod
-    def linear_addr_bits(cls, mode, gstage=False):
+    def linear_addr_bits(cls, mode: RiscvPagingModes, gstage: bool = False) -> int:
         """
         Return linear address bits for a page mode
         """
@@ -386,7 +388,7 @@ class RiscvPagingModes(MyEnum):
         return linear_addr_bits
 
     @classmethod
-    def physical_addr_bits(cls, mode):
+    def physical_addr_bits(cls, mode: RiscvPagingModes) -> int:
         """
         Return physical address bits for a page mode
         """
@@ -412,7 +414,7 @@ class RiscvTestEnv(MyEnum):
     TEST_ENV_VIRTUALIZED = auto()
 
     @classmethod
-    def str_to_enum(cls, env):
+    def str_to_enum(cls, env: str) -> "RiscvTestEnv":
         if env == "bare_metal":
             return cls.TEST_ENV_BARE_METAL
         elif env == "virtualized":
@@ -429,7 +431,7 @@ class RiscvSecureModes(MyEnum):
         return self == self.SECURE
 
     @classmethod
-    def str_to_enum(cls, secure_mode):
+    def str_to_enum(cls, secure_mode: str) -> "RiscvSecureModes":
         if secure_mode == "secured":
             return cls.SECURE
         elif secure_mode == "non-secured":
@@ -443,7 +445,7 @@ class RiscvMPEnablement(MyEnum):
     MP_ON = auto()
 
     @classmethod
-    def str_to_enum(cls, mp_enable):
+    def str_to_enum(cls, mp_enable: str) -> "RiscvMPEnablement":
         if mp_enable == "off":
             return cls.MP_OFF
         elif mp_enable == "on":
@@ -457,7 +459,7 @@ class RiscvMPMode(MyEnum):
     MP_PARALLEL = auto()
 
     @classmethod
-    def str_to_enum(cls, mp_mode):
+    def str_to_enum(cls, mp_mode: str) -> "RiscvMPMode":
         if mp_mode == "simultaneous":
             return cls.MP_SIMULTANEOUS
         elif mp_mode == "parallel":
@@ -471,7 +473,7 @@ class RiscvParallelSchedulingMode(MyEnum):
     EXHAUSTIVE = auto()
 
     @classmethod
-    def str_to_enum(cls, mode):
+    def str_to_enum(cls, mode: str) -> "RiscvParallelSchedulingMode":
         if mode == "round_robin":
             return cls.ROUND_ROBIN
         elif mode == "exhaustive":

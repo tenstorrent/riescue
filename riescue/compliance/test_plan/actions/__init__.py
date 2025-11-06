@@ -10,6 +10,7 @@ from .memory import MemoryAction, CodePageAction, StackPageAction
 from .arithmetic import ArithmeticAction
 from .load import LoadAction
 from .store import StoreAction
+from .modify_pte import ModifyPteAction
 from .branch import CallAction
 from .csr import CsrReadAction, CsrWriteAction
 from .assertions.assert_equal import AssertEqualAction
@@ -35,6 +36,7 @@ __all__ = [
     "MemoryAction",
     "CodePageAction",
     "StackPageAction",
+    "ModifyPteAction",
     "CsrReadAction",
     "CsrWriteAction",
     "AssertEqualAction",

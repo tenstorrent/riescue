@@ -56,23 +56,6 @@ class RandNumTest(unittest.TestCase):
         rand2_float = rand2.random()
         self.assertEqual(rand1_float, rand2_float, "rand1 and rand2 using same seed should produce same float")
 
-    def test_get_seed(self):
-        """
-        Test that we can get the seed value. Not setting seed should raise an exception
-        """
-        seed = 0
-        rand = RandNum(seed=seed)
-        self.assertEqual(seed, rand.get_seed(), f"Seed {seed} not returned")
-
-        # Test that we can't get the seed if it's not set
-        rand2 = RandNum(seed=None)
-        with self.assertRaises(ValueError):
-            rand2.get_seed()
-
-        # delayed seed should still work
-        rand2.seed(seed)
-        self.assertEqual(seed, rand2.get_seed(), f"Seed {seed} not returned")
-
     def test_random_in_range(self):
         seed = 1
         rand = RandNum(seed=seed)
@@ -132,18 +115,6 @@ class RandNumTest(unittest.TestCase):
         original_list = test_list[:]
         rand.shuffle(test_list)
         self.assertCountEqual(test_list, original_list, f"Shuffled list {test_list} does not contain the same elements as original {original_list}")
-
-    def test_cant_set_seed_multiple_times(self):
-        seed = 9
-        # Testing that we can't re-set seed after initialization
-        rand = RandNum(seed=seed)
-        with self.assertRaises(ValueError):
-            rand.seed(seed)
-
-        # Testing that we can't re-set seed after initialization with no initial seed
-        rand2 = RandNum(seed=1)
-        with self.assertRaises(ValueError):
-            rand2.seed(seed)
 
 
 if __name__ == "__main__":

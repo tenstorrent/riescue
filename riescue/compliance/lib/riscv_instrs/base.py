@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+
+from typing import Any, Optional
+
 from riescue.compliance.lib.config_manager import ConfigManager
 from riescue.compliance.lib.register_manager import RegisterManager
 from riescue.compliance.lib.instr_setup.base import InstrSetup
@@ -17,7 +20,7 @@ class InstrBase:
             imms  : list of immediate fields (if any)
     """
 
-    def __init__(self, resource_db: Resource, name, label=""):
+    def __init__(self, resource_db: Resource, name: str, label=""):
         """Constructor for base instruction. Initializes name of instruction"""
         self._name = name
         self._srcs = []
@@ -30,10 +33,10 @@ class InstrBase:
         self._reg_manager = RegisterManager(resource_db=resource_db, name=self._label, config=None)
         self.resource_db = resource_db
         self.config = None
-        self.test_config = None
-        self.first_pass_snippet = []  # Although this gets overwritten in the test generator, we initialize it as a list to show what type we expect.
+        self.test_config: dict[str, Any] = {}
+        self.first_pass_snippet: list[str] = []  # Although this gets overwritten in the test generator, we initialize it as a list to show what type we expect.
         self.line_count_estimate = 0
-        self._data_section: list[str] = []
+        self.data_section: list[str] = []
         # self._rng           = self.resource_db.rng
 
     @property
@@ -120,15 +123,15 @@ class InstrBase:
     def instr_type(self, instr_type: str) -> None:
         self.type = instr_type
 
-    def get_pre_setup(self) -> list:
+    def get_pre_setup(self) -> list[str]:
         return self._setup.pre_setup_instrs
 
-    def get_post_setup(self, modified_arch_state) -> list:
+    def get_post_setup(self, modified_arch_state: Optional[list[str]]) -> list[str]:
         self._setup.post_setup(modified_arch_state, self)
         return self._setup.post_setup_instrs
 
-    def pre_setup(self) -> list:
-        return self._setup.pre_setup(self)
+    def pre_setup(self) -> None:
+        self._setup.pre_setup(self)
 
     def post_setup(self, modified_arch_state: str, instr):
         return self._setup.post_setup(modified_arch_state, instr)

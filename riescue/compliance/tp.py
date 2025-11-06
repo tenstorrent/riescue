@@ -1,12 +1,15 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+# pyright: reportMissingTypeStubs=false
+
 import argparse
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 try:
-    from coretp.plans.test_plan_registry import get_plan, query_plans
+    from coretp.plans.test_plan_registry import get_plan
     from coretp.rv_enums import PagingMode, PrivilegeMode
 except ModuleNotFoundError:
     raise ImportError("coretp not installed. Run pip install git+https://github.com/tenstorrent/riscv-coretp.git")
@@ -20,12 +23,12 @@ from riescue.lib.toolchain import Toolchain
 import riescue.lib.enums as RV
 
 
-class TpMode(BaseMode):
+class TpMode(BaseMode[TpCfg]):
     """
     Runs RiescueC Test Plan generation flow.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
 
         # generator = TestPlanGenerator(self.isa, self.rng)
@@ -90,13 +93,11 @@ class TpMode(BaseMode):
 
         # write test file
         test_assembly_file = self.run_dir / f"tp_{cfg.test_plan_name}_{cfg.seed}.s"
-        if not self.run_dir.exists():
-            self.run_dir.mkdir()
         with open(test_assembly_file, "w") as f:
             f.write(test)
 
         # run riescued to generate ELF file, reuse featmg, toolchain
-        rd = RiescueD(testfile=test_assembly_file, seed=cfg.seed, toolchain=toolchain)
+        rd = RiescueD(testfile=test_assembly_file, seed=cfg.seed, toolchain=toolchain, run_dir=self.run_dir)
         rd.generate(cfg.featmgr)
         generated_files = rd.build(cfg.featmgr)
         if rd.toolchain.simulator is None:

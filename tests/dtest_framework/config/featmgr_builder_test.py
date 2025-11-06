@@ -332,6 +332,38 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         featmgr = self.builder.build(rng=self.rng)
         self.assertEqual(featmgr.deleg_excp_to, RV.RiscvPrivileges.MACHINE)
 
+    def test_supported_priv_modes(self):
+        "Check that supported_priv_modes get set correctly from the command line"
+
+        # check default
+        args = self.parse_args([])
+        self.builder = self.builder.with_args(args)
+        featmgr = self.builder.build(rng=self.rng)
+        self.assertEqual(featmgr.supported_priv_modes, {RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER, RV.RiscvPrivileges.USER})
+
+        # check M
+        args = self.parse_args(["--supported_priv_modes", "M"])
+        self.builder = self.builder.with_args(args)
+        featmgr = self.builder.build(rng=self.rng)
+        self.assertEqual(featmgr.supported_priv_modes, {RV.RiscvPrivileges.MACHINE})
+        self.assertEqual(featmgr.priv_mode, RV.RiscvPrivileges.MACHINE, "Only supporting machine mode should set priv_mode to machine")
+
+        # check S
+        args = self.parse_args(["--supported_priv_modes", "MS"])
+        self.builder = self.builder.with_args(args)
+        featmgr = self.builder.build(rng=self.rng)
+        self.assertEqual(featmgr.supported_priv_modes, {RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER})
+        self.assertIn(featmgr.priv_mode, [RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER], "Only supporting supervisor mode should set priv_mode to machine or supervisor")
+
+    def test_supported_priv_modes_invalid_combo(self):
+        """
+        Picking conflicting priv modes and supported priv modes should raise an informative error
+        """
+        args = self.parse_args(["--supported_priv_modes", "MS", "--test_priv_mode", "user"])
+        self.builder = self.builder.with_args(args)
+        with self.assertRaises(ValueError):
+            self.builder.build(rng=self.rng)
+
 
 class TestFeatMgrBuilderVirtualization(FeatMgrBuilderBase):
     """

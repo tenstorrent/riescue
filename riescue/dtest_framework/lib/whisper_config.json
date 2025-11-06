@@ -42,12 +42,6 @@
 	        "mask" : "0xffffffffffffffff"
 	    },
 
-	    "sstatus" : {
-	        "sstatus-comment" : "FIXME : Hardwired to zero except for FS, VS, and SD.",
-	        "reset" : "0x47804",
-	        "mask" : "0xffffffffffffffff"
-	    },
-
 	    "satp" : {
 	        "satp-comment" : "Hardwired to zero except for FS, VS, and SD.",
 	        "reset" : "0x0",
@@ -137,8 +131,13 @@
 	        "exists" : "true"
 	    },
 		"pmpcfg0" : { "exists" : "false" },
-        "pmpcfg1" : { "exists" : "false" },
         "pmpcfg2" : { "exists" : "false" },
+        "pmpcfg4" : { "exists" : "false" },
+        "pmpcfg6" : { "exists" : "false" },
+        "pmpcfg8" : { "exists" : "false" },
+		"pmpcfg10" : { "exists" : "false" },
+		"pmpcfg12" : { "exists" : "false" },
+		"pmpcfg14" : { "exists" : "false" },
         "pmpaddr0" : { "exists" : "false" },
         "pmpaddr1" : { "exists" : "false" },
         "pmpaddr2" : { "exists" : "false" },

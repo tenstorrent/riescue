@@ -1,7 +1,9 @@
-#!/usr/bin/env python3
-
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
+
+# pyright: strict
+
+from typing import Union
 
 import riescue.lib.enums as RV
 import riescue.lib.common as common
@@ -37,7 +39,7 @@ class FpOffsets:
 class Widths:
     "Defines bit widths or lengths for RV integers and floating point numbers."
 
-    def __init__(self, data_type):
+    def __init__(self, data_type: RV.DataType):
         self.mantissa = None
         self.exponent = None
         self.sign = None
@@ -70,13 +72,13 @@ class Widths:
 
 
 class FP:
-    def __init__(self, data_type, rnd_gen, val=0):
+    def __init__(self, data_type: RV.DataType, rnd_gen: RandNum, val: int = 0):
         self.val = val
         self.offsets = FpOffsets(data_type)
         self.widths = Widths(data_type)
         self.rnd_gen = rnd_gen
 
-    def set_exponent(self, exponent):
+    def set_exponent(self, exponent: int):
         if self.widths.exponent is None:
             raise ValueError("Exponent width is not defined for this data type.")
         if self.offsets.exponent is None:
@@ -91,7 +93,7 @@ class FP:
         )
         return
 
-    def set_mantissa(self, mantissa):
+    def set_mantissa(self, mantissa: int):
         if self.widths.mantissa is None:
             raise ValueError("Mantissa width is not defined for this data type.")
         if self.offsets.mantissa is None:
@@ -106,20 +108,22 @@ class FP:
         )
         return
 
-    def set_sign(self, sign):
+    def set_sign(self, sign: int):
         if self.widths.sign is None:
             raise ValueError("Sign width is not defined for this data type.")
         if self.offsets.sign is None:
             raise ValueError("offset sign is not defined for this data type.")
         if sign != 0 and sign != 1:
             raise ValueError(f"Invalid sign value: {sign}. Should be 0 or 1.")
-        self.val = common.set_bitn(self.val, self.offsets.sign + self.widths.sign - 1, sign)
+        self.val = common.set_bitn(self.val, self.offsets.sign + self.widths.sign - 1, bool(sign))
 
-    def randomize(self, subnormal, fractional):
+    def randomize(self, subnormal: bool, fractional: bool):
         if self.widths.mantissa is None:
             raise ValueError("Mantissa width is not defined for this data type.")
         if self.widths.exponent is None:
             raise ValueError("Exponent width is not defined for this data type.")
+        if self.widths.sign is None:
+            raise ValueError("Sign width is not defined for this data type.")
         self.val = 0
         self.set_sign(self.rnd_gen.get_rand_bits(self.widths.sign))
         self.set_mantissa(int(self.rnd_gen.random_in_range(0, 2**self.widths.mantissa)))
@@ -131,13 +135,13 @@ class FP:
 
 
 class INT:
-    def __init__(self, data_type, rnd_gen, val=0):
+    def __init__(self, data_type: RV.DataType, rnd_gen: RandNum, val: int = 0):
         self.val = val
         self.offsets = FpOffsets(data_type)
         self.widths = Widths(data_type)
         self.rnd_gen = rnd_gen
 
-    def set_val(self, val):
+    def set_val(self, val: int):
         self.val = val
 
     def randomize(self):
@@ -223,7 +227,7 @@ class NumGen:
         """
         self.rng = rng  # ; RandNum instance
 
-        self.opts = dict()
+        self.opts: dict[RV.NumGenOps, dict[Union[bool, RV.SpecialFpNums], int]] = {}
         self.opts[RV.NumGenOps.select_special_num] = {True: 5, False: 95}
         self.opts[RV.NumGenOps.special_num] = {
             RV.SpecialFpNums.canonical_nan: 20,
@@ -248,13 +252,13 @@ class NumGen:
         self.opts[RV.NumGenOps.low_fidelity] = {False: 100}
         self.opts[RV.NumGenOps.fractional] = {False: 100}
 
-    def randomize(self) -> dict:
+    def randomize(self) -> dict[RV.NumGenOps, Union[bool, RV.SpecialFpNums]]:
         """Select random options for number generation based on configured weights.
 
         :return: Dictionary of randomly selected options
         :rtype: dict
         """
-        rand_opts = {}
+        rand_opts: dict[RV.NumGenOps, Union[bool, RV.SpecialFpNums]] = {}
         for opt in self.opts:
             rand_opts[opt] = self.rng.random_choice_weighted(self.opts[opt])
         return rand_opts
@@ -285,7 +289,7 @@ class NumGen:
         else:
             raise ValueError(f"Unsupported data type for low fidelity: {data_type}")
 
-    def set_special_num(self, special_num, data_type):
+    def set_special_num(self, special_num: RV.SpecialFpNums, data_type: RV.DataType) -> int:
         """Generate a special floating point value.
 
         :param special_num: Special floating point value type to generate
@@ -315,7 +319,7 @@ class NumGen:
             raise ValueError(f"Unsupported data type: {data_type}. Should be a floating point type.")
         return num
 
-    def rand_num(self, data_type):
+    def rand_num(self, data_type: RV.DataType) -> int:
         """Generate a random number of the specified data type.
 
         :param data_type: The data type to generate
@@ -331,21 +335,27 @@ class NumGen:
            fp32_val = num_gen.rand_num(RV.DataType.FP32)
         """
         num = 0
-        opts = self.randomize()  # Select opts based on weights
+        opts: dict[RV.NumGenOps, Union[bool, RV.SpecialFpNums]] = self.randomize()  # Select opts based on weights
         is_int = RV.DataType.is_int(data_type)
         is_fp = RV.DataType.is_fp(data_type)
         # Priority selected mutually exclusive randomization modes
         if opts[RV.NumGenOps.low_fidelity] and not is_int:
             num = self.set_low_fidelity_num(data_type)
         elif opts[RV.NumGenOps.select_special_num] and not is_int:  # FIXME: any special INTs?
-            num = self.set_special_num(opts[RV.NumGenOps.special_num], data_type)
+            a = opts[RV.NumGenOps.special_num]
+            if isinstance(a, RV.SpecialFpNums):
+                num = self.set_special_num(a, data_type)
+            else:
+                raise ValueError(f"Invalid special number: {a}. Should be a SpecialFpNums enum value.")
         elif is_int:
             num = INT(data_type, self.rng)
             num.randomize()
             num = num.val
         elif is_fp:
             num = FP(data_type, self.rng)
-            num.randomize(opts[RV.NumGenOps.subnormal], opts[RV.NumGenOps.fractional])
+            subnormal = bool(opts[RV.NumGenOps.subnormal])
+            fractional = bool(opts[RV.NumGenOps.fractional])
+            num.randomize(subnormal, fractional)
             num = num.val
         else:
             raise ValueError(f"Unsupported data type: {data_type}. Should be an integer or floating point type.")

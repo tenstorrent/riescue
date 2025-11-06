@@ -108,7 +108,7 @@ class AddressCluster:
             cluster_range = self._get_intersection(cluster_range, self.super_cluster[q])
 
         if log.isEnabledFor(logging.DEBUG):
-            log.debug(f"common overlapping addresses: {common.format_hex_list(cluster_range)}")  # Should this be str()?
+            log.debug(f"common overlapping addresses: {str(cluster_range)}")
 
         # Do (2)
         new_list = address_range_set()

@@ -41,8 +41,11 @@ class AssertEqualAction(AssertionBase):
         if isinstance(step.inputs[0], str) and isinstance(step.inputs[1], str):
             val1 = step.inputs[0]
             val2 = step.inputs[1]
+        elif isinstance(step.inputs[0], str) and isinstance(step.inputs[1], int):
+            val1 = step.inputs[0]
+            val2 = step.inputs[0]
         else:
-            raise ValueError(f"AssertNotEqual action {step} has {step.inputs[0]} as first input. Only supports string inputs, no immediates")
+            raise ValueError(f"AssertNotEqual action {step} has {step.inputs[0]} as first input")
         return cls(step_id=step_id, val1=val1, val2=val2, **kwargs)
 
     def expand(self, ctx: LoweringContext) -> Optional[list["Action"]]:

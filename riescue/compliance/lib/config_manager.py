@@ -1,13 +1,17 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
 import re
 from itertools import product, starmap
 from collections import namedtuple, OrderedDict
-
+from typing import TYPE_CHECKING
 
 from riescue.compliance.config import Resource
 from riescue.compliance.lib.common import lmul_map
+
+if TYPE_CHECKING:
+    from riescue.compliance.lib.riscv_instrs.base import InstrBase
 
 
 class ConfigManager:
@@ -22,6 +26,7 @@ class ConfigManager:
         self.test_environment = self.resource_db.featmgr.env.name.lower()
 
     def generate_named_config(self, **configs):
+        # Config is dynamic and can't be statically typed. If possible, having some known keys would be helpful for static type checking.
         Config = namedtuple("Config", configs.keys())
         return starmap(Config, product(*configs.values()))
 
@@ -97,7 +102,7 @@ class ConfigManager:
 
         return True
 
-    def generate_instruction_objects(self, instruction_class, rpt):
+    def generate_instruction_objects(self, instruction_class: type[InstrBase], rpt: int) -> list[InstrBase]:
         mnemonic = instruction_class.name
         test_config_to_global_config = OrderedDict()
         configs = self.resource_db.get_config(mnemonic)

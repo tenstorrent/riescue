@@ -263,6 +263,8 @@ Can be placed anywhere in test code (inside ``.section .code``, ``.section .data
 Interrupt and Exception Handling
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+.. _vectored_interrupt_directive:
+
 **;#vectored_interrupt** - Configure Interrupt Handlers
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

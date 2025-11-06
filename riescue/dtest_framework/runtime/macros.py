@@ -56,30 +56,34 @@ class Macros(AssemblyGenerator):
     and system operations.
     """
 
-    def __init__(self, mp_enablement=RV.RiscvMPEnablement.MP_OFF, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.priv_mode = self.featmgr.priv_mode
         self.paging_mode = self.featmgr.paging_mode
-        self.mp_enabled = mp_enablement != RV.RiscvMPEnablement.MP_OFF
-
+        self.mp_enabled = self.mp_active
         self.macros = list()
 
-    def calculate_hartid_offset(self, gpr):
-        routine_string = ""
-        if not self.mp_enabled:
-            return "mv " + gpr + ", zero\n"
-        else:
-            routine_string += f"""
-            GET_MHART_ID t0
-            mv {gpr}, t0
-            li t0, 0x8
-            mul {gpr}, {gpr}, t0
-            """
-        return routine_string
+    def get_hart_context(self) -> str:
+        """
+        Generates code to get the hart context pointer into the tp register.
 
-    def add_hartid_offset(self, address_gpr, offset_gpr):
-        return f"add {address_gpr}, {address_gpr}, {offset_gpr}\n"
+        :return: Assembly string to get the hart context pointer into the tp register
+        """
+        if not self.mp_enabled:
+            get_tp = "li tp, hart_context"
+        else:
+            if self.test_priv == RV.RiscvPrivileges.MACHINE:
+                get_tp = f"csrr tp, mscratch"
+            elif self.test_priv == RV.RiscvPrivileges.SUPER and self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
+                get_tp = f"csrr tp, sscratch"
+            else:
+                # Syscall always returns the hart-local storage pointer in a0
+                get_tp = """
+                    li x31, 0xf0002001 # retrieve hard-local storage pointer in a0 register.
+                    ecall
+                    mv tp, a0
+                """
+        return get_tp
 
     def generate(self) -> str:
         code = ""
@@ -103,91 +107,98 @@ class Macros(AssemblyGenerator):
         return code
 
     def gen_os_setup_check_excp(self):
+        """
+        Store the expected exception parameters in the hart context.
+
+        Clobbers a0, tp, t3
+        """
         name = "OS_SETUP_CHECK_EXCP"
         macro = Macro(name=name)
         macro.args = ["__expected_cause", "__expected_pc", "__return_pc", "__expected_tval=0", "__skip_pc_check=0"]
 
+        check_excp_expected_cause = self.variable_manager.get_variable("check_excp_expected_cause")
+        check_excp_expected_pc = self.variable_manager.get_variable("check_excp_expected_pc")
+        check_excp_expected_tval = self.variable_manager.get_variable("check_excp_expected_tval")
+        check_excp_return_pc = self.variable_manager.get_variable("check_excp_return_pc")
+        check_excp_skip_pc_check = self.variable_manager.get_variable("check_excp_skip_pc_check")
+
         macro.code = f"""
-            {self.calculate_hartid_offset('t2') if self.mp_enabled == True else ''}
-            # Setup exception check
-            li x1, check_excp_expected_cause
-            {self.add_hartid_offset('x1', 't2') if self.mp_enabled == True else ''}
+            {self.get_hart_context()}
             li t3, \\__expected_cause
-            sw t3, 0(x1)
+            {check_excp_expected_cause.store(src_reg="t3")}
 
             # Expected PC
-            li x1, check_excp_expected_pc
-            {self.add_hartid_offset('x1', 't2') if self.mp_enabled == True else ''}
             la t3, \\__expected_pc
-            sd t3, 0(x1)
+            {check_excp_expected_pc.store(src_reg="t3")}
 
             # Expected TVAL
-            li x1, check_excp_expected_tval
-            {self.add_hartid_offset('x1', 't2') if self.mp_enabled == True else ''}
             li t3, \\__expected_tval
-            sd t3, 0(x1)
+            {check_excp_expected_tval.store(src_reg="t3")}
 
             # Return pc
-            li x1, check_excp_return_pc
-            {self.add_hartid_offset('x1', 't2') if self.mp_enabled == True else ''}
             la t3, \\__return_pc
-            sd t3, 0(x1)
+            {check_excp_return_pc.store(src_reg="t3")}
 
             # Skip PC check
-            li x1, check_excp_skip_pc_check
-            {self.add_hartid_offset('x1', 't2') if self.mp_enabled == True else ''}
             li t3, \\__skip_pc_check
-            sd t3, 0(x1)
+            {check_excp_skip_pc_check.store(src_reg="t3")}
+
 
         """
 
         self.macros.append(macro)
 
     def gen_os_skip_check_excp(self):
+        """
+        Clobbers t3, tp, and a0
+        """
         name = "OS_SKIP_CHECK_EXCP"
         macro = Macro(name=name)
         macro.args = ["__return_pc"]
 
+        check_excp_return_pc = self.variable_manager.get_variable("check_excp_return_pc")
+        check_excp_skip_pc_check = self.variable_manager.get_variable("check_excp_skip_pc_check")
+
         macro.code = f"""
-            {self.calculate_hartid_offset('t2') if self.mp_enabled == True else ''}
-
-            # Return pc
-            li x1, check_excp_return_pc
-            {self.add_hartid_offset('x1', 't2') if self.mp_enabled == True else ''}
+            {self.get_hart_context()}
             la t3, \\__return_pc
-            sd t3, 0(x1)
+            {check_excp_return_pc.store(src_reg="t3")}
 
-            # Skip PC check
-            li x1, check_excp_skip_pc_check
-            {self.add_hartid_offset('x1', 't2') if self.mp_enabled == True else ''}
             li t3, 0
-            sb t3, 0(x1)
+            {check_excp_skip_pc_check.store(src_reg="t3")}
 
         """
-
         self.macros.append(macro)
 
-    """
-        These is a convenience macro, since in actuality every exception call will refill s1 with the hartid.
-        The code 0xf0002001 is the ecall code for getting the hartid and nothing else.
-    """
-
     def gen_os_get_hartid(self):
+        """
+        Macro to retrieve mhartid from hart-local context.
+
+        If test is in machine mode, can just use mhartid CSR
+        If test is in supervisor mode, can just read sscratch register and load
+        If test is in user mode, going to need to use ecall to get hart-local storage and load
+
+        clobbers x31 (t6), tp, and a0, dest_reg
+        """
+
         macro = Macro(name="GET_MHART_ID")
         macro.args = ["__dest_reg=s1"]
-        if self.priv_mode == RV.RiscvPrivileges.MACHINE:
-            macro.code = "\n csrr \\__dest_reg, mhartid"
+
+        code = []
+        mhartid = self.variable_manager.get_variable("mhartid")
+        if self.test_priv == RV.RiscvPrivileges.MACHINE:
+            code = ["\n csrr \\__dest_reg, mhartid"]
+        elif self.test_priv == RV.RiscvPrivileges.SUPER:
+            code = [
+                "csrr \\__dest_reg, sscratch",
+                f"ld \\__dest_reg, {mhartid.offset}(\\__dest_reg)",
+            ]
         else:
-            macro.code = """
-                li x31, 0xf0002001 # Call to enter exception handler code, get hartid for free, and skip to next pc.
-                ecall
-            mv \\__dest_reg, s1
-        """
-        macro.code = """
-            li x31, 0xf0002001 # Call to enter exception handler code, get hartid for free, and skip to next pc.
-            ecall
-            mv \\__dest_reg, s1
-        """
+            code = [
+                self.get_hart_context(),
+                f"ld \\__dest_reg, {mhartid.offset}(tp)",
+            ]
+        macro.code = "\n" + "\n\t".join(code)
         self.macros.append(macro)
 
     def gen_barrier_amo(self):
@@ -316,6 +327,9 @@ class Macros(AssemblyGenerator):
         self.macros.append(macro)
 
     def gen_critical_section_lr_sc(self):
+        """
+        This is unused by any tests and doesn't appear to work as intended
+        """
         name = "CRITICAL_SECTION_LR_SC"
         macro = Macro(name=name)
         macro.args = [
@@ -336,8 +350,8 @@ class Macros(AssemblyGenerator):
             work_reg="\\__work_reg",
             retry=True,
         )
-        macro.code += "bnez \\__return_val_reg, \\__test_label\\()_exit"
-        macro.code += "jalr ra, \\__critical_section_addr_reg"
+        macro.code += "bnez \\__return_val_reg, \\__test_label\\()_exit\n"
+        macro.code += "jalr ra, \\__critical_section_addr_reg\n"
         macro.code += Routines.place_release_lock_lr_sc(
             name="\\__test_label\\()",
             lock_addr_reg="\\__lock_addr_reg",

@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+from __future__ import annotations
 from dataclasses import dataclass, field
 from riescue.lib.enums import AddressType, AddressQualifiers
 
@@ -23,4 +25,4 @@ class Address:
     name: str
     address: int
     type: AddressType
-    qualifiers: list[AddressQualifiers] = field(default_factory=list)
+    qualifiers: list[AddressQualifiers] = field(default_factory=lambda: [])
