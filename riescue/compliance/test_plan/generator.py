@@ -61,7 +61,8 @@ class TestPlanGenerator:
         discrete_tests = []
         for scenario in test_plan.scenarios:
             discrete_test = self.test_plan_factory.build(scenario)
-            discrete_tests.append(discrete_test)
+            if discrete_test is not None:
+                discrete_tests.append(discrete_test)
         return discrete_tests
 
     def solve(self, discrete_tests: list[DiscreteTest], env_constraints: Predicates = None) -> TestEnv:
@@ -96,7 +97,8 @@ class TestPlanGenerator:
         # filtered discrete tests to only include tests that match the environment
         filtered_discrete_tests = []
         for test in discrete_tests:
-            if env.paging_mode in test.env.paging_modes and env.priv in test.env.priv_modes:
+            # FIXME: NO support on multiple harts yet, we can only do tests that cater to single hart environments
+            if env.paging_mode in test.env.paging_modes and env.priv in test.env.priv_modes and test.env.min_num_harts == 1:
                 filtered_discrete_tests.append(test)
         discrete_tests = filtered_discrete_tests
 

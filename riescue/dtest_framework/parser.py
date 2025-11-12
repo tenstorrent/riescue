@@ -45,6 +45,7 @@ class Parser:
         self.test_header = ParsedTestHeader()
         self.discrete_tests = dict()
         self.parsed_csr_id = 1
+        self.parsed_pte_id = 1
 
         self.pool = pool
 
@@ -92,6 +93,8 @@ class Parser:
                 self.parse_sections(line)
             if line.startswith(";#csr_rw"):
                 self.parse_csr_rw(line)
+            if line.startswith(";#read_leaf_pte"):
+                self.parse_read_leaf_pte(line)
 
     def parse_reserve_memory(self, line):
         pattern = r"^;#(reserve_memory)\((.+)\)"
@@ -660,21 +663,33 @@ class Parser:
             self.pool.add_parsed_vectored_interrupt(vectored_interrupt)
 
     def parse_csr_rw(self, line):
-        pattern = r"^;#csr_rw\((?P<csr_name>\w*),\s*(?P<read_or_write>\w*),\s*(?P<direct_rw>\w*)\)"
+        pattern = r"^;#csr_rw\((?P<csr_name>\w*),\s*(?P<read_write_set_clear>\w*),\s*(?P<direct_rw>\w*)\)"
         match = re.match(pattern, line)
         if match:
             csr_name = match.group("csr_name")
-            read_or_write = match.group("read_or_write")
+            read_write_set_clear = match.group("read_write_set_clear")
             priv_mode = "user"
             if csr_name.startswith("m"):
                 priv_mode = "machine"
             elif csr_name.startswith("s") or csr_name.startswith("h") or csr_name.startswith("v"):
                 priv_mode = "supervisor"
 
-            label = f"csr_access_{csr_name}_{priv_mode}_key_{self.parsed_csr_id}_{read_or_write}"
-            csr_access = ParsedCsrAccess(csr_name=csr_name, priv_mode=priv_mode, read_or_write=read_or_write, label=label, csr_id=self.parsed_csr_id)
+            label = f"csr_access_{csr_name}_{priv_mode}_key_{self.parsed_csr_id}_{read_write_set_clear}"
+            csr_access = ParsedCsrAccess(csr_name=csr_name, priv_mode=priv_mode, read_write_set_clear=read_write_set_clear, label=label, csr_id=self.parsed_csr_id)
             self.pool.add_parsed_csr_access(csr_access)
             self.parsed_csr_id += 1
+
+    def parse_read_leaf_pte(self, line):
+        pattern = r"^;#read_leaf_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+)\)"
+        match = re.match(pattern, line)
+        if match:
+            lin_name = match.group("lin_name")
+            paging_mode = match.group("paging_mode")
+
+            label = f"leaf_pte_read_{lin_name}_{paging_mode}_key_{self.parsed_pte_id}"
+            leaf_pte = ParsedLeafPte(lin_name=lin_name, paging_mode=paging_mode, label=label, pte_id=self.parsed_pte_id)
+            self.pool.add_parsed_leaf_pte(leaf_pte)
+            self.parsed_pte_id += 1
 
     def process(self):
         """
@@ -882,5 +897,13 @@ class ParsedCsrAccess:
     csr_name: str
     priv_mode: str
     csr_id: int
-    read_or_write: str
+    read_write_set_clear: str
+    label: str
+
+
+@dataclass
+class ParsedLeafPte:
+    lin_name: str
+    paging_mode: str
+    pte_id: int
     label: str

@@ -163,6 +163,9 @@ class FeatMgr:
     machine_mode_jump_table_for_csr_rw: str = "csr_machine_0"
     supervisor_mode_jump_table_for_csr_rw: str = "csr_super_0"
 
+    # Leaf PTE reading handling
+    machine_mode_jump_table_for_leaf_pte: str = "leaf_pte_machine_0"
+
     # PMA / PMP
     setup_pmp: bool = False
     needs_pma: bool = False

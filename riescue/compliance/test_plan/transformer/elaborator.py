@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from coretp import Instruction
+from coretp.isa.registers import Register
 
 from riescue.compliance.test_plan.actions import Action
 from riescue.compliance.test_plan.context import LoweringContext
@@ -27,8 +28,11 @@ class Elaborator:
             instr = action.pick_instruction(ctx)
 
             # Assign destination register and instruction ID
+            instr.instruction_id = action.step_id
             if instr.destination is not None and instr.destination.is_register():
-                instr.destination.val = action.step_id
+                # If hard-coded register, don't want to overwrite it
+                if not isinstance(instr.destination.val, Register):
+                    instr.destination.val = action.step_id
             instr.instruction_id = action.step_id
             instructions.append(instr)
         return instructions

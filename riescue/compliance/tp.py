@@ -35,7 +35,7 @@ class TpMode(BaseMode[TpCfg]):
 
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--isa", type=str, default="rv64imfda_zicsr_zk_zicond", help="ISA to use")
+        parser.add_argument("--isa", type=str, default="rv64imfda_zicsr_zk_zicond_zicbom_zicbop_zicboz_svadu_svinval", help="ISA to use")
         parser.add_argument("--test_plan", dest="test_plan_name", type=str, default="zicond", help="Test plan to use")
 
     def run(self, seed: int, toolchain: Toolchain, cl_args: Optional[argparse.Namespace] = None) -> Path:

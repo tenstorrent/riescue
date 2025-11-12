@@ -187,21 +187,25 @@ class AssemblyWriter:
             # replace ;#csr_rw with csrr/csrw instructions or system call to jump table
             parsed_line = line.strip()
             if parsed_line.startswith(";#csr_rw"):
-                pattern = r"^;#csr_rw\((?P<csr_name>\w*),\s*(?P<read_or_write>\w*),\s*(?P<direct_rw>\w*)\)"
+                pattern = r"^;#csr_rw\((?P<csr_name>\w*),\s*(?P<read_write_set_clear>\w*),\s*(?P<direct_rw>\w*)\)"
                 match = re.match(pattern, parsed_line)
                 if match:
                     csr_name = match.group("csr_name")
-                    read_or_write = match.group("read_or_write")
+                    read_write_set_clear = match.group("read_write_set_clear")
                     direct_rw = match.group("direct_rw").lower()
 
                     # get parsed csr val
-                    parsed_csr_val = self.pool.get_parsed_csr_access(csr_name, read_or_write)
+                    parsed_csr_val = self.pool.get_parsed_csr_access(csr_name, read_write_set_clear)
                     priv_mode = "super" if parsed_csr_val.priv_mode == "supervisor" else parsed_csr_val.priv_mode
                     csr_prio = priority.index(priv_mode)
                     priv_mode_prio = priority.index(self.featmgr.priv_mode.name.lower())
                     if priv_mode_prio >= csr_prio or direct_rw == "true":
-                        if read_or_write == "read":
+                        if read_write_set_clear == "read":
                             line = line + f"\ncsrr t2, {csr_name}\n"
+                        elif read_write_set_clear == "set":
+                            line = line + f"\ncsrs {csr_name}, t2\n"
+                        elif read_write_set_clear == "clear":
+                            line = line + f"\ncsrc {csr_name}, t2\n"
                         else:
                             line = line + f"\ncsrw {csr_name}, t2\n"
                     else:
@@ -215,6 +219,32 @@ class AssemblyWriter:
                         code_to_replace += "ecall\n"
 
                         line = line + "\n" + code_to_replace
+
+            # replace ;#read_leaf_pte with syscall to jump table
+            parsed_line = line.strip()
+            if parsed_line.startswith(";#read_leaf_pte"):
+                pattern = r"^;#read_leaf_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+)\)"
+                match = re.match(pattern, parsed_line)
+                if match:
+                    lin_name = match.group("lin_name")
+                    paging_mode = match.group("paging_mode")
+
+                    # Find the parsed leaf PTE entry using the tuple key
+                    try:
+                        leaf_pte = self.pool.get_parsed_leaf_pte(lin_name, paging_mode)
+                        pte_id = leaf_pte.pte_id
+
+                        # Generate code to call the syscall
+                        code_to_replace = "li x31, machine_leaf_pte_jump_table_flags\n"
+                        code_to_replace += f"li t0, {pte_id}\n"
+                        code_to_replace += "sd t0, 0(x31)\n"
+                        code_to_replace += "li x31, 0xf0001007\n"
+                        code_to_replace += "ecall\n"
+
+                        line = line + "\n" + code_to_replace
+                    except KeyError:
+                        # If not found, skip replacement (shouldn't happen in normal flow)
+                        pass
 
             parsed_line = line.strip()
             if parsed_line.startswith(";#test_passed"):

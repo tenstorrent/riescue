@@ -134,39 +134,29 @@ class BringupMode(BaseMode[Resource]):
 
         instrs = instr_generator.generate_instructions(sim_classes)
         log.info(f"Generated {len(instrs)} instructions")
-        test_generator.process_instrs(instrs, iteration=1)
-        testfiles = test_generator.testfiles()
+        testcase = test_generator.process_instrs(instrs, iteration=1)
 
         # Run the First pass
-        first_pass = None
-        for testfile in testfiles:
-            first_pass = self._rd_run_iss(Path(testfile), resource.first_pass_iss, resource, toolchain)
+        first_pass = self._rd_run_iss(Path(testcase.testname), resource.first_pass_iss, resource, toolchain)
 
         if resource.disable_pass:
             log.warning("Second pass is disabled, skipping second pass")
-            if first_pass is None:
-                raise ValueError("Didn't run a final RiescueD instance")
-            return first_pass.generated_files.elf  # FIXME: Does RiescueC bringup actually support multiple testfiles?
+            return first_pass.generated_files.elf
 
-        # Parse the first pass log and generate the second pass testcase.
-        test_generator.process_instrs(instrs, iteration=2)
-        testfiles = test_generator.testfiles()
-        testcases = test_generator.testcases()
-
-        # run second pass
+        second_pass_testcase = test_generator.process_instrs(instrs, iteration=2)  # Parse the first pass log and generate the second pass testcase.
+        # Run the Second pass
         last_rd = None
         if resource.compare_iss:
             # Comparator for invoking riescue-d framework
             # FIXME: this isn't tested. It should be fixed or removed.
             self.comparator = Comparator(resource)
-            for testcase in testcases:
+            for testcase in [testcase, second_pass_testcase]:
                 last_rd = self._rd_run_iss(testcase.testname, ["whisper", "spike"], resource, toolchain)
                 self.comparator.compare_logs(testcase)
         else:
-            for testfile in testfiles:
-                # FIXME: This is flimsy, if there really aren't multiple files then this should just return the file rather than re-assigning a temp
-                last_rd = self._rd_run_iss(Path(testfile), resource.second_pass_iss, resource, toolchain)
-                self._clean_up(str(testfile), output_format=resource.output_format)
+            testfile = second_pass_testcase.testname
+            last_rd = self._rd_run_iss(testfile, resource.second_pass_iss, resource, toolchain)
+            self._clean_up(str(testfile), output_format=resource.output_format)
         if last_rd is None:
             raise ValueError("Didn't run a final RiescueD instance")
         return last_rd.generated_files.elf

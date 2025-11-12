@@ -20,6 +20,10 @@ class InstrGenerator:
     1. Wrapper class for Opcode Reader, Config Reader and Instruction Builders.
     2. Generates and randomizes instruction given configuration, rpt_cnt etc.
 
+    This generates a shuffled list of instruction classes x rpt_cnt classes.
+    Instantiates each instruction class and generates the setup code.
+    Stops when out of instructions objects or the total line count of the setup code exceeds the Resource.max_instr_per_file limit.
+
     :param resource_db: Resource configuration database containing test parameters
     """
 

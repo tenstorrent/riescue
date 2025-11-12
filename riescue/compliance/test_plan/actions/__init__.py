@@ -13,9 +13,11 @@ from .store import StoreAction
 from .modify_pte import ModifyPteAction
 from .branch import CallAction
 from .csr import CsrReadAction, CsrWriteAction
+from .read_leaf_pte import ReadLeafPteAction
 from .assertions.assert_equal import AssertEqualAction
 from .assertions.assert_nequal import AssertNotEqualAction
 from .assertions.assert_exception import AssertExceptionAction
+from .memaccess import MemAccessAction
 from .mappings import DEFAULT_MAPPINGS
 
 
@@ -39,8 +41,10 @@ __all__ = [
     "ModifyPteAction",
     "CsrReadAction",
     "CsrWriteAction",
+    "ReadLeafPteAction",
     "AssertEqualAction",
     "AssertNotEqualAction",
     "AssertExceptionAction",
+    "MemAccessAction",
     "DEFAULT_MAPPINGS",
 ]

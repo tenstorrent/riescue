@@ -16,7 +16,9 @@ from coretp.step import (
     AssertNotEqual,
     AssertException,
     LoadImmediateStep,
+    MemAccess,
 )
+from coretp.step.memory import ReadLeafPTE
 
 from riescue.compliance.test_plan.actions import (
     Action,
@@ -26,6 +28,7 @@ from riescue.compliance.test_plan.actions import (
     MemoryAction,
     CsrReadAction,
     CsrWriteAction,
+    ReadLeafPteAction,
     CodePageAction,
     CallAction,
     ModifyPteAction,
@@ -33,6 +36,7 @@ from riescue.compliance.test_plan.actions import (
     AssertNotEqualAction,
     AssertExceptionAction,
     LiAction,
+    MemAccessAction,
 )
 
 
@@ -43,11 +47,13 @@ DEFAULT_MAPPINGS: list[tuple[type[TestStep], type[Action]]] = [
     (Memory, MemoryAction),
     (CsrRead, CsrReadAction),
     (CsrWrite, CsrWriteAction),
+    (ReadLeafPTE, ReadLeafPteAction),
     (CodePage, CodePageAction),
     (Call, CallAction),
     (AssertEqual, AssertEqualAction),
     (AssertNotEqual, AssertNotEqualAction),
     (AssertException, AssertExceptionAction),
     (LoadImmediateStep, LiAction),
+    (MemAccess, MemAccessAction),
     (ModifyPte, ModifyPteAction),
 ]
