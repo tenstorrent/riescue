@@ -33,8 +33,8 @@ try:
 
     fpgen_api_module = FpGenApi
 
-except Exception as e:
-    logger.warning(f"Failed to add fpgen path to sys.path: {e}")
+except Exception:
+    logger.warning("fpgen unavailable, skipping")
     fpgen_api_module = None
 
 
