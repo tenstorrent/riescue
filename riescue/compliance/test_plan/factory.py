@@ -33,12 +33,14 @@ class TestPlanFactory:
         else:
             self.action_registry = action_registry
 
-    def build(self, scenario: TestScenario) -> DiscreteTest:
+    def build(self, scenario: TestScenario) -> Optional[DiscreteTest]:
         """
         Create a list of ``DiscreteTest`` object(s) from the ``TestScenario``.
 
         :param scenario: :class:`TestScenario` object to build :class:`DiscreteTest` objects from.
         """
+        if scenario.env.min_num_harts > 1:
+            return None
         return DiscreteTest(
             name=scenario.name,
             actions=[self.action_registry.get_action(step) for step in scenario.steps],

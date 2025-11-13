@@ -37,6 +37,7 @@ class Page(AssemblyBase):
     pma_config: Optional[dict[str, Any]] = None
     page_size: Optional[PageSize] = None
     flags: Optional[PageFlags] = PageFlags.VALID | PageFlags.READ | PageFlags.WRITE | PageFlags.EXECUTE
+    exclude_flags: Optional[PageFlags] = None
     page_cross_en: bool = False
     num_pages: Optional[int] = 1
     and_mask: str = "0xffff_ffff_f000"  # Mask for generating memory addresses
@@ -53,6 +54,7 @@ class Page(AssemblyBase):
 
         page_flags = []
         if self.flags is not None:
+            # these flags are always set or unset
             if PageFlags.VALID in self.flags:
                 page_flags.append("v=1")
             else:
@@ -77,6 +79,23 @@ class Page(AssemblyBase):
                 page_flags.append("a=1")
             if PageFlags.DIRTY in self.flags:
                 page_flags.append("d=1")
+        if self.exclude_flags is not None:
+            if PageFlags.VALID in self.exclude_flags:
+                page_flags.append("v=0")
+            if PageFlags.READ in self.exclude_flags:
+                page_flags.append("r=0")
+            if PageFlags.WRITE in self.exclude_flags:
+                page_flags.append("w=0")
+            if PageFlags.EXECUTE in self.exclude_flags:
+                page_flags.append("x=0")
+            if PageFlags.USER in self.exclude_flags:
+                page_flags.append("u=0")
+            if PageFlags.GLOBAL in self.exclude_flags:
+                page_flags.append("g=0")
+            if PageFlags.ACCESSED in self.exclude_flags:
+                page_flags.append("a=0")
+            if PageFlags.DIRTY in self.exclude_flags:
+                page_flags.append("d=0")
         if self.modify:
             page_flags.append("modify_pt=1")
         page_flags_str = ", ".join(page_flags)

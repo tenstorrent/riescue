@@ -19,12 +19,13 @@ class MemoryAction(Action):
 
     register_fields: list[str] = []
 
-    def __init__(self, size: int, page_size: PageSize, flags: PageFlags, modify: bool = False, page_cross_en: bool = False, num_pages: int = 1, **kwargs):
+    def __init__(self, size: int, page_size: PageSize, flags: PageFlags, exclude_flags: Optional[PageFlags] = None, modify: bool = False, page_cross_en: bool = False, num_pages: int = 1, **kwargs):
         super().__init__(**kwargs)
         self.constraints = {}
         self.size = size
         self.page_size = page_size
         self.flags = flags
+        self.exclude_flags = exclude_flags
         self.num_pages = num_pages
         self.page_cross_en = page_cross_en
         self.data: list[Any] = [".dword 0xc001c0de"]
@@ -46,6 +47,7 @@ class MemoryAction(Action):
             size=step.step.size,
             page_size=step.step.page_size,
             flags=step.step.flags,
+            exclude_flags=step.step.exclude_flags,
             page_cross_en=step.step.page_cross_en,
             num_pages=num_pages,
             modify=step.step.modify,
@@ -73,7 +75,7 @@ class StackPageAction(MemoryAction):
             step_id=name,
             size=size,
             page_size=PageSize.SIZE_4K,
-            flags=PageFlags.READ | PageFlags.WRITE,
+            flags=PageFlags.READ | PageFlags.WRITE | PageFlags.VALID | PageFlags.ACCESSED | PageFlags.DIRTY,
             page_cross_en=False,
             **kwargs,
         )

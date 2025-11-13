@@ -31,6 +31,7 @@ class MemoryRegistry:
             size=data_memory.size,
             page_size=data_memory.page_size,
             flags=data_memory.flags,
+            exclude_flags=data_memory.exclude_flags,
             data=data_memory.data,
             num_pages=data_memory.num_pages,
             modify=data_memory.modify,

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from coretp import TestEnv, InstructionCatalog, Instruction, StepIR
 from coretp.step import Store, Memory
-from coretp.rv_enums import Category, PageSize, PageFlags
+from coretp.rv_enums import Category, PageSize, PageFlags, Extension
 
 from riescue.compliance.test_plan.actions import Action, ArithmeticAction, LiAction
 from riescue.compliance.test_plan.actions.memory import MemoryAction
@@ -116,7 +116,7 @@ class StoreAction(Action):
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
         "Recurisvely calls to avoid picking stack pointer-relative instructions"
-        constraints: dict[str, Any] = {"category": Category.STORE}
+        constraints: dict[str, Any] = {"category": Category.STORE, "exclude_extensions": Extension.A | Extension.SVINVAL}
         if self.offset:
             constraints["has_immediate"] = True
         access_size_instr = None

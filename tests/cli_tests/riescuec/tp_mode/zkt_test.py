@@ -10,7 +10,7 @@ class ZicondTest(BaseRiescueCTest):
     "Runs ZICOND test plan"
 
     def test_cli(self):
-        self.run_tp_mode(plan="zkt")
+        self.run_tp_mode(plan="zkt", cli_args=["--test_priv_mode", "machine"])
 
 
 if __name__ == "__main__":

@@ -4,12 +4,14 @@
 from typing import Optional, Callable
 
 from coretp import TestPlan, TestEnv, TestEnvSolver
+from coretp.rv_enums import PrivilegeMode
 
 from riescue.compliance.test_plan.actions import ActionRegistry
 from riescue.compliance.test_plan.factory import TestPlanFactory
 from riescue.compliance.test_plan.types import DiscreteTest, AssemblyFile, Header
 from riescue.compliance.test_plan.transformer import Transformer
 from riescue.compliance.test_plan.memory import MemoryRegistry
+from riescue.compliance.test_plan.actions import CsrReadAction, CsrWriteAction
 from riescue.lib.rand import RandNum
 
 # Shortcut for optional list of predicates (callable functions that return bools) used to pass in more constraints
@@ -61,7 +63,8 @@ class TestPlanGenerator:
         discrete_tests = []
         for scenario in test_plan.scenarios:
             discrete_test = self.test_plan_factory.build(scenario)
-            discrete_tests.append(discrete_test)
+            if discrete_test is not None:
+                discrete_tests.append(discrete_test)
         return discrete_tests
 
     def solve(self, discrete_tests: list[DiscreteTest], env_constraints: Predicates = None) -> TestEnv:
@@ -96,7 +99,8 @@ class TestPlanGenerator:
         # filtered discrete tests to only include tests that match the environment
         filtered_discrete_tests = []
         for test in discrete_tests:
-            if env.paging_mode in test.env.paging_modes and env.priv in test.env.priv_modes:
+            # FIXME: NO support on multiple harts yet, we can only do tests that cater to single hart environments
+            if self._test_for_filtering(test, env):
                 filtered_discrete_tests.append(test)
         discrete_tests = filtered_discrete_tests
 
@@ -116,6 +120,39 @@ class TestPlanGenerator:
         return assembly_file.emit()
 
     # internal methods #
+
+    def _test_for_filtering(self, test: DiscreteTest, env: TestEnv) -> bool:
+        """
+        Check if a test should be filtered out based on the environment.
+        """
+
+        # iterate through list, check if Csr* access is feasible and allowed and/or deleg_excp_to machine is set
+        skip_test = False
+        for action in test.actions:
+            if isinstance(action, CsrReadAction) or isinstance(action, CsrWriteAction):
+                priv_modes = ["m", "s", "u"]
+                main_env = priv_modes.index(env.priv.long_name()[0])
+                csr_priv_mode = action.csr_name[0]
+                if csr_priv_mode == "h":
+                    csr_priv_mode = "s"
+                if csr_priv_mode == "v":
+                    csr_priv_mode = action.csr_name[1]
+                which_priv_mode = 2  # assume U mode acesss
+                if csr_priv_mode in priv_modes:
+                    which_priv_mode = priv_modes.index(csr_priv_mode)
+
+                if which_priv_mode > main_env and env.deleg_excp_to != PrivilegeMode.M:
+                    skip_test = True
+                    break
+        # FIXME: NO support on multiple harts yet, we can only do tests that cater to single hart environments
+        return (
+            env.paging_mode in test.env.paging_modes
+            and env.priv in test.env.priv_modes
+            and test.env.min_num_harts == 1
+            and env.hypervisor in test.env.hypervisor
+            and env.virtualized in test.env.virtualized
+            and not skip_test
+        )
 
     def _check_for_conflicting_labels(self, discrete_tests: list[DiscreteTest]) -> None:
         """Checks for duplicate labels in test plan, if multiple tests raises ValueError"""

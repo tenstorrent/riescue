@@ -13,6 +13,8 @@ from riescue.compliance.test_plan.context import LoweringContext
 from .register_pool import RegisterPool
 from .types import BasicBlock
 
+log = logging.getLogger(__name__)
+
 
 class Interval(NamedTuple):
     start: int
@@ -79,8 +81,14 @@ class LinearScan:
         live_intervals: dict[str, Interval] = {}
 
         for i, instr in enumerate(instructions):
-            if instr.destination and instr.destination.is_register() and isinstance(instr.destination.val, str):
+            if instr.destination and instr.destination.is_register():
                 name = instr.destination.val
+                if isinstance(instr.destination.val, Register):
+                    name = instr.instruction_id
+                elif isinstance(instr.destination.val, str):
+                    name = instr.destination.val
+                else:
+                    raise Exception(f"Destination register {instr.destination.val} is not a Register or a string {instr}")
                 if name not in live_intervals:
                     live_intervals[name] = Interval(i, i, name, instr.destination.type)
                 else:
@@ -127,19 +135,20 @@ class LinearScan:
         """
         Performs linear scan register allocation, returns a map of {temp_reg_name: register}
         """
-
+        hardcoded_map = self._analyze_hardcoded(self.instructions)
         live_interval_list = sorted(self.live_intervals.values(), key=lambda x: x.start)
         clobbered_registers = self._clobber_map()
-        register_map: dict[str, VariableRecord] = {}
+        register_map: dict[str, VariableRecord] = {} | hardcoded_map
         active: list[Interval] = []
 
-        for i, interval in enumerate(live_interval_list):
+        for _, interval in enumerate(live_interval_list):
             active = sorted(active, key=lambda x: x.end)
 
             # expire old intervals
             expired = []
             for a in active:
-                if a.end < interval.start:
+                # free register that no longer have dependencies
+                if a.end <= interval.start:
                     expired.append(a)
 
             for e in expired:
@@ -155,6 +164,8 @@ class LinearScan:
 
             # allocate register
             if len(active) >= len(self.reg_pool.candidate_registers(interval.reg_type, exclude_registers=exclude_registers)):
+                if interval.reg_name in hardcoded_map:
+                    log.warning(f"Interval {interval.reg_name} requested hard-coded regsiter, but no registers are available")
                 # get last active interval of the same type
                 revered_active = reversed(active)
                 last_active_interval = next(revered_active)
@@ -169,12 +180,43 @@ class LinearScan:
                     active.remove(last_active_interval)
                 else:
                     register_map[interval.reg_name] = VariableRecord(interval.start, interval.end, stack_slot)
+            elif interval.reg_name in hardcoded_map:
+                # handle hard-coded registers
+                register_map[interval.reg_name] = hardcoded_map[interval.reg_name]
+                hard_coded_reg = hardcoded_map[interval.reg_name].slot
+                if TYPE_CHECKING:
+                    assert isinstance(hard_coded_reg, Register)
+                allocated_reg = self.reg_pool.allocate(interval.reg_type, interval.reg_name, exclude_registers=exclude_registers, hard_coded_register=hard_coded_reg)
+                active.append(interval)
             else:
                 allocated_reg = self.reg_pool.allocate(interval.reg_type, interval.reg_name, exclude_registers=exclude_registers)
                 active.append(interval)
                 register_map[interval.reg_name] = VariableRecord(interval.start, interval.end, allocated_reg)
-
         return register_map
+
+    def _analyze_hardcoded(self, instructions: list[Instruction]) -> dict[str, VariableRecord]:
+        """
+        Track hard-coded registers by instruction ID and return them as VariableRecords
+
+        :return: Mapping from instruction_id to VariableRecord with allocated Register
+        :rtype: dict[str, VariableRecord]
+        """
+        hardcoded_map = {}
+
+        for i, instr in enumerate(instructions):
+            if instr.destination and instr.destination.is_register() and isinstance(instr.destination.val, Register):
+                reg = instr.destination.val
+                instruction_id = instr.instruction_id
+
+                # get hard-coded register's last use
+                last_use = i
+                for j in range(i + 1, len(instructions)):
+                    for src in instructions[j].source:
+                        if src.is_register() and isinstance(src.val, str) and src.val == instruction_id:
+                            last_use = j
+                hardcoded_map[instruction_id] = VariableRecord(i, last_use, reg)
+
+        return hardcoded_map
 
     def _apply_linear_scan(self, register_map: dict[str, VariableRecord]) -> list[Instruction]:
         """
