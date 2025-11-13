@@ -55,6 +55,7 @@ class OpSys(AssemblyGenerator):
         self.num_hard_fails = self.variable_manager.register_shared_variable("num_hard_fails", 0x0)
         self.machine_csr_jump_table_flags = self.variable_manager.register_shared_variable("machine_csr_jump_table_flags", 0x0)
         self.super_csr_jump_table_flags = self.variable_manager.register_shared_variable("super_csr_jump_table_flags", 0x0)
+        self.machine_leaf_pte_jump_table_flags = self.variable_manager.register_shared_variable("machine_leaf_pte_jump_table_flags", 0x0)
 
         if self.mp_active:
             self.variable_manager.register_shared_variable("barrier_arrive_counter", 0x0)
@@ -144,6 +145,8 @@ class OpSys(AssemblyGenerator):
         code += self.append_to_from_host()
         # Append the csr_rw_jump_table
         code += self.generate_csr_rw_jump_table()
+        # Append the leaf_pte_jump_table
+        code += self.generate_leaf_pte_jump_table()
         return code
 
     def test_passed_failed_labels(self) -> str:
@@ -427,6 +430,8 @@ class OpSys(AssemblyGenerator):
         for csr in parsed_csr_accesses:
             write_csr = parsed_csr_accesses[csr].get("write", None)
             read_csr = parsed_csr_accesses[csr].get("read", None)
+            set_csr = parsed_csr_accesses[csr].get("set", None)
+            clear_csr = parsed_csr_accesses[csr].get("clear", None)
             if write_csr:
                 if write_csr.priv_mode == "machine":
                     machine_code += "\n"
@@ -455,6 +460,33 @@ class OpSys(AssemblyGenerator):
                     super_code += f"\tcsrr t2, {csr}\n"
                     super_code += f"\tj {end_super_label}\n"
 
+            if set_csr:
+                if set_csr.priv_mode == "machine":
+                    machine_code += "\n"
+                    machine_code += f"\t# Machine Set: {csr}, label: {set_csr.label}\n"
+                    machine_code += f"{set_csr.label}:\n"
+                    machine_code += f"\tcsrs {csr}, t2\n"
+                    machine_code += f"\tj {end_machine_label}\n"
+                elif set_csr.priv_mode == "supervisor":
+                    super_code += "\n"
+                    super_code += f"\t# Supervisor Set: {csr}, label: {set_csr.label}\n"
+                    super_code += f"{set_csr.label}:\n"
+                    super_code += f"\tcsrs {csr}, t2\n"
+                    super_code += f"\tj {end_super_label}\n"
+            if clear_csr:
+                if clear_csr.priv_mode == "machine":
+                    machine_code += "\n"
+                    machine_code += f"\t# Machine Clear: {csr}, label: {clear_csr.label}\n"
+                    machine_code += f"{clear_csr.label}:\n"
+                    machine_code += f"\tcsrc {csr}, t2\n"
+                    machine_code += f"\tj {end_machine_label}\n"
+                if clear_csr.priv_mode == "supervisor":
+                    super_code += "\n"
+                    super_code += f"\t# Supervisor Clear: {csr}, label: {clear_csr.label}\n"
+                    super_code += f"{clear_csr.label}:\n"
+                    super_code += f"\tcsrc {csr}, t2\n"
+                    super_code += f"\tj {end_super_label}\n"
+
         # CSR Machine Jump Table 1
         code = f"""
         .section .csr_machine_0, "ax"
@@ -464,6 +496,8 @@ class OpSys(AssemblyGenerator):
         for csr in parsed_csr_accesses:
             write_csr = parsed_csr_accesses[csr].get("write", None)
             read_csr = parsed_csr_accesses[csr].get("read", None)
+            set_csr = parsed_csr_accesses[csr].get("set", None)
+            clear_csr = parsed_csr_accesses[csr].get("clear", None)
             if write_csr:
                 if write_csr.priv_mode == "machine":
                     code += f"\tli t0, {write_csr.csr_id}\n"
@@ -472,6 +506,14 @@ class OpSys(AssemblyGenerator):
                 if read_csr.priv_mode == "machine":
                     code += f"\tli t0, {read_csr.csr_id}\n"
                     code += f"\tbeq x31, t0, {read_csr.label}\n"
+            if set_csr:
+                if set_csr.priv_mode == "machine":
+                    code += f"\tli t0, {set_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {set_csr.label}\n"
+            if clear_csr:
+                if clear_csr.priv_mode == "machine":
+                    code += f"\tli t0, {clear_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {clear_csr.label}\n"
         code += f"\tj {end_machine_label}\n"
         code += machine_code
 
@@ -490,6 +532,8 @@ class OpSys(AssemblyGenerator):
         for csr in parsed_csr_accesses:
             read_csr = parsed_csr_accesses[csr].get("read", None)
             write_csr = parsed_csr_accesses[csr].get("write", None)
+            set_csr = parsed_csr_accesses[csr].get("set", None)
+            clear_csr = parsed_csr_accesses[csr].get("clear", None)
             if read_csr:
                 if read_csr.priv_mode == "supervisor":
 
@@ -499,6 +543,14 @@ class OpSys(AssemblyGenerator):
                 if write_csr.priv_mode == "supervisor":
                     code += f"\tli t0, {write_csr.csr_id}\n"
                     code += f"\tbeq x31, t0, {write_csr.label}\n"
+            if set_csr:
+                if set_csr.priv_mode == "supervisor":
+                    code += f"\tli t0, {set_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {set_csr.label}\n"
+            if clear_csr:
+                if clear_csr.priv_mode == "supervisor":
+                    code += f"\tli t0, {clear_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {clear_csr.label}\n"
         code += f"\tj {end_super_label}\n"
         code += super_code
 
@@ -508,5 +560,98 @@ class OpSys(AssemblyGenerator):
         li x31, 0xf0001004
         ecall
         """
+
+        return code
+
+    def generate_leaf_pte_jump_table(self) -> str:
+        """Generate jump table for reading leaf PTEs based on virtual address and paging mode."""
+        machine_code = ""
+        end_machine_label = "end_machine_leaf_pte_label"
+
+        # Build Machine Jump Table for Leaf PTE reads
+        parsed_leaf_ptes = self.pool.get_parsed_leaf_ptes()
+
+        for (lin_name, paging_mode), leaf_pte in parsed_leaf_ptes.items():
+            paging_mode = paging_mode.lower()
+            label = leaf_pte.label
+
+            # Generate page table walk code for this specific paging mode
+            machine_code += "\n"
+            machine_code += f"\t# Read Leaf PTE: {lin_name} in {paging_mode}, label: {label}\n"
+            machine_code += f"{label}:\n"
+
+            # Load virtual address from lin_name label into x31
+            machine_code += f"\tli x31, {lin_name}\n"
+
+            # Read satp to get root page table base
+            machine_code += "\tcsrr t2, satp\n"
+            machine_code += "\tslli t2, t2, 20\n"  # Shift left to clear MODE (bits 63:60) and ASID (bits 59:44)
+            machine_code += "\tsrli t2, t2, 20\n"  # Shift right to get PPN in bits 43:0
+            machine_code += "\tslli t2, t2, 12\n"  # Shift left by 12 to convert PPN to physical address
+
+            # Determine number of levels based on paging mode
+            if paging_mode == "sv39":
+                levels = [(38, 30), (29, 21), (20, 12)]  # 3 levels
+            elif paging_mode == "sv48":
+                levels = [(47, 39), (38, 30), (29, 21), (20, 12)]  # 4 levels
+            elif paging_mode == "sv57":
+                levels = [(56, 48), (47, 39), (38, 30), (29, 21), (20, 12)]  # 5 levels
+            else:
+                # Default to sv39
+                levels = [(38, 30), (29, 21), (20, 12)]
+
+            # Walk through each level
+            for level_idx, (vpn_hi, vpn_lo) in enumerate(levels):
+                vpn_bits = vpn_hi - vpn_lo + 1
+                vpn_mask = (1 << vpn_bits) - 1
+
+                machine_code += f"\n\t# Level {level_idx}: VPN[{vpn_hi}:{vpn_lo}]\n"
+
+                # Extract VPN for this level
+                machine_code += "\tmv t1, x31\n"  # Copy virtual address
+                machine_code += f"\tsrli t1, t1, {vpn_lo}\n"  # Shift to extract VPN
+                machine_code += f"\tandi t1, t1, {hex(vpn_mask)}\n"  # Mask to get VPN bits
+                machine_code += "\tslli t1, t1, 3\n"  # Multiply by 8 (PTE size)
+                machine_code += "\tadd t1, t2, t1\n"  # t0 = PTE address
+                machine_code += "\tld t2, 0(t1)\n"  # Load PTE into t2
+
+                # Check if this is a leaf PTE (if not last level)
+                if level_idx < len(levels) - 1:
+                    # Check R/W/X bits (bits [3:1])
+                    machine_code += "\tandi t1, t2, 0xE\n"  # Check bits [3:1]
+                    machine_code += f"\tbnez t1, {label}_done\n"  # If any set, it's a leaf
+
+                    # Not a leaf, extract next level base address
+                    machine_code += "\tsrli t1, t2, 10\n"  # Extract PPN from PTE
+                    machine_code += "\tslli t2, t1, 12\n"  # Convert PPN to address
+                else:
+                    # Last level, must be a leaf
+                    machine_code += f"\tj {label}_done\n"
+
+            machine_code += f"\n{label}_done:\n"
+            machine_code += "\t# t2 now contains the leaf PTE value\n"
+            machine_code += f"\tj {end_machine_label}\n"
+
+        # Generate the jump table section
+        code = f"""
+.section .leaf_pte_machine_0, "ax"
+{self.machine_leaf_pte_jump_table_flags.load("x31")}
+
+"""
+        # Generate comparison checks for each parsed leaf PTE
+        for (lin_name, paging_mode), leaf_pte in parsed_leaf_ptes.items():
+            code += f"\tli t1, {leaf_pte.pte_id}\n"
+            code += f"\tbeq x31, t1, {leaf_pte.label}\n"
+
+        code += f"\tj {end_machine_label}\n"
+        code += machine_code
+
+        # End label that returns to test mode
+        code += f"""
+{end_machine_label}:
+\t# Return to testmode
+\tli x31, 0xf0001004
+\tecall
+"""
 
         return code

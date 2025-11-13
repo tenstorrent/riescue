@@ -1726,6 +1726,9 @@ class Generator:
         num_machine_csr_pages = 1
         num_super_csr_pages = 1
 
+        # pte pages
+        num_machine_pte_pages = 1
+
         if section == "text":
             alloc_size = 0x1000
             alloc_addr = self.featmgr.reset_pc
@@ -1908,6 +1911,19 @@ class Generator:
                     size=alloc_size,
                     iscode=True,
                     always_super=True,
+                    start_addr=alloc_addr,
+                    phys_name=page_phys_name,
+                    identity_map=True,
+                )
+                alloc_addr = lin_addr + alloc_size
+
+            for i in range(num_machine_pte_pages):
+                page_name = f"leaf_pte_machine_{i}"
+                page_phys_name = f"__section_{page_name}"
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name=page_name,
+                    size=alloc_size,
+                    iscode=True,
                     start_addr=alloc_addr,
                     phys_name=page_phys_name,
                     identity_map=True,

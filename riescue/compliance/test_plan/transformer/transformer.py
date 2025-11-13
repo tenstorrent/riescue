@@ -3,7 +3,6 @@
 
 import logging
 from typing import Optional
-
 from coretp import Instruction, TestEnv, InstructionCatalog
 from coretp.isa import Label, Register, RISCV_REGISTERS
 
@@ -18,8 +17,9 @@ from .test_harness import TestHarness
 from riescue.compliance.test_plan.context import LoweringContext
 from riescue.compliance.test_plan.memory import MemoryRegistry
 from riescue.compliance.test_plan.actions import Action, StackPageAction
+from riescue.compliance.test_plan.actions.csr import CsrApiInstruction
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class Transformer:
@@ -63,6 +63,10 @@ class Transformer:
             ctx.global_function_clobbers[code_page_id] = self._clobbered_registers(function_instructions)
         data_segment = DataSegment(blocks=global_functions)  # Global functions and data
 
+        csr_storage_name = "tp_csr_storage"
+        csr_storage_page = StackPageAction(name=csr_storage_name)
+        ctx.mem_reg.allocate_data(csr_storage_name, csr_storage_page)
+
         test_blocks = []
         for test in canonicalized_tests:
             # add stack pages for each test before transforming
@@ -72,7 +76,9 @@ class Transformer:
 
             # transform DiscreteTest into TestCase
             test_instructions = self._transform(test.actions, ctx)
-            test_cast_instructions = [Label(test.name)] + self.initialize_stack(test.name, ctx) + test_instructions
+            csrs_save_instructions, allocated_csrs = self._save_csrs(test_instructions, ctx, csr_storage_name)
+            restored_csrs = self._restore_csrs(allocated_csrs, ctx, csr_storage_name)
+            test_cast_instructions = [Label(test.name)] + csrs_save_instructions + self.initialize_stack(test.name, ctx) + test_instructions + restored_csrs
             test_block = TestCase.from_instructions(test_cast_instructions, header=f";#discrete_test(test={test.name})")
             test_block.blocks.append(self.test_harness.test_passed(test_name=test.name))
             test_blocks.append(test_block)
@@ -85,6 +91,104 @@ class Transformer:
         for mem in ctx.mem_reg.data:
             data_segment.blocks.append(mem)
         return text_segment, data_segment
+
+    def _save_csrs(self, test_instructions: list[Instruction], ctx: LoweringContext, space_name: str):
+        found_csrs = False
+        for instr in test_instructions:
+            if isinstance(instr, CsrApiInstruction):
+                found_csrs = True
+                break
+        if not found_csrs:
+            return [], {}
+
+        # get instructions, set index to csrs
+        instructions = []
+        space_index_to_csrs = {}
+        space_index = 0
+
+        # use sp (which will be overwritten) and t2 which is going to be used as CSR RW
+        sp = RISCV_REGISTERS[2]
+        t2 = RISCV_REGISTERS[7]
+
+        # sp = shared space for CSR swap
+        li_space = ctx.instruction_catalog.get_instruction("li")
+        li_space.instruction_id = ctx.new_value_id()
+        li_space_imm = li_space.immediate_operand()
+        li_space_rd = li_space.destination
+        if li_space_imm is None or li_space_rd is None:
+            raise Exception(f"li instruction {li_space.name} has no immediate operand /destination operand")
+        li_space_imm.val = space_name
+        li_space_rd.val = sp
+        instructions.append(li_space)
+
+        for instr in test_instructions:
+            if isinstance(instr, CsrApiInstruction):
+
+                # for every CSR write, save CSR to space and move index to next 8 bytes
+
+                # store index to csr name
+                space_index_to_csrs[space_index] = instr.csr_name
+
+                # somehow do CSR read to T2
+                csr_read = CsrApiInstruction(csr_name=instr.csr_name, name="csrr", api_call="read")
+                instructions.append(csr_read)
+
+                sd = ctx.instruction_catalog.get_instruction("sd")
+                sd.instruction_id = ctx.new_value_id()
+                sd_rs1 = sd.rs1()
+                sd_rs2 = sd.rs2()
+                sd_imm = sd.immediate_operand()
+                if sd_rs1 is None or sd_rs2 is None or sd_imm is None:
+                    raise Exception(f"sd instruction {sd.name} has no source operand /source operand /immediate operand")
+                sd_rs1.val = sp
+                sd_rs2.val = t2
+                sd_imm.val = space_index
+                instructions.append(sd)
+
+                space_index += 8
+
+        return instructions, space_index_to_csrs
+
+    def _restore_csrs(self, allocated_csrs: dict[int, str], ctx: LoweringContext, space_name: str):
+
+        if len(allocated_csrs) == 0:
+            return []
+
+        instructions = []
+
+        # use sp (which will be overwritten) and t2 which is going to be used as CSR RW
+        sp = RISCV_REGISTERS[2]
+        t2 = RISCV_REGISTERS[7]
+
+        # load space name into sp
+        li_space = ctx.instruction_catalog.get_instruction("li")
+        li_space.instruction_id = ctx.new_value_id()
+        li_space_imm = li_space.immediate_operand()
+        li_space_rd = li_space.destination
+        if li_space_imm is None or li_space_rd is None:
+            raise Exception(f"li instruction {li_space.name} has no immediate operand /destination operand")
+        li_space_imm.val = space_name
+        li_space_rd.val = sp
+        instructions.append(li_space)
+
+        for space_index, csr_name in allocated_csrs.items():
+            # load CSR from space to t2
+            ld = ctx.instruction_catalog.get_instruction("ld")
+            ld.instruction_id = ctx.new_value_id()
+            ld_rs1 = ld.rs1()
+            ld_rd = ld.destination
+            ld_imm = ld.immediate_operand()
+            if ld_rs1 is None or ld_rd is None or ld_imm is None:
+                raise Exception(f"ld instruction {ld.name} has no source operand /source operand /immediate operand")
+            ld_rs1.val = sp
+            ld_rd.val = t2
+            ld_imm.val = space_index
+            instructions.append(ld)
+
+            # write t2 to CSR
+            csr_write = CsrApiInstruction(csr_name=csr_name, name="csrw", api_call="write")
+            instructions.append(csr_write)
+        return instructions
 
     def _transform(self, actions: list[Action], ctx: LoweringContext) -> list[Instruction]:
         """

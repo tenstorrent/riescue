@@ -74,6 +74,64 @@ Creates random memory addresses with alignment and size constraints.
     ;#random_addr(name=vaddr, type=linear, size=0x2000)
     ;#random_addr(name=io_addr, type=physical, io=1, size=0x100)
 
+CSR Read/Write/Set/Clear API
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**;#csr_rw** - Generate CSR R/W Code
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Generates either a CSR read/write/set/clear code, or a CSR API call code. This API can be called from any exception level.
+As an API call, all inputs and outputs will be passed through the t2 register. System jumps will clobber t1 and x31, so be careful when using this directive in a system jump.
+
+NOTE: This directive is only valid if deleg_excp_to is set to machine
+
+**Syntax:**
+
+.. code-block:: asm
+
+    ;#csr_rw(<csr_name>, <action>, <direct_access>)
+
+**Parameters:**
+
+- ``csr_name`` (required) - CSR name to access
+- ``action`` (required) - Action to perform: ``read``, ``write``, ``set``, ``clear``
+- ``direct_access`` (required) - Direct access to CSR: ``true``, ``false``
+
+**Examples:**
+
+.. code-block:: asm
+
+    ;#csr_rw(mcycle, set, true)
+    ;#csr_rw(senvcfg, write, false)
+    ;#csr_rw(time, read, true)
+    ;#csr_rw(hpmcounter3, clear, false)
+
+**;#read_leaf_pte** - Read Leaf PTE of page
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Reads the leaf PTE of a given page and returns the PTE value in t2 register.
+
+NOTE: This directive is only valid if deleg_excp_to is set to machine
+
+**Syntax:**
+
+.. code-block:: asm
+
+    ;#read_leaf_pte(<lin_name>, <paging_mode>)
+
+**Parameters:**
+
+- ``lin_name`` (required) - Linear address of page to read
+- ``paging_mode`` (required) - Paging mode: ``sv39``, ``sv48``, ``sv57``
+
+**Examples:**
+
+.. code-block:: asm
+
+    ;#read_leaf_pte(lin1, sv39)
+    ;#read_leaf_pte(lin2, sv48)
+    ;#read_leaf_pte(lin3, sv57)
+
 Virtual Memory Management
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 

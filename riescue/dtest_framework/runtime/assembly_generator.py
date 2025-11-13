@@ -137,6 +137,7 @@ class AssemblyGenerator(ABC):
         :param pre_xret: Optional assembly instruction to execute before xret, e.g. barrier code
         :param switch_to_vs: Whether to switch to VS-mode
         """
+
         code = ""
         xepc_csr = ""
         xstatus_csr = ""

@@ -21,6 +21,7 @@ from riescue.dtest_framework.parser import (
     ParsedPageMap,
     ParsedVectoredInterrupt,
     ParsedCsrAccess,
+    ParsedLeafPte,
 )
 from riescue.dtest_framework.config.memory import Memory
 from riescue.lib.address import Address
@@ -58,6 +59,7 @@ class Pool:
         self.parsed_init_mem_addrs: list[str] = []
         self.parsed_vectored_interrupts: list[ParsedVectoredInterrupt] = []
         self.parsed_csr_accesses: dict[str, dict[str, ParsedCsrAccess]] = {}
+        self.parsed_leaf_ptes: dict[tuple[str, str], ParsedLeafPte] = {}
         self.parsed_sections: list[str] = []
 
         # Structures to hold processed data
@@ -193,18 +195,32 @@ class Pool:
 
     def add_parsed_csr_access(self, parsed_csr_access: ParsedCsrAccess) -> None:
         csr_name = parsed_csr_access.csr_name
-        read_or_write = parsed_csr_access.read_or_write
-        if csr_name in self.parsed_csr_accesses and read_or_write in self.parsed_csr_accesses[csr_name]:
+        read_write_set_clear = parsed_csr_access.read_write_set_clear
+        if csr_name in self.parsed_csr_accesses and read_write_set_clear in self.parsed_csr_accesses[csr_name]:
             return
         if csr_name not in self.parsed_csr_accesses:
             self.parsed_csr_accesses[parsed_csr_access.csr_name] = {}
-        self.parsed_csr_accesses[parsed_csr_access.csr_name][parsed_csr_access.read_or_write] = parsed_csr_access
+        self.parsed_csr_accesses[parsed_csr_access.csr_name][parsed_csr_access.read_write_set_clear] = parsed_csr_access
 
     def get_parsed_csr_accesses(self) -> dict[str, dict[str, ParsedCsrAccess]]:
         return self.parsed_csr_accesses
 
-    def get_parsed_csr_access(self, csr: str, read_or_write: str) -> ParsedCsrAccess:
-        return self.parsed_csr_accesses[csr][read_or_write]
+    def get_parsed_csr_access(self, csr: str, read_write_set_clear: str) -> ParsedCsrAccess:
+        return self.parsed_csr_accesses[csr][read_write_set_clear]
+
+    def add_parsed_leaf_pte(self, parsed_leaf_pte: ParsedLeafPte) -> None:
+        lin_name = parsed_leaf_pte.lin_name
+        paging_mode = parsed_leaf_pte.paging_mode
+        key = (lin_name, paging_mode)
+        if key in self.parsed_leaf_ptes:
+            return
+        self.parsed_leaf_ptes[key] = parsed_leaf_pte
+
+    def get_parsed_leaf_ptes(self) -> dict[tuple[str, str], ParsedLeafPte]:
+        return self.parsed_leaf_ptes
+
+    def get_parsed_leaf_pte(self, lin_name: str, paging_mode: str) -> ParsedLeafPte:
+        return self.parsed_leaf_ptes[(lin_name, paging_mode)]
 
     # random structures
     # random_data setters and getters

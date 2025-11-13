@@ -62,6 +62,7 @@ class RegisterPool:
         temp_reg_name: str,
         register_class: Optional[RegisterClass] = None,
         exclude_registers: Optional[list[str]] = None,
+        hard_coded_register: Optional[Register] = None,
     ) -> Register:
         """
         Allocate a register of the given type.
@@ -80,7 +81,16 @@ class RegisterPool:
         candidates = self.candidate_registers(reg_type, register_class, exclude_registers)
         if not candidates:
             raise ValueError(f"No registers left for type {reg_type}")
-        reg = self.rng.choice(candidates)
+
+        if hard_coded_register is not None:
+            for candidate in candidates:
+                if candidate.name == hard_coded_register.name:
+                    reg = candidate
+                    break
+            else:
+                raise ValueError(f"Hard-coded register {hard_coded_register.name} not found in candidates; it was already allocated")
+        else:
+            reg = self.rng.choice(candidates)
         self.free_regs.remove(reg)
         self.allocated[temp_reg_name] = reg
         return reg

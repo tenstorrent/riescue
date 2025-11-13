@@ -39,7 +39,6 @@ class ArithmeticAction(Action):
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
-
         self.op = op
         self.src1 = src1
         self.src2 = src2

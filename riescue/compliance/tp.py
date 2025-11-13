@@ -11,6 +11,7 @@ from typing import Optional, Any
 try:
     from coretp.plans.test_plan_registry import get_plan
     from coretp.rv_enums import PagingMode, PrivilegeMode
+    from coretp import TestEnv
 except ModuleNotFoundError:
     raise ImportError("coretp not installed. Run pip install git+https://github.com/tenstorrent/riscv-coretp.git")
 
@@ -20,6 +21,8 @@ from riescue.riescued import RiescueD
 from riescue.compliance.config import TpBuilder, TpCfg
 from riescue.lib.rand import RandNum
 from riescue.lib.toolchain import Toolchain
+from riescue.dtest_framework.config import FeatMgr
+from riescue.compliance.test_plan.generator import Predicates
 import riescue.lib.enums as RV
 
 
@@ -35,7 +38,7 @@ class TpMode(BaseMode[TpCfg]):
 
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--isa", type=str, default="rv64imfda_zicsr_zk_zicond", help="ISA to use")
+        parser.add_argument("--isa", type=str, default="rv64imfda_zicsr_zk_zicond_zicbom_zicbop_zicboz_svadu_svinval", help="ISA to use")
         parser.add_argument("--test_plan", dest="test_plan_name", type=str, default="zicond", help="Test plan to use")
 
     def run(self, seed: int, toolchain: Toolchain, cl_args: Optional[argparse.Namespace] = None) -> Path:
@@ -85,10 +88,10 @@ class TpMode(BaseMode[TpCfg]):
         rng = RandNum(cfg.seed)
         generator = TestPlanGenerator(cfg.isa, rng)
         discrete_tests = generator.build(test_plan)
-        env = generator.solve(discrete_tests)
+        env_constraints = self.get_predicates(cfg.featmgr)
+        env = generator.solve(discrete_tests, env_constraints)
 
-        cfg.featmgr.priv_mode = self._cast_privilege_mode(env.priv)
-        cfg.featmgr.paging_mode = self._cast_paging_mode(env.paging_mode)
+        # cfg.featmgr.hypervisor = env.hypervisor
         test = generator.generate(discrete_tests, env, cfg.test_plan_name)
 
         # write test file
@@ -132,3 +135,48 @@ class TpMode(BaseMode[TpCfg]):
             return RV.RiscvPagingModes.DISABLE
         else:
             raise ValueError(f"Invalid paging mode: {paging_mode}")
+
+    def get_predicates(self, featmgr: FeatMgr) -> Predicates:
+        """
+        Get a list of predicates to use for filtering test environments.
+        """
+        predicates: Predicates = []
+
+        def priv_check(env: TestEnv) -> bool:
+            if featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
+                return env.priv == PrivilegeMode.M
+            elif featmgr.priv_mode == RV.RiscvPrivileges.SUPER:
+                return env.priv == PrivilegeMode.S
+            elif featmgr.priv_mode == RV.RiscvPrivileges.USER:
+                return env.priv == PrivilegeMode.U
+            else:
+                raise ValueError(f"Invalid privilege mode: {featmgr.priv_mode}")
+
+        def paging_check(env: TestEnv) -> bool:
+            if featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
+                return env.paging_mode == PagingMode.DISABLED
+            elif featmgr.paging_mode == RV.RiscvPagingModes.SV39:
+                return env.paging_mode == PagingMode.SV39
+            elif featmgr.paging_mode == RV.RiscvPagingModes.SV48:
+                return env.paging_mode == PagingMode.SV48
+            elif featmgr.paging_mode == RV.RiscvPagingModes.SV57:
+                return env.paging_mode == PagingMode.SV57
+            else:
+                raise ValueError(f"Invalid paging mode: {featmgr.paging_mode}")
+
+        def virtualized_check(env: TestEnv) -> bool:
+            return env.virtualized == (featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED)
+
+        def deleg_excp_to_check(env: TestEnv) -> bool:
+            if featmgr.deleg_excp_to == RV.RiscvPrivileges.MACHINE:
+                return env.deleg_excp_to == PrivilegeMode.M
+            elif featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
+                return env.deleg_excp_to == PrivilegeMode.S
+            else:
+                raise ValueError(f"Invalid delegation exception to mode: {featmgr.deleg_excp_to}")
+
+        predicates.append(priv_check)
+        predicates.append(paging_check)
+        predicates.append(virtualized_check)
+        predicates.append(deleg_excp_to_check)
+        return predicates
