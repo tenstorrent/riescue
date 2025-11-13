@@ -31,6 +31,18 @@ dependencies = [
 [tool.setuptools.package-dir]
 riescue = "riescue/"
 
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+"riescue.dtest_framework.tests" = ["*.s"]
+"riescue.dtest_framework.lib" = ["*.json"]
+"riescue.compliance.tests" = ["*.json"]
+"riescue.compliance.tests.configs" = ["*.json"]
+"riescue.lib.csr_manager" = ["*.json"]
+
+
+
 [project.scripts]
 riescued = "riescue.riescued:main"
 riescuec = "riescue.riescuec:main"
