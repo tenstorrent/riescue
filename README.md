@@ -157,7 +157,7 @@ See the [Contributing page](.github/CONTRIBUTING.md) for information on setting 
 
 # RiescueC Supported Extensions
 
-The list of supported features can be found below. RiescueC is aiming to support mandatoy extensions of RVA23U64.
+The list of supported features can be found below. RiescueC is aiming to support mandatory extensions of RVA23U64.
 
 | Extension      | Mandatory | RiescueC Supported Mode | Description |
 |----------------|-----------|-------------------|-------------|
