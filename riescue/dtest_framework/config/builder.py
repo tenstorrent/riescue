@@ -16,6 +16,7 @@ from .adapaters import TestConfigAdapter, CpuConfigAdapter, CliAdapter
 from .cpu_config import CpuConfig
 from .memory import Memory
 from .featmanager import FeatMgr
+from .conf import Conf
 import riescue.dtest_framework.config.cmdline as cmdline
 from riescue.lib.feature_discovery import FeatureDiscovery
 
@@ -55,7 +56,7 @@ class FeatMgrBuilder:
     """
 
     featmgr: FeatMgr = field(default_factory=FeatMgr)
-
+    conf: Optional[Conf] = None  #: ``Conf`` class applied to FeatMgrBuilder right before building the ``FeatMgr``
     features: list[str] = field(default_factory=list)
 
     # randomized fields
@@ -128,6 +129,10 @@ class FeatMgrBuilder:
         """
 
         featmgr = self.featmgr.duplicate()
+
+        if self.conf is not None:
+            self.conf.pre_build(self)
+
         if featmgr.wysiwyg:
             self.priv_mode = Candidate(RV.RiscvPrivileges.MACHINE)  # Always run in Machine mode for wysiwyg mode
 
@@ -185,6 +190,10 @@ class FeatMgrBuilder:
             featmgr.deleg_excp_to = RV.RiscvPrivileges.SUPER
         elif featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
             featmgr.deleg_excp_to = RV.RiscvPrivileges.MACHINE
+
+        if self.conf is not None:
+            self.conf.post_build(featmgr)
+            self.conf.add_hooks(featmgr)
 
         return featmgr
 

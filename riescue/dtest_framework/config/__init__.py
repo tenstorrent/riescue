@@ -10,7 +10,8 @@ from .memory import Memory
 from .cpu_config import CpuConfig
 from .builder import FeatMgrBuilder
 from .candidate import Candidate
-from .featmanager import FeatMgr
+from .featmanager import FeatMgr, Hookable
 from .cmdline import add_arguments
+from .conf import Conf
 
-__all__ = ["CpuConfig", "Memory", "FeatMgrBuilder", "FeatMgr", "Candidate", "add_arguments"]
+__all__ = ["CpuConfig", "Memory", "FeatMgrBuilder", "FeatMgr", "Hookable", "Candidate", "add_arguments", "Conf"]

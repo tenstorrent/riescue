@@ -16,6 +16,7 @@ from riescue.dtest_framework.runtime.syscalls import SysCalls
 from riescue.dtest_framework.runtime.trap_handler import TrapHandler
 from riescue.dtest_framework.runtime.hypervisor import Hypervisor
 from riescue.dtest_framework.runtime.macros import Macros
+from riescue.dtest_framework.runtime.eot import Eot
 from riescue.dtest_framework.runtime.variable import VariableManager
 from riescue.dtest_framework.config import FeatMgr
 
@@ -112,6 +113,7 @@ class Runtime:
                 self._modules["hypervisor"] = Hypervisor(generate_trap_handler=generate_trap_handler, ctx=ctx)
 
         self._modules["os"] = OpSys(ctx=ctx)
+        self._modules["eot"] = Eot(ctx=ctx)
         self._modules["scheduler"] = TestScheduler(ctx=ctx)
 
     def test_passed(self) -> list[str]:

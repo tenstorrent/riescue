@@ -25,14 +25,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="path to counter event file, used to randomize events in counter files",
     )
 
-    parser.add_argument(
-        "--run_intent_checker",
-        "-ric",
-        action="store_true",
-        default=None,
-        help="Run the intent checker on the test if Spike is used as the ISS",
-    )
-
     logger_args = parser.add_argument_group("Logger", "Arguments to pass to logger")
     logger_args.add_argument(
         "--max_logger_file_gb",

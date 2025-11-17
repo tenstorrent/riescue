@@ -267,7 +267,7 @@ class AssemblyGenerator(ABC):
             {check_excp_expected_cause.load_and_clear(dest_reg="t0"):<35}  # check_excp_expected_cause
             bne t1, t0, {unexpected_exception}
 
-            # if skip_pc_check is set, skip the pc check
+            # when skip_pc_check is set, skip the pc check
             {check_excp_skip_pc_check.load_and_clear(dest_reg="t0"):<35}  # check_excp_skip_pc_check
             bne t0, x0, skip_pc_check
 

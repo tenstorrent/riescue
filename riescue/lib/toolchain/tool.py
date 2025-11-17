@@ -174,7 +174,6 @@ class Compiler(Tool):
         compiler_parser.add_argument("--compiler_march", type=str, default=None, help="march to pass to compiler. If not provided and config.json is available, will be generated from enabled features")   # noqa: E501
         compiler_parser.add_argument("--compiler_mabi", type=str, default=None, help="ABI to use for compiler. Leave unset to use compiler default")   # noqa: E501
         compiler_parser.add_argument("--test_equates", "-teq", action="append", help="Variables to have compiler define with -Dkey=value. e.g \n\t--test_equates EQUATE1=0x1 \nCan use multiple times, e.g. \n\t-teq A=1 -teq B=2.")  # noqa: E501
-        compiler_parser.add_argument("--config_json", type=Path, default=None, help="Path to config.json file for feature management")  # noqa: E501
         # fmt: on
 
     @classmethod

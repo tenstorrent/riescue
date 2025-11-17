@@ -480,3 +480,20 @@ class RiscvParallelSchedulingMode(MyEnum):
             return cls.EXHAUSTIVE
         else:
             raise ValueError(f"mode: {mode} is unrecognized")
+
+
+class HookPoint(MyEnum):
+    """
+    Enumerated hooks for runtime code.
+
+    These are all the available hooks, they allow for inserting code at specific points in the Runtime.
+    They append or replace code at the hook point.
+
+    This describes the name of the hook; behavior of the hook is defined where the hook is used.
+    """
+
+    PRE_FAIL = "pre_fail"  #: Insert code before the test is marked as failed.
+    POST_FAIL = "post_fail"  #: Insert code after the test is marked as failed.
+    PRE_PASS = "pre_pass"  #: Insert code before the test is marked as passed.
+    POST_PASS = "post_pass"  #: Insert code after the test is marked as passed.
+    PRE_HALT = "pre_halt"  #: Insert code before the test is halted.

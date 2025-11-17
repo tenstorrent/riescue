@@ -157,7 +157,7 @@ scheduler__load_test_pointer:
         else:
             code += "lw t1, 0(t0)  # t1 = [os_test_sequence] (actual test label)\n"
         code += f"""li gp, 0x{self.featmgr.eot_pass_value:x}
-beqz t1, os_end_test # end program, if zero
+beqz t1, eot__end_test # end program, if zero
 
 # Decrement num_runs and store it back
 scheduler__decrement_num_runs:
