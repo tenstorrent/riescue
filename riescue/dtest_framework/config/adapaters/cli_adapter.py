@@ -136,8 +136,6 @@ class CliAdapter(Adapter):
             featmgr.random_user_csr_list = cmdline.random_user_csr_list
 
         # Add missing fields that need None checks
-        if cmdline.run_intent_checker is not None:
-            featmgr.run_intent_checker = cmdline.run_intent_checker
         if cmdline.max_logger_file_gb is not None:
             featmgr.max_logger_file_gb = cmdline.max_logger_file_gb
         if cmdline.code_offset is not None:

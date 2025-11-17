@@ -3,11 +3,6 @@
 
 # pyright: strict
 
-
-"""
-OpSys takes care of all the operating system related code including Scheduler
-"""
-
 from types import MappingProxyType
 from typing import Any
 
@@ -18,10 +13,12 @@ from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 
 class OpSys(AssemblyGenerator):
     """
-    Generates OS code for test. Includes end test jump table, end of test routines, and utility routines.
+    Generates "OS" or Riescue Runtime code for the test. This includes
 
-    Produces scheduler, end-test routines, barrier synchronization, and
-    utility functions for discrete test execution and coordination.
+    - Test Pass/Fail jump table
+    - CSR jump tables
+    - Runtime Variable generation
+    - End of Test routines
     """
 
     # static pointers to OS functions or routines
@@ -51,8 +48,6 @@ class OpSys(AssemblyGenerator):
             raise ValueError("Linux mode and MP mode are not supported together")
 
         # Build OS Data variables
-        self.num_harts_ended = self.variable_manager.register_shared_variable("num_harts_ended", 0x0)
-        self.num_hard_fails = self.variable_manager.register_shared_variable("num_hard_fails", 0x0)
         self.machine_csr_jump_table_flags = self.variable_manager.register_shared_variable("machine_csr_jump_table_flags", 0x0)
         self.super_csr_jump_table_flags = self.variable_manager.register_shared_variable("super_csr_jump_table_flags", 0x0)
         self.machine_leaf_pte_jump_table_flags = self.variable_manager.register_shared_variable("machine_leaf_pte_jump_table_flags", 0x0)
@@ -78,19 +73,11 @@ class OpSys(AssemblyGenerator):
 
     def generate(self) -> str:
         code = ""
-
-        # If WYSIWYG mode, then we only need to add to_from_host addresses
-        if self.featmgr.wysiwyg:
-            code += self.append_end_test()
-            code += self.append_os_data()
-            code += self.append_to_from_host()
-            return code
-
         code += self.generate_os()
 
         return code
 
-    def generate_os(self):
+    def generate_os(self) -> str:
         code = ""
         code += self.test_passed_failed_labels()
 
@@ -104,24 +91,29 @@ class OpSys(AssemblyGenerator):
 
         """
         if self.featmgr.fe_tb:
-            code += """
+            code += f"""
             # With FE testbench, we can't jump to failed even in the bad path since they can take that
             # path and end the test prematurely. So, make failed==passed label
             test_failed:
-            """
-        code += f"""
-        test_passed:
+            test_passed:
             j {self.scheduler_dispatch_label}
-
-    """
-        if not self.featmgr.fe_tb:
+            os_end_test:
+                li gp, 0x1
+                j eot__end_test
+            """
+        else:
             code += f"""
-        test_failed:
-            {self.num_hard_fails.increment("t0", "a0")}
-            li gp, 0x{self.featmgr.eot_fail_value:x}
-            j os_end_test
+            test_passed:
+                j {self.scheduler_dispatch_label}
 
-        """
+            test_failed:
+                li gp, 0x3
+                j eot__end_test
+
+            os_end_test:
+                li gp, 0x1
+                j eot__end_test
+            """
 
         # FIXME: This is linux mode only, and linux mode is mp mode only. Does this need to be in OpSys? Or should it be in LinuxModeScheduler?
         code += "os_rng_orig:\n"
@@ -136,14 +128,11 @@ class OpSys(AssemblyGenerator):
         )
         code += "\tret\n"
 
-        code += self.append_end_test()
         # Append all the functions
         code += self.fn_rand()
         # Append the os_data
         code += self.append_os_data()
         # Append the to_from_host addresses
-        code += self.append_to_from_host()
-        # Append the csr_rw_jump_table
         code += self.generate_csr_rw_jump_table()
         # Append the leaf_pte_jump_table
         code += self.generate_leaf_pte_jump_table()
@@ -198,124 +187,6 @@ class OpSys(AssemblyGenerator):
                     jr t1
             """
 
-    def append_end_test(self):
-        code = """
-        .align 6; .global tohost_mutex; tohost_mutex: .dword 0; # Used to protect access to tohost
-
-        tohost_addr_mem:
-            .dword tohost
-
-        os_end_test:
-        """
-        if self.mp_parallel:
-            # If parallel mode, holding a lock for other tests. Need to release lock
-
-            # os_end_test is running in handler privilege mode
-            if self.handler_priv == RV.RiscvPrivileges.MACHINE:
-                code += "csrr s1, mhartid\n"
-            else:
-                hartid_offset = self.variable_manager.get_variable("mhartid").offset
-                code += "csrr tp, sscratch\n"
-                code += f"ld s1, {hartid_offset}(tp)\n"
-
-            # loading gp with 1, otherwise it will be garbage value. If it wins tohost_mutex it will write garbage value
-            code += """
-            li gp, 1
-
-            # Check if we are storing nonzero in held_locks for this hart
-            la a0, held_locks
-            li t1, 8
-            mul t1, s1, t1
-            add a0, a0, t1
-
-            ld t1, 0(a0) # Load the lock address
-            beqz t1, skip_lock_release # If zero, we don't hold a lock
-            fence
-            amoswap.w.rl x0, x0, (t1) # Release lock by storing 0.
-
-            skip_lock_release:
-            """
-        code += f"""
-        os_write_tohost:
-
-        # each hart increments num_harts_ended so that the first one waits till all harts have finished before writing to tohost
-        mark_done:
-            {self.num_harts_ended.increment("t0", "t3")}
-
-        # MP Specific, check if gp[31] == 1
-        # If so, then we detected a core bailed early. We should not write to tohost
-        li t0, 0x80000000
-        beq t0, gp, wait_for_dismissal
-
-        # Try to obtain tohost_mutex
-        la a0, tohost_mutex
-        j tohost_try_lock
-
-        wait_for_dismissal:
-            wfi
-            j wait_for_dismissal
-
-        tohost_try_lock:
-            li t0, 1                    # Initialize swap value.
-            ld           t1, (a0)       # Check if lock is held.
-            bnez         t1,  wait_for_dismissal        # fail if held.
-            amoswap.d.aq t1, t0, (a0)   # Attempt to acquire lock.
-            bnez         t1,  wait_for_dismissal        # fail if held
-
-            # obtained lock, no need to release this one since we are ending the simulation.
-            li t2, {self.featmgr.num_cpus}
-            li t1, num_hard_fails
-            li t4, {OpSys.EOT_WAIT_FOR_OTHERS_TIMEOUT} # Timeout for eot waiting
-
-        wait_for_others:
-            bltz t4, mark_fail # This is a timeout, other harts didn't finish
-            addi t4, t4, -1
-            lw t0, (t1)
-            bnez t0, mark_fail # Write immediately if there was a hard fail
-            lw t0, (t3)
-            bne t0, t2, wait_for_others
-
-        j load_tohost_addr
-
-        mark_fail:
-            li gp, 0x{self.featmgr.eot_fail_value:x}
-
-        load_tohost_addr:
-            ld t0, tohost_addr_mem
-
-
-        write_to_tohost:
-            fence iorw, iorw
-            {"sd gp, 0(t0)" if self.featmgr.big_endian else "sw gp, 0(t0)"}
-        """
-
-        # If in linux mode then add following
-        if self.featmgr.linux_mode:
-            code += """
-            _exit:
-                li a7, 93  # __NR_exit
-                li a0, 0   # exit code
-                ecall
-
-                j wait_for_dismissal
-            """
-
-        if not self.featmgr.fe_tb and not self.featmgr.linux_mode:
-            code += """
-        _exit:
-           j wait_for_dismissal
-
-        """
-
-        # FE_TB needs to have extra instructions after the end of this segment
-        if self.featmgr.fe_tb:
-            code += """
-            ## FE_TB needs to have extra instructions after the end of this segment
-            .nop(0x100)
-            """
-
-        return code
-
     # TODO make this able to be used more than once and be dependent on test seed.
     def fn_rand(self):
         code = """
@@ -340,16 +211,6 @@ class OpSys(AssemblyGenerator):
         ret
 
         # The pseudorandom number between 0 and 10 will be stored in a0
-
-        """
-        return code
-
-    def append_to_from_host(self):
-        code = """
-        # HTIF is defeined at 0x7000_0000, can be used as a character device so should be read/writeable.
-        .section .io_htif, "aw"
-        .align 6; .global tohost; tohost: .dword 0;
-        .align 6; .global fromhost; fromhost: .dword 0;
 
         """
         return code

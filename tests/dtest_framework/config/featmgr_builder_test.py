@@ -14,7 +14,10 @@ from riescue.lib.enums import RiscvPrivileges, RiscvPagingModes, RiscvTestEnv, R
 from riescue.dtest_framework.config import FeatMgrBuilder, FeatMgr
 from riescue.dtest_framework.config.candidate import Candidate
 from riescue.dtest_framework.parser import ParsedTestHeader
+from riescue.dtest_framework.config.conf import Conf
 import riescue.lib.enums as RV
+
+from tests.dtest_framework.config.data.example_conf import CandidateConf, PrivConfig
 
 
 class FeatMgrBuilderBase(unittest.TestCase):
@@ -459,6 +462,38 @@ class TestFeatMgrBuilderVirtualization(FeatMgrBuilderBase):
         self.assertEqual(featmgr.priv_mode, RiscvPrivileges.SUPER)
         self.assertEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED)
         self.assertEqual(featmgr.deleg_excp_to, RiscvPrivileges.SUPER, "Currently only support HS mode when virtualized is enabled ")
+
+
+class TestConfWithBuilder(FeatMgrBuilderBase):
+    """
+    Tests for Conf that target FeatMgrBuilder.
+    """
+
+    def test_conf_prebuild_library(self):
+        """
+        Test that Conf class passed as an instantiated class works correctly and that the pre_build method is called.
+        This should take priority over the test header, and arguments
+        """
+        self.builder.conf = CandidateConf()
+        self.builder.with_test_header(ParsedTestHeader(priv="super"))
+        args = self.parse_args(["--test_priv_mode", "user"])
+        self.builder.with_args(args)
+        for _ in range(10):
+            featmgr = self.builder.build(rng=self.rng)
+            self.assertEqual(featmgr.priv_mode, RiscvPrivileges.MACHINE)
+
+    def test_conf_postbuild_library(self):
+        """
+        Test that Conf class passed as an instantiated class works correctly and that the post_build method is called.
+        This should take priority over the test header, and arguments
+        """
+        self.builder.conf = PrivConfig()
+        self.builder.with_test_header(ParsedTestHeader(priv="machine"))
+        args = self.parse_args(["--test_priv_mode", "user"])
+        self.builder.with_args(args)
+        for _ in range(10):
+            featmgr = self.builder.build(rng=self.rng)
+            self.assertEqual(featmgr.priv_mode, RiscvPrivileges.SUPER)
 
 
 class TestFeatMgrBuilderFeatureDiscovery(FeatMgrBuilderBase):

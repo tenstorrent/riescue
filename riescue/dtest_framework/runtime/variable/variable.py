@@ -95,13 +95,16 @@ class Variable:
         """
         Loads, increments value by 1, and stores.
         If amo enabled, uses amoadd.w/d
+
+        Returns value+1 into dest_reg
         """
         if self.amo_enabled:
             li = self.load_immediate(addr_reg)
             op = "amoadd.d" if self.size == 8 else "amoadd.w"
             increment = f"li {dest_reg}, 1"
             swap = f"{op} {dest_reg}, {dest_reg}, ({addr_reg})"
-            return "\n\t".join([li, increment, swap])
+            increment_local = f"addi {dest_reg}, {dest_reg}, 1"
+            return "\n\t".join([li, increment, swap, increment_local])
         else:
             li = self.load_immediate(addr_reg)
             load_val = f"{self._load_instruction()} {dest_reg}, ({addr_reg})"

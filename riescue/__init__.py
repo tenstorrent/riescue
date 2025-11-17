@@ -4,11 +4,11 @@
 import logging
 
 from .riescued import RiescueD
-from riescue.dtest_framework.config import FeatMgr, FeatMgrBuilder
+from riescue.dtest_framework.config import FeatMgr, FeatMgrBuilder, Conf
 from .riescuec import RiescueC
 from .ctk import Ctk
 
 
 logging.getLogger("riescue").addHandler(logging.NullHandler())
 
-__all__ = ["RiescueD", "RiescueC", "FeatMgr", "FeatMgrBuilder"]
+__all__ = ["RiescueD", "RiescueC", "FeatMgr", "FeatMgrBuilder", "Conf"]

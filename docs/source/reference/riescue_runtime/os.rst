@@ -2,7 +2,7 @@ OS
 ==
 
 Generates OS code for test execution.
-Produces end-test routines, barrier synchronization, test pass/fail handling, and utility functions for discrete test coordination.
+Produces barrier synchronization, test pass/fail handling, and utility functions for discrete test coordination.
 Manages shared and per-hart OS variables.
 
 Configuration

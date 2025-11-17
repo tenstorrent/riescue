@@ -13,7 +13,7 @@ import riescue.lib.logger as RiescueLogger
 from riescue.lib.rand import RandNum, initial_random_seed
 from riescue.dtest_framework.artifacts import GeneratedFiles
 from riescue.dtest_framework.parser import Parser
-from riescue.dtest_framework.config import FeatMgr, FeatMgrBuilder
+from riescue.dtest_framework.config import FeatMgr, FeatMgrBuilder, Conf
 from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.generator import Generator
 from riescue.dtest_framework.lib.discrete_test import DiscreteTest
@@ -115,6 +115,12 @@ class RiescueD(CliBase):
             default=None,
             help="Path to cpu feature configuration. Defaults to dtest_framework/lib/config.json",
         )
+        parser.add_argument(
+            "--conf",
+            type=Path,
+            default=None,
+            help="Path to conf.py file for additional config and hooks.",
+        )
 
         run_args = parser.add_argument_group(
             "Run Control",
@@ -178,10 +184,18 @@ class RiescueD(CliBase):
             seed=cl_args.seed,
             toolchain=Toolchain.from_clargs(cl_args),
         )
+
+        # load Conf from path if provided
+        if cl_args.conf is not None:
+            conf = Conf.load_conf_from_path(cl_args.conf)
+        else:
+            conf = None
+
         rd.run(
             cl_args,
             elaborate_only=cl_args.elaborate_only,
             run_iss=cl_args.run_iss,
+            conf=conf,
         )
         return rd
 
@@ -190,9 +204,15 @@ class RiescueD(CliBase):
         cl_args: argparse.Namespace,
         elaborate_only: bool = False,
         run_iss: bool = False,
+        conf: Optional[Conf] = None,
     ) -> GeneratedFiles:
         """
         Run RiescueD configuration, generation, and compilation. Simulate if requested.
+
+        :param cl_args: Command line arguments
+        :param elaborate_only: Generate assembly file, don't compile or simulate
+        :param run_iss: Run ISS with the test. Default ISS is Whisper, but can be run with any other ISS using --iss <iss>
+        :param conf: Optional ``Conf`` object to modify ``FeatMgr``. CLI-passed ``Conf`` takes priority over ``Conf`` passed into this method
 
         :return: Generated files; structure containing all generated files
         """
@@ -201,7 +221,7 @@ class RiescueD(CliBase):
         test_logfile = self.run_dir / f"{self.testname}.testlog"
         RiescueLogger.from_clargs(args=cl_args, default_logger_file=test_logfile)
 
-        featmgr = self.configure(args=cl_args)
+        featmgr = self.configure(args=cl_args, conf=conf)
         self.generate(featmgr)
         if elaborate_only:
             log.info("Elaboration complete. Exiting...")
@@ -219,17 +239,19 @@ class RiescueD(CliBase):
 
         return self.generated_files
 
-    def configure(self, args: Optional[argparse.Namespace] = None) -> FeatMgr:
+    def configure(self, args: Optional[argparse.Namespace] = None, conf: Optional[Conf] = None) -> FeatMgr:
         """
         Configure ``FeatMgr`` object for generation. ``FeatMgr`` can be modified before generation.
 
         :param args: optional ``argparse.Namespace`` object used to build ``FeatMgr``. If not provided, ``FeatMgr`` is built with test header and cpu config.
+        :param conf: optional ``Conf`` object to modify ``FeatMgr``. CLI-passed ``Conf`` takes priority over ``Conf`` passed into this method
 
         :return: Constructed ``FeatMgr`` object
         """
 
         log.debug("Initializing FeatMgr")
         featmgr_builder = FeatMgrBuilder()
+        featmgr_builder.conf = conf
         featmgr_builder.with_test_header(self.parsed_data.test_header)
         featmgr_builder.with_cpu_json(self.cpuconfig)
         if args is not None:

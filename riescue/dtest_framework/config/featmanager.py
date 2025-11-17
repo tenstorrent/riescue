@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field, replace
-from typing import TypeVar, Optional, Union
+from typing import TypeVar, Optional, Union, Callable, Any
 
 import riescue.lib.enums as RV
 from riescue.lib.feature_discovery import FeatureDiscovery
@@ -13,7 +13,9 @@ from .cpu_config import CpuConfig
 from .memory import Memory
 
 log = logging.getLogger(__name__)
+
 T = TypeVar("T")
+Hookable = Callable[["FeatMgr"], str]  #: shorthand for function that takes the FeatMgr and returns a string of assembly code
 
 """
 The package centralises unrelated concerns in a single monolithic FeatMgr;
@@ -76,15 +78,13 @@ class FeatMgr:
     """
 
     # Paths
-    # testname: Path
-    # run_dir: Path = Path("./")
-    # cpuconfig_path: Path = Path("dtest_framework/lib/config.json")
     counter_event_path: Optional[Path] = None
 
     # non-cmdline
     cpu_config: CpuConfig = field(default_factory=CpuConfig)  # This is really a dict for cpu config, later it should be a typed class
     memory: Memory = field(default_factory=Memory)
     feature: FeatureDiscovery = field(default_factory=lambda: FeatureDiscovery({}))
+    hooks: dict[RV.HookPoint, Callable[[FeatMgr], str]] = field(default_factory=dict)
 
     # Labels
     trap_handler_label: str = "trap_entry"
@@ -94,7 +94,6 @@ class FeatMgr:
 
     # Run options
     tohost_nonzero_terminate: bool = False
-    run_intent_checker: bool = False
     max_logger_file_gb: float = 1
 
     # Test options
@@ -309,3 +308,27 @@ class FeatMgr:
     def get_compiler_march_string(self) -> str:
         """Generate a compiler march string from enabled features"""
         return self.cpu_config.features.get_compiler_march_string()
+
+    def register_hook(self, hook_point: RV.HookPoint, hook: Hookable):
+        """
+        Register a hook for a given hook point
+
+        :param hook_point: The :py:class:`riescue.lib.enums.HookPoint` enum value to register the hook.
+        :param hook: Callable hook function to register; returns a string of assembly code
+
+        .. code-block:: python
+
+            def hook(featmgr: FeatMgr) -> str:
+                return "nop"
+            featmgr.register_hook(RV.HookPoint.PRE_PASS, hook)
+
+        """
+        self.hooks[hook_point] = hook
+
+    def call_hook(self, hook_point: RV.HookPoint) -> str:
+        """Get a hook for a given hook point"""
+        if hook_point not in self.hooks:
+            log.debug(f"Hook point {hook_point} was not registered")
+            return ""
+        else:
+            return self.hooks[hook_point](self)

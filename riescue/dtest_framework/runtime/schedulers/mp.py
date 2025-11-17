@@ -62,7 +62,7 @@ class MpScheduler(Scheduler):
             code += "os_parallel_get_next_exclusive_test:"
             code += self.place_get_next_exclusive_test(
                 name="opgnet",
-                fallback_routine_label="skip_lock_release",  # Don't need to release lock if done with tests
+                fallback_routine_label="eot__skip_lock_release",  # Don't need to release lock if done with tests
                 test_locks_label="test_mutexes",
                 top_seed_label="scheduler__seeds",
                 remaining_balance_array_label="num_runs",
@@ -214,7 +214,7 @@ class MpScheduler(Scheduler):
             else:
                 code += "lw t1, 0(t0)  # t1 = [os_test_sequence] (actual test label)\n"
             code += f"""li gp, 0x{self.featmgr.eot_pass_value:x}
-            beqz t1, os_end_test # end program, if zero
+            beqz t1, eot__end_test # end program, if zero
 
             # Decrement num_runs and store it back
             decrement_num_runs:
