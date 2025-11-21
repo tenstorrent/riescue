@@ -31,9 +31,6 @@ dependencies = [
 [tool.setuptools.package-dir]
 riescue = "riescue/"
 
-[tool.setuptools.packages.find]
-where = ["./riescue"]
-
 [tool.setuptools.package-data]
 "riescue.dtest_framework.tests" = ["*.s"]
 "riescue.dtest_framework.lib" = ["*.json"]
