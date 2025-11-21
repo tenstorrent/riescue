@@ -93,8 +93,10 @@ class Parser:
                 self.parse_sections(line)
             if line.startswith(";#csr_rw"):
                 self.parse_csr_rw(line)
-            if line.startswith(";#read_leaf_pte"):
-                self.parse_read_leaf_pte(line)
+            if line.startswith(";#read_pte"):
+                self.parse_read_pte(line)
+            if line.startswith(";#write_pte"):
+                self.parse_write_pte(line)
 
     def parse_reserve_memory(self, line):
         pattern = r"^;#(reserve_memory)\((.+)\)"
@@ -679,16 +681,30 @@ class Parser:
             self.pool.add_parsed_csr_access(csr_access)
             self.parsed_csr_id += 1
 
-    def parse_read_leaf_pte(self, line):
-        pattern = r"^;#read_leaf_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+)\)"
+    def parse_read_pte(self, line):
+        pattern = r"^;#read_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+),\s*(?P<level>\d+)\)"
         match = re.match(pattern, line)
         if match:
             lin_name = match.group("lin_name")
             paging_mode = match.group("paging_mode")
+            level = int(match.group("level"))
 
-            label = f"leaf_pte_read_{lin_name}_{paging_mode}_key_{self.parsed_pte_id}"
-            leaf_pte = ParsedLeafPte(lin_name=lin_name, paging_mode=paging_mode, label=label, pte_id=self.parsed_pte_id)
-            self.pool.add_parsed_leaf_pte(leaf_pte)
+            label = f"read_pte_{lin_name}_{paging_mode}_level_{level}_key_{self.parsed_pte_id}"
+            read_pte = ParsedReadPte(lin_name=lin_name, paging_mode=paging_mode, level=level, label=label, pte_id=self.parsed_pte_id)
+            self.pool.add_parsed_read_pte(read_pte)
+            self.parsed_pte_id += 1
+
+    def parse_write_pte(self, line):
+        pattern = r"^;#write_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+),\s*(?P<level>\d+)\)"
+        match = re.match(pattern, line)
+        if match:
+            lin_name = match.group("lin_name")
+            paging_mode = match.group("paging_mode")
+            level = int(match.group("level"))
+
+            label = f"write_pte_{lin_name}_{paging_mode}_level_{level}_key_{self.parsed_pte_id}"
+            write_pte = ParsedWritePte(lin_name=lin_name, paging_mode=paging_mode, level=level, label=label, write_pte_id=self.parsed_pte_id)
+            self.pool.add_parsed_write_pte(write_pte)
             self.parsed_pte_id += 1
 
     def process(self):
@@ -902,8 +918,18 @@ class ParsedCsrAccess:
 
 
 @dataclass
-class ParsedLeafPte:
+class ParsedReadPte:
     lin_name: str
     paging_mode: str
+    level: int
     pte_id: int
+    label: str
+
+
+@dataclass
+class ParsedWritePte:
+    lin_name: str
+    paging_mode: str
+    level: int
+    write_pte_id: int
     label: str

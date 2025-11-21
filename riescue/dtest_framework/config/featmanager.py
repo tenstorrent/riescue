@@ -154,7 +154,7 @@ class FeatMgr:
     switch_to_user_page: str = "code_user_0"
     user_interrupt_table: bool = False
     excp_hooks: bool = False
-    interrupts_enabled: bool = False
+    interrupts_enabled: bool = True
     skip_instruction_for_unexpected: bool = False
     disable_wfi_wait: bool = False
 
@@ -162,8 +162,8 @@ class FeatMgr:
     machine_mode_jump_table_for_csr_rw: str = "csr_machine_0"
     supervisor_mode_jump_table_for_csr_rw: str = "csr_super_0"
 
-    # Leaf PTE reading handling
-    machine_mode_jump_table_for_leaf_pte: str = "leaf_pte_machine_0"
+    # PTE handling (unified read/write)
+    machine_mode_jump_table_for_pte: str = "pte_machine_0"
 
     # PMA / PMP
     setup_pmp: bool = False

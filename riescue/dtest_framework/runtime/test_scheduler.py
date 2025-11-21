@@ -6,7 +6,7 @@
 from typing import Any
 
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
-from riescue.dtest_framework.runtime.schedulers import DefaultScheduler, LinuxModeScheduler, MpScheduler
+from riescue.dtest_framework.runtime.schedulers import DefaultScheduler, LinuxModeScheduler, ParallelScheduler, SimultaneousScheduler
 
 
 class TestScheduler(AssemblyGenerator):
@@ -55,7 +55,10 @@ class TestScheduler(AssemblyGenerator):
         if self.featmgr.linux_mode:
             self.scheduler = LinuxModeScheduler(dtests=dtests, **kwargs)
         elif self.mp_active:
-            self.scheduler = MpScheduler(dtests=dtests, **kwargs)
+            if self.mp_parallel:
+                self.scheduler = ParallelScheduler(dtests=dtests, **kwargs)
+            else:
+                self.scheduler = SimultaneousScheduler(dtests=dtests, **kwargs)
         else:
             self.scheduler = DefaultScheduler(dtests=dtests, **kwargs)
 

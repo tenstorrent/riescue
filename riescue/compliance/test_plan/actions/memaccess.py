@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional, Union
 
-from coretp import Instruction, StepIR
+from coretp import Instruction, StepIR, TestStep
+from coretp.isa import get_register
 from coretp.step import MemAccess
 from coretp.rv_enums import Category, PageSize, PageFlags, Extension
-
 from riescue.compliance.test_plan.actions import Action, ArithmeticAction, LiAction
 from riescue.compliance.test_plan.actions.memory import MemoryAction
 from riescue.compliance.test_plan.context import LoweringContext
@@ -20,11 +20,12 @@ class MemAccessAction(Action):
 
     register_fields = ["memory", "rs1"]
 
-    def __init__(self, offset: int = 0, memory: Optional[str] = None, op: Optional[str] = None, **kwargs):
+    def __init__(self, offset: int = 0, memory: Optional[str] = None, src2: Optional[Union[str, int]] = None, op: Optional[str] = None, **kwargs):
         super().__init__(**kwargs)
         self.offset = offset
         self.memory = memory  # Should only ever hold label to memory block
         self.rs1 = memory  # can be mem or a register
+        self.rs2 = src2
         self.op = op
         self.expanded = False
 
@@ -39,11 +40,16 @@ class MemAccessAction(Action):
         if TYPE_CHECKING:
             assert isinstance(step.step, MemAccess)
         memory = None
-        for src in step.inputs:
-            if isinstance(src, str):
+        src2 = None
+        for index, src in enumerate(step.inputs):
+            if isinstance(src, str) and src.startswith("m"):
                 memory = src
-                break
-        return cls(step_id=step_id, offset=step.step.offset, memory=memory, op=step.step.op, **kwargs)
+            else:
+                if index == 0:
+                    continue  # skip the first input, it's the mandatory offset
+                src2 = src
+
+        return cls(step_id=step_id, offset=step.step.offset, memory=memory, src2=src2, op=step.step.op, **kwargs)
 
     def repr_info(self) -> str:
         return f"{self.offset}('{self.memory}'))"
@@ -56,7 +62,7 @@ class MemAccessAction(Action):
 
         new_actions = []
         if self.memory is None:
-            random_size = ctx.random_n_width_number(32, 12) & 0xFFFFF000
+            random_size = ctx.random_n_width_number(32, 13) & 0xFFFFF000
             mem = MemoryAction(step_id=ctx.new_memory_id(), size=random_size, page_size=PageSize.SIZE_4K, flags=PageFlags.READ)
             self.memory = mem.step_id
             ctx.mem_reg.allocate_data(mem.step_id, mem)
@@ -78,6 +84,15 @@ class MemAccessAction(Action):
             self.offset = 0  # replace offset with 0
             new_actions.append(li)
             new_actions.append(add)
+
+        if self.rs2 is not None:
+            if isinstance(self.rs2, int):
+                if self.rs2 == 0:
+                    self.rs2 = get_register("zero")
+                else:
+                    li = LiAction(step_id=ctx.new_value_id(), immediate=self.rs2)
+                    self.rs2 = li.step_id
+                    new_actions.append(li)
 
         if new_actions:
             new_actions.append(self)
@@ -108,8 +123,8 @@ class MemAccessAction(Action):
 
         rs2 = selected_instruction.get_source("rs2")
         if rs2 is not None:
-            if self.value is None:
-                self.value = ctx.new_value_id()  # Use random value if no store value provided
-            rs2.val = self.value
+            if self.rs2 is None:
+                self.rs2 = ctx.new_value_id()  # Use random value if no store value provided
+            rs2.val = self.rs2
 
         return selected_instruction

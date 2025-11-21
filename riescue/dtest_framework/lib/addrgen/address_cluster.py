@@ -248,12 +248,12 @@ class AddressCluster:
             start = None
             end = None
             if not self.start_allocated:
-                start = self.start_address & mask
+                start = (self.start_address & mask) | constraint.or_mask
                 end = start + size + 1
                 allocating_near_start = True
 
             elif not self.end_allocated:
-                start = (self.end_address - size + 1) & mask
+                start = ((self.end_address - size + 1) & mask) | constraint.or_mask
                 end = start + size + 1
                 allocating_near_end = True
 
@@ -275,7 +275,7 @@ class AddressCluster:
 
             for _ in range(10):
                 address = self.rng.random_in_range(cluster_start, (cluster_end - size + 1) + 1)
-                start = address & mask
+                start = (address & mask) | constraint.or_mask
                 end = start + size - 1
                 level = self.overlap_level((start, end), uclusters)
                 if level == 1:

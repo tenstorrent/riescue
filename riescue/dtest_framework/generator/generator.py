@@ -626,6 +626,7 @@ class Generator:
         secure = False
 
         if self.pool.parsed_page_mapping_with_lin_name_exists(addr_name) and self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE:
+            log.debug(f"Random Address {addr_name} already exists in a page mapping")
             for map_key in self.pool.get_parsed_page_mapping_with_lin_name(addr_name):
                 parsed_page_mapping = self.pool.get_parsed_page_mapping(addr_name, map_key)
                 address_mask = parsed_page_mapping.address_mask
@@ -655,6 +656,7 @@ class Generator:
                 bits=random_addr.addr_bits,
                 size=address_size,
                 mask=address_mask,
+                or_mask=random_addr.or_mask,
             )
             log.debug(f"Adding addr: {addr_name}, constraint: {address_contstaint}")
             address_orig = self.addrgen.generate_address(constraint=address_contstaint)
@@ -1804,7 +1806,7 @@ class Generator:
                 # First allocate space for ALL the code pages. Then add all the individual pages
                 (lin_addr, phys_addr) = self.add_section_handler(
                     name="code",
-                    size=alloc_size * (num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages + num_machine_csr_pages + num_super_csr_pages),
+                    size=alloc_size * (num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages + num_machine_csr_pages + num_super_csr_pages + num_machine_pte_pages),
                     iscode=True,
                     phys_name="__section_code",
                     identity_map=True,
@@ -1918,7 +1920,7 @@ class Generator:
                 alloc_addr = lin_addr + alloc_size
 
             for i in range(num_machine_pte_pages):
-                page_name = f"leaf_pte_machine_{i}"
+                page_name = f"pte_machine_{i}"
                 page_phys_name = f"__section_{page_name}"
                 (lin_addr, phys_addr) = self.add_section_handler(
                     name=page_name,

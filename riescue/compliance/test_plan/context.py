@@ -90,9 +90,9 @@ class LoweringContext:
     def random_n_width_number(self, n: int = 32, min_val: int = 2) -> int:
         """Generate a random number with a random bit width.
 
-        The bit width is chosen randomly between 2 and n (inclusive).
-        The number is then chosen from the range of numbers representable
-        with that bit width [0, 2**width - 1].
+        min_num is 1<<min_val - 1
+        max_num is (1 << n) - 1
+        Random number is chosen between min_num and max_num
 
         :param n: Maximum bit width (inclusive). Must be > 2.
         :type n: int
@@ -104,6 +104,6 @@ class LoweringContext:
             raise ValueError("n must be greater than 2")
         if min_val < 2:
             raise ValueError("min_val must be greater than 2")
-        random_bit_width = self.rng.randint(min_val, n)
-        max_val = (1 << random_bit_width) - 1
-        return self.rng.randint(0, max_val)
+        min_num = (1 << min_val) - 1
+        max_num = (1 << n) - 1
+        return self.rng.randint(min_num, max_num)

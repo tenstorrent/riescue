@@ -81,7 +81,10 @@ class CliAdapter(Adapter):
         if cmdline.excp_hooks is not None:
             featmgr.excp_hooks = cmdline.excp_hooks
         if cmdline.interrupts_enabled is not None:
+            log.warning("(--interrupts_enabled is deprecated. Use --interrupts_disabled instead.)")
             featmgr.interrupts_enabled = cmdline.interrupts_enabled
+        if cmdline.interrupts_disabled is not None:
+            featmgr.interrupts_enabled = False
         if cmdline.skip_instruction_for_unexpected is not None:
             featmgr.skip_instruction_for_unexpected = cmdline.skip_instruction_for_unexpected
         if cmdline.disable_wfi_wait is not None:

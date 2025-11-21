@@ -35,6 +35,7 @@ class MemoryRegistry:
             data=data_memory.data,
             num_pages=data_memory.num_pages,
             modify=data_memory.modify,
+            or_mask=data_memory.or_mask,
         )
 
     def allocate_code(self, name: str, code_page: "CodePageAction") -> None:
