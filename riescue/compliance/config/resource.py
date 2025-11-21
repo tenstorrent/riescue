@@ -10,8 +10,9 @@ from typing import Optional, Any, Union
 import riescue.lib.enums as RV
 from riescue.lib.rand import RandNum
 from riescue.lib.instr_info.instr_lookup_json import InstrInfoJson, InstrEntry
-from riescue.dtest_framework.config import FeatMgr
+from riescue.dtest_framework.config import FeatMgr, Conf
 from riescue.compliance.lib.fpgen_intf import FpGenInterface
+
 
 log = logging.getLogger(__name__)
 

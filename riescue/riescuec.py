@@ -9,7 +9,7 @@ from typing import Optional
 from enum import Enum
 
 import riescue.lib.logger as RiescueLogger
-from riescue.dtest_framework.config import FeatMgrBuilder
+from riescue.dtest_framework.config import FeatMgrBuilder, Conf
 from riescue.compliance import BringupMode, TpMode
 from riescue.compliance.config import experimental_toolchain_from_args
 from riescue.lib.toolchain import Compiler, Disassembler, Spike, Whisper, Toolchain
@@ -59,6 +59,12 @@ class RiescueC(CliBase):
             default=Path("."),
             help="Run directory where the test will be run",
         )
+        parser.add_argument(
+            "--conf",
+            type=Path,
+            default=None,
+            help="Path to conf.py file for additional config and hooks.",
+        )
         parser.add_argument("--seed", type=int, help="Seed for the test")
         BringupMode.add_arguments(parser)
         TpMode.add_arguments(parser)
@@ -67,7 +73,7 @@ class RiescueC(CliBase):
         Toolchain.add_arguments(parser)
 
     @classmethod
-    def run_cli(cls, args=None, **kwargs):
+    def run_cli(cls, args=None, **kwargs) -> Path:
         "Initialize from command line arguments and runs correct run_<mode> method"
 
         # legacy print, not sure if needed:
@@ -90,6 +96,11 @@ class RiescueC(CliBase):
             seed = initial_random_seed()
         run_dir = cl_args.run_dir
 
+        if cl_args.conf is not None:
+            conf = Conf.load_conf_from_path(cl_args.conf)
+        else:
+            conf = None
+
         toolchain = experimental_toolchain_from_args(cl_args)
 
         if mode == ComplianceMode.BRINGUP:
@@ -97,12 +108,25 @@ class RiescueC(CliBase):
                 raise RuntimeError("--json is a required flag when running on the command line")
             logger_file = cl_args.run_dir / f"{cl_args.json.name}.testlog"
             RiescueLogger.from_clargs(args=cl_args, default_logger_file=logger_file)
-            riescue_c.run_bringup(bringup_test_json=cl_args.json, seed=seed, run_dir=run_dir, args=cl_args, toolchain=toolchain)
+            return riescue_c.run_bringup(
+                bringup_test_json=cl_args.json,
+                seed=seed,
+                run_dir=run_dir,
+                args=cl_args,
+                toolchain=toolchain,
+                conf=conf,
+            )
         elif mode == ComplianceMode.TEST_PLAN:
             logger_file = Path("riescuec_tp.testlog")
             RiescueLogger.from_clargs(args=cl_args, default_logger_file=logger_file)
-            riescue_c.run_test_plan(args=cl_args, seed=seed, run_dir=run_dir, toolchain=toolchain)
-        return riescue_c
+            return riescue_c.run_test_plan(
+                args=cl_args,
+                seed=seed,
+                run_dir=run_dir,
+                toolchain=toolchain,
+                conf=conf,
+            )
+        raise ValueError(f"Invalid mode: {mode}")
 
     def run_bringup(
         self,
@@ -111,6 +135,7 @@ class RiescueC(CliBase):
         run_dir: Path = Path("."),
         args: Optional[Namespace] = None,
         toolchain: Optional[Toolchain] = None,
+        conf: Optional[Conf] = None,
     ) -> Path:
         """
         Run bringup mode, targeting individual instructions, extensions, and/or groups
@@ -121,7 +146,7 @@ class RiescueC(CliBase):
         :param run_dir: The directory to run the test in. Defaults to current directory
         """
 
-        bringup_mode = BringupMode(run_dir=run_dir)
+        bringup_mode = BringupMode(run_dir=run_dir, conf=conf)
         if toolchain is None:
             toolchain = Toolchain(whisper=Whisper(), spike=Spike())
         return bringup_mode.run(bringup_test_json=bringup_test_json, seed=seed, cl_args=args, toolchain=toolchain)
@@ -132,7 +157,8 @@ class RiescueC(CliBase):
         run_dir: Path = Path("."),
         args: Optional[Namespace] = None,
         toolchain: Optional[Toolchain] = None,
-    ):
+        conf: Optional[Conf] = None,
+    ) -> Path:
         """
         Runs test plan mode
 
@@ -140,10 +166,10 @@ class RiescueC(CliBase):
         :param toolchain: Configured ``Toolchain`` object. If none provided, a default ``Toolchain`` object will be used (assumes whisper is available in environment)
         :param run_dir: The directory to run the test in. Defaults to current directory
         """
-        tp_mode = TpMode(run_dir=run_dir)
+        tp_mode = TpMode(run_dir=run_dir, conf=conf)
         if toolchain is None:
             toolchain = Toolchain(whisper=Whisper(), spike=Spike())
-        tp_mode.run(seed=seed, cl_args=args, toolchain=toolchain)
+        return tp_mode.run(seed=seed, cl_args=args, toolchain=toolchain)
 
 
 def main():
