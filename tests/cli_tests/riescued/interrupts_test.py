@@ -16,12 +16,12 @@ class Interrupt_EnabledTests(BaseRiescuedTest):
         super().setUp()
 
     def test_cli(self):
-        args = ["--run_iss", "--user_interrupt_table", "--interrupts_enabled"]
+        args = ["--run_iss", "--user_interrupt_table"]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 
     def test_cli_1(self):
-        # Test fails because --interrupts_enabled isn't set
-        args = ["--run_iss", "--user_interrupt_table"]
+        # Test fails because --interrupts_disabled set and test expects interrupts to be enabeld
+        args = ["--run_iss", "--user_interrupt_table", "--interrupts_disabled"]
         for failure in self.expect_toolchain_failure_generator(testname=self.testname, cli_args=args, failure_kind=ToolFailureType.TOHOST_FAIL, iterations=self.iterations):
             self.assertEqual(failure.fail_code, 0x3)
 

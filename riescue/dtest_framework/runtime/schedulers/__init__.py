@@ -7,10 +7,12 @@ Scheduler implementations.
 
 from .default import DefaultScheduler
 from .linux import LinuxModeScheduler
-from .mp import MpScheduler
+from .parallel import ParallelScheduler
+from .simultaneous import SimultaneousScheduler
 
 __all__ = [
     "DefaultScheduler",
     "LinuxModeScheduler",
-    "MpScheduler",
+    "ParallelScheduler",
+    "SimultaneousScheduler",
 ]

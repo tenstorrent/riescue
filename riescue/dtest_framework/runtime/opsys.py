@@ -50,7 +50,7 @@ class OpSys(AssemblyGenerator):
         # Build OS Data variables
         self.machine_csr_jump_table_flags = self.variable_manager.register_shared_variable("machine_csr_jump_table_flags", 0x0)
         self.super_csr_jump_table_flags = self.variable_manager.register_shared_variable("super_csr_jump_table_flags", 0x0)
-        self.machine_leaf_pte_jump_table_flags = self.variable_manager.register_shared_variable("machine_leaf_pte_jump_table_flags", 0x0)
+        self.machine_pte_jump_table_flags = self.variable_manager.register_shared_variable("machine_pte_jump_table_flags", 0x0)
 
         if self.mp_active:
             self.variable_manager.register_shared_variable("barrier_arrive_counter", 0x0)
@@ -134,8 +134,8 @@ class OpSys(AssemblyGenerator):
         code += self.append_os_data()
         # Append the to_from_host addresses
         code += self.generate_csr_rw_jump_table()
-        # Append the leaf_pte_jump_table
-        code += self.generate_leaf_pte_jump_table()
+        # Append the unified pte_jump_table (handles both read and write)
+        code += self.generate_pte_jump_table()
         return code
 
     def test_passed_failed_labels(self) -> str:
@@ -424,85 +424,126 @@ class OpSys(AssemblyGenerator):
 
         return code
 
-    def generate_leaf_pte_jump_table(self) -> str:
-        """Generate jump table for reading leaf PTEs based on virtual address and paging mode."""
+    def _generate_pte_walk_code(self, lin_name: str, paging_mode: str, target_level: int, label: str, is_write: bool) -> str:
+        """Generate page table walk code for reading or writing PTEs at a specific level.
+
+        Args:
+            lin_name: Virtual address label
+            paging_mode: Paging mode (sv39/sv48/sv57)
+            target_level: Target level to read/write
+            label: Label for this PTE operation
+            is_write: True for write, False for read
+
+        Returns:
+            Assembly code string
+        """
         machine_code = ""
-        end_machine_label = "end_machine_leaf_pte_label"
+        paging_mode_lower = paging_mode.lower()
 
-        # Build Machine Jump Table for Leaf PTE reads
-        parsed_leaf_ptes = self.pool.get_parsed_leaf_ptes()
+        # Generate page table walk code for this specific paging mode
+        op_type = "Write" if is_write else "Read"
+        machine_code += "\n"
+        machine_code += f"\t# {op_type} PTE: {lin_name} in {paging_mode_lower} at level {target_level}, label: {label}\n"
+        machine_code += f"{label}:\n"
 
-        for (lin_name, paging_mode), leaf_pte in parsed_leaf_ptes.items():
-            paging_mode = paging_mode.lower()
-            label = leaf_pte.label
+        # Load virtual address from lin_name label into x31
+        machine_code += f"\tli x31, {lin_name}\n"
 
-            # Generate page table walk code for this specific paging mode
-            machine_code += "\n"
-            machine_code += f"\t# Read Leaf PTE: {lin_name} in {paging_mode}, label: {label}\n"
-            machine_code += f"{label}:\n"
+        # Read satp to get root page table base
+        machine_code += "\tcsrr t1, satp\n"
+        machine_code += "\tslli t1, t1, 20\n"  # Shift left to clear MODE (bits 63:60) and ASID (bits 59:44)
+        machine_code += "\tsrli t1, t1, 20\n"  # Shift right to get PPN in bits 43:0
+        machine_code += "\tslli t1, t1, 12\n"  # Shift left by 12 to convert PPN to physical address
 
-            # Load virtual address from lin_name label into x31
-            machine_code += f"\tli x31, {lin_name}\n"
+        # Determine number of levels based on paging mode
+        if paging_mode_lower == "sv39":
+            levels = [(38, 30), (29, 21), (20, 12)]  # 3 levels
+        elif paging_mode_lower == "sv48":
+            levels = [(47, 39), (38, 30), (29, 21), (20, 12)]  # 4 levels
+        elif paging_mode_lower == "sv57":
+            levels = [(56, 48), (47, 39), (38, 30), (29, 21), (20, 12)]  # 5 levels
+        else:
+            # Default to sv39
+            levels = [(38, 30), (29, 21), (20, 12)]
 
-            # Read satp to get root page table base
-            machine_code += "\tcsrr t2, satp\n"
-            machine_code += "\tslli t2, t2, 20\n"  # Shift left to clear MODE (bits 63:60) and ASID (bits 59:44)
-            machine_code += "\tsrli t2, t2, 20\n"  # Shift right to get PPN in bits 43:0
-            machine_code += "\tslli t2, t2, 12\n"  # Shift left by 12 to convert PPN to physical address
+        # Walk through each level until we reach the target level
+        for level_idx, (vpn_hi, vpn_lo) in enumerate(levels):
+            vpn_bits = vpn_hi - vpn_lo + 1
+            vpn_mask = (1 << vpn_bits) - 1
 
-            # Determine number of levels based on paging mode
-            if paging_mode == "sv39":
-                levels = [(38, 30), (29, 21), (20, 12)]  # 3 levels
-            elif paging_mode == "sv48":
-                levels = [(47, 39), (38, 30), (29, 21), (20, 12)]  # 4 levels
-            elif paging_mode == "sv57":
-                levels = [(56, 48), (47, 39), (38, 30), (29, 21), (20, 12)]  # 5 levels
-            else:
-                # Default to sv39
-                levels = [(38, 30), (29, 21), (20, 12)]
+            machine_code += f"\n\t# Level {level_idx}: VPN[{vpn_hi}:{vpn_lo}]\n"
 
-            # Walk through each level
-            for level_idx, (vpn_hi, vpn_lo) in enumerate(levels):
-                vpn_bits = vpn_hi - vpn_lo + 1
-                vpn_mask = (1 << vpn_bits) - 1
+            # Extract VPN for this level
+            machine_code += "\tmv t0, x31\n"  # Copy virtual address
+            machine_code += f"\tsrli t0, t0, {vpn_lo}\n"  # Shift to extract VPN
+            machine_code += f"\tandi t0, t0, {hex(vpn_mask)}\n"  # Mask to get VPN bits
+            machine_code += "\tslli t0, t0, 3\n"  # Multiply by 8 (PTE size)
+            machine_code += "\tadd t1, t1, t0\n"  # t1 = PTE address
 
-                machine_code += f"\n\t# Level {level_idx}: VPN[{vpn_hi}:{vpn_lo}]\n"
-
-                # Extract VPN for this level
-                machine_code += "\tmv t1, x31\n"  # Copy virtual address
-                machine_code += f"\tsrli t1, t1, {vpn_lo}\n"  # Shift to extract VPN
-                machine_code += f"\tandi t1, t1, {hex(vpn_mask)}\n"  # Mask to get VPN bits
-                machine_code += "\tslli t1, t1, 3\n"  # Multiply by 8 (PTE size)
-                machine_code += "\tadd t1, t2, t1\n"  # t0 = PTE address
-                machine_code += "\tld t2, 0(t1)\n"  # Load PTE into t2
-
-                # Check if this is a leaf PTE (if not last level)
-                if level_idx < len(levels) - 1:
-                    # Check R/W/X bits (bits [3:1])
-                    machine_code += "\tandi t1, t2, 0xE\n"  # Check bits [3:1]
-                    machine_code += f"\tbnez t1, {label}_done\n"  # If any set, it's a leaf
-
-                    # Not a leaf, extract next level base address
-                    machine_code += "\tsrli t1, t2, 10\n"  # Extract PPN from PTE
-                    machine_code += "\tslli t2, t1, 12\n"  # Convert PPN to address
+            if level_idx == target_level:
+                # We've reached the target level
+                if is_write:
+                    # Write the value from t2 to the PTE
+                    machine_code += f"\t# Writing PTE at level {target_level}\n"
+                    machine_code += "\tsd t2, 0(t1)\n"  # Store t2 value to PTE
                 else:
-                    # Last level, must be a leaf
-                    machine_code += f"\tj {label}_done\n"
+                    # Read the PTE value into t2
+                    machine_code += f"\t# Reading PTE at level {target_level}\n"
+                    machine_code += "\tld t2, 0(t1)\n"  # Load PTE into t2
+                machine_code += f"\tj {label}_done\n"
+                break
+            else:
+                # Not at target level yet, read PTE and continue to next level
+                machine_code += "\tld t0, 0(t1)\n"  # Load PTE into t0
 
-            machine_code += f"\n{label}_done:\n"
-            machine_code += "\t# t2 now contains the leaf PTE value\n"
-            machine_code += f"\tj {end_machine_label}\n"
+                # Check if this is a leaf PTE (shouldn't be if not at target level)
+                machine_code += "\tandi t1, t0, 0xE\n"  # Check bits [3:1]
+                machine_code += f"\tbnez t1, {label}_error\n"  # If any set, it's a leaf (error)
+
+                # Not a leaf, extract next level base address
+                machine_code += "\tsrli t0, t0, 10\n"  # Extract PPN from PTE
+                machine_code += "\tslli t1, t0, 12\n"  # Convert PPN to address
+
+        machine_code += f"\n{label}_error:\n"
+        machine_code += "\t# Error: encountered leaf PTE before target level\n"
+        machine_code += "\tj end_machine_pte_label\n"
+
+        machine_code += f"\n{label}_done:\n"
+        machine_code += f"\t# PTE {'write' if is_write else 'read'} complete\n"
+        machine_code += "\tj end_machine_pte_label\n"
+
+        return machine_code
+
+    def generate_pte_jump_table(self) -> str:
+        """Generate unified jump table for reading and writing PTEs at any level."""
+        machine_code = ""
+        end_machine_label = "end_machine_pte_label"
+
+        # Build Machine Jump Table for PTE reads
+        parsed_read_ptes = self.pool.get_parsed_read_ptes()
+        for (lin_name, paging_mode, level), read_pte in parsed_read_ptes.items():
+            machine_code += self._generate_pte_walk_code(lin_name, paging_mode, level, read_pte.label, is_write=False)
+
+        # Build Machine Jump Table for PTE writes
+        parsed_write_ptes = self.pool.get_parsed_write_ptes()
+        for (lin_name, paging_mode, level), write_pte in parsed_write_ptes.items():
+            machine_code += self._generate_pte_walk_code(lin_name, paging_mode, level, write_pte.label, is_write=True)
 
         # Generate the jump table section
         code = f"""
-.section .leaf_pte_machine_0, "ax"
-{self.machine_leaf_pte_jump_table_flags.load("x31")}
+.section .pte_machine_0, "ax"
+{self.machine_pte_jump_table_flags.load("x31")}
 
 """
-        # Generate comparison checks for each parsed leaf PTE
-        for (lin_name, paging_mode), leaf_pte in parsed_leaf_ptes.items():
-            code += f"\tli t1, {leaf_pte.pte_id}\n"
-            code += f"\tbeq x31, t1, {leaf_pte.label}\n"
+        # Generate comparison checks for each parsed read PTE
+        for (lin_name, paging_mode, level), read_pte in parsed_read_ptes.items():
+            code += f"\tli t1, {read_pte.pte_id}\n"
+            code += f"\tbeq x31, t1, {read_pte.label}\n"
+
+        # Generate comparison checks for each parsed write PTE
+        for (lin_name, paging_mode, level), write_pte in parsed_write_ptes.items():
+            code += f"\tli t1, {write_pte.write_pte_id}\n"
+            code += f"\tbeq x31, t1, {write_pte.label}\n"
 
         code += f"\tj {end_machine_label}\n"
         code += machine_code

@@ -389,6 +389,7 @@ class MvT2Instruction(Instruction):
     def __init__(self, src1: Optional[str] = None):
         t1_reg = get_register("t1")
         t2_reg = get_register("t2")
+
         super().__init__(
             name="mv",
             extension=Extension.I,
@@ -402,9 +403,6 @@ class MvT2Instruction(Instruction):
                     val=src1,
                 ),
             ],
+            formatter="mv t2, {rs1}",
             clobbers=[t1_reg.name, t2_reg.name, "x31"],
         )
-        self.src1 = src1
-
-    def format(self):
-        return f"mv t2, {self.src1}"

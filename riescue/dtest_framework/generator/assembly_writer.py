@@ -220,25 +220,92 @@ class AssemblyWriter:
 
                         line = line + "\n" + code_to_replace
 
-            # replace ;#read_leaf_pte with syscall to jump table
+            # replace ;#read_pte with syscall to jump table
             parsed_line = line.strip()
-            if parsed_line.startswith(";#read_leaf_pte"):
-                pattern = r"^;#read_leaf_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+)\)"
+            if parsed_line.startswith(";#read_pte"):
+                pattern = r"^;#read_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+),\s*(?P<level>\d+)\)"
                 match = re.match(pattern, parsed_line)
                 if match:
                     lin_name = match.group("lin_name")
                     paging_mode = match.group("paging_mode")
+                    level = int(match.group("level"))
 
-                    # Find the parsed leaf PTE entry using the tuple key
+                    # Validate paging mode
+                    paging_mode_upper = paging_mode.upper()
+                    if paging_mode_upper == "DISABLE":
+                        raise ValueError(f"read_pte: paging_mode cannot be DISABLE for {lin_name}. Use sv39, sv48, or sv57.")
+
+                    # Validate level bounds based on paging mode
+                    paging_mode_lower = paging_mode.lower()
+                    if paging_mode_lower == "sv39":
+                        max_level = 2  # Levels 0, 1, 2
+                    elif paging_mode_lower == "sv48":
+                        max_level = 3  # Levels 0, 1, 2, 3
+                    elif paging_mode_lower == "sv57":
+                        max_level = 4  # Levels 0, 1, 2, 3, 4
+                    else:
+                        raise ValueError(f"read_pte: Invalid paging_mode '{paging_mode}' for {lin_name}. Must be sv39, sv48, or sv57.")
+
+                    if level < 0 or level > max_level:
+                        raise ValueError(f"read_pte: Level {level} is out of bounds for {paging_mode} (valid range: 0-{max_level}) for {lin_name}.")
+
+                    # Find the parsed read PTE entry using the tuple key
                     try:
-                        leaf_pte = self.pool.get_parsed_leaf_pte(lin_name, paging_mode)
-                        pte_id = leaf_pte.pte_id
+                        read_pte = self.pool.get_parsed_read_pte(lin_name, paging_mode, level)
+                        pte_id = read_pte.pte_id
 
                         # Generate code to call the syscall
-                        code_to_replace = "li x31, machine_leaf_pte_jump_table_flags\n"
+                        code_to_replace = "li x31, machine_pte_jump_table_flags\n"
                         code_to_replace += f"li t0, {pte_id}\n"
                         code_to_replace += "sd t0, 0(x31)\n"
                         code_to_replace += "li x31, 0xf0001007\n"
+                        code_to_replace += "ecall\n"
+
+                        line = line + "\n" + code_to_replace
+                    except KeyError:
+                        # If not found, skip replacement (shouldn't happen in normal flow)
+                        pass
+
+            # replace ;#write_pte with syscall to jump table
+            parsed_line = line.strip()
+            if parsed_line.startswith(";#write_pte"):
+                pattern = r"^;#write_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+),\s*(?P<level>\d+)\)"
+                match = re.match(pattern, parsed_line)
+                if match:
+                    lin_name = match.group("lin_name")
+                    paging_mode = match.group("paging_mode")
+                    level = int(match.group("level"))
+
+                    # Validate paging mode
+                    paging_mode_upper = paging_mode.upper()
+                    if paging_mode_upper == "DISABLE":
+                        raise ValueError(f"write_pte: paging_mode cannot be DISABLE for {lin_name}. Use sv39, sv48, or sv57.")
+
+                    # Validate level bounds based on paging mode
+                    paging_mode_lower = paging_mode.lower()
+                    if paging_mode_lower == "sv39":
+                        max_level = 2  # Levels 0, 1, 2
+                    elif paging_mode_lower == "sv48":
+                        max_level = 3  # Levels 0, 1, 2, 3
+                    elif paging_mode_lower == "sv57":
+                        max_level = 4  # Levels 0, 1, 2, 3, 4
+                    else:
+                        raise ValueError(f"write_pte: Invalid paging_mode '{paging_mode}' for {lin_name}. Must be sv39, sv48, or sv57.")
+
+                    if level < 0 or level > max_level:
+                        raise ValueError(f"write_pte: Level {level} is out of bounds for {paging_mode} (valid range: 0-{max_level}) for {lin_name}.")
+
+                    # Find the parsed write PTE entry using the tuple key
+                    try:
+                        write_pte = self.pool.get_parsed_write_pte(lin_name, paging_mode, level)
+                        write_pte_id = write_pte.write_pte_id
+
+                        # Generate code to call the syscall
+                        # Set x31 to the flag address, t2 should already contain the value to write
+                        code_to_replace = "li x31, machine_pte_jump_table_flags\n"
+                        code_to_replace += f"li t0, {write_pte_id}\n"
+                        code_to_replace += "sd t0, 0(x31)\n"
+                        code_to_replace += "li x31, 0xf0001008\n"
                         code_to_replace += "ecall\n"
 
                         line = line + "\n" + code_to_replace

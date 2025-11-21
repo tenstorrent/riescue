@@ -13,7 +13,13 @@ from .store import StoreAction
 from .modify_pte import ModifyPteAction
 from .branch import CallAction
 from .csr import CsrReadAction, CsrWriteAction
-from .read_leaf_pte import ReadLeafPteAction
+from .pte_actions import (
+    ReadLeafPteAction,
+    WriteLeafPteAction,
+    ReadPteAction,
+    WritePteAction,
+    PteAction,
+)
 from .assertions.assert_equal import AssertEqualAction
 from .assertions.assert_nequal import AssertNotEqualAction
 from .assertions.assert_exception import AssertExceptionAction
@@ -41,7 +47,11 @@ __all__ = [
     "ModifyPteAction",
     "CsrReadAction",
     "CsrWriteAction",
+    "PteAction",
+    "ReadPteAction",
+    "WritePteAction",
     "ReadLeafPteAction",
+    "WriteLeafPteAction",
     "AssertEqualAction",
     "AssertNotEqualAction",
     "AssertExceptionAction",

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+import logging
 import argparse
 from pathlib import Path
 from argparse import Namespace
@@ -19,6 +20,8 @@ from .featmanager import FeatMgr
 from .conf import Conf
 import riescue.dtest_framework.config.cmdline as cmdline
 from riescue.lib.feature_discovery import FeatureDiscovery
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -190,6 +193,11 @@ class FeatMgrBuilder:
             featmgr.deleg_excp_to = RV.RiscvPrivileges.SUPER
         elif featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
             featmgr.deleg_excp_to = RV.RiscvPrivileges.MACHINE
+
+        # disable WFI wait if interrupts are disabled
+        if not featmgr.interrupts_enabled:
+            log.info("Interrupts are disabled, cannot use WFI wait in Runtime loops.")
+            featmgr.disable_wfi_wait = True
 
         if self.conf is not None:
             self.conf.post_build(featmgr)

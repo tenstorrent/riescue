@@ -48,7 +48,8 @@ class SysCalls(TrapHandler):
         code += self.os_fn_f0001004()  # Switch priv to original test privilege
         code += self.os_fn_f0001005()  # Machine mode jump table for CSR R/W
         code += self.os_fn_f0001006()  # Supervisor mode jump table for CSR R/W
-        code += self.os_fn_f0001007()  # Machine mode jump table for Leaf PTE read
+        code += self.os_fn_f0001007()  # Machine mode jump table for PTE read
+        code += self.os_fn_f0001008()  # Machine mode jump table for PTE write
         code += self.os_get_hart_context()  # Used to get hartid
         if self.featmgr.cfiles is not None:
             code += self.os_fn_70003001()  # Memory allocation API
@@ -126,9 +127,13 @@ class SysCalls(TrapHandler):
             li t0, 0xf0001006    # Supervisor mode jump table for CSR R/W
             beq x31, t0, os_fn_f0001006
 
-            syscall_machine_leaf_pte:
-            li t0, 0xf0001007    # Machine mode jump table for Leaf PTE read
+            syscall_machine_pte_read:
+            li t0, 0xf0001007    # Machine mode jump table for PTE read
             beq x31, t0, os_fn_f0001007
+
+            syscall_machine_pte_write:
+            li t0, 0xf0001008    # Machine mode jump table for PTE write
+            beq x31, t0, os_fn_f0001008
 
             syscall_check_get_hart_context:
             li t0, 0xf0002001    # Get hart context
@@ -314,16 +319,43 @@ class SysCalls(TrapHandler):
 
     def os_fn_f0001007(self) -> str:
         """
-        f0001007 : Machine mode jump table for Leaf PTE read
+        f0001007 : Machine mode jump table for PTE read
         Does not return to syscall invocation
         """
         code = """
             os_fn_f0001007:
-                # f0001007 : Machine mode jump table for Leaf PTE read
+                # f0001007 : Machine mode jump table for PTE read
             """
 
         # Decide the page used for transferring control back to test
-        switch_page = self.featmgr.machine_mode_jump_table_for_leaf_pte
+        switch_page = self.featmgr.machine_mode_jump_table_for_pte
+
+        if self.test_priv == RV.RiscvPrivileges.MACHINE:
+            code += f"""
+                # If already in machine mode, do nothing
+                li t0, {switch_page}
+                j ret_from_os_fn
+            """
+        else:
+            code += self.mstatus_mpp_update(switch_to_priv="machine")
+            code += f"""
+                li t0, {switch_page}
+                j ret_from_os_fn
+            """
+        return code
+
+    def os_fn_f0001008(self) -> str:
+        """
+        f0001008 : Machine mode jump table for PTE write
+        Does not return to syscall invocation
+        """
+        code = """
+            os_fn_f0001008:
+                # f0001008 : Machine mode jump table for PTE write
+            """
+
+        # Decide the page used for transferring control back to test
+        switch_page = self.featmgr.machine_mode_jump_table_for_pte
 
         if self.test_priv == RV.RiscvPrivileges.MACHINE:
             code += f"""

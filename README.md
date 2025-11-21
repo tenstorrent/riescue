@@ -178,10 +178,10 @@ The list of supported features can be found below. RiescueC is aiming to support
 | Zicclsm        | x         |                   | Misaligned loads/stores support |
 | Za64rs         | x         |                   | 64-byte reservation sets |
 | Zihintpause    | x         |                   | Pause hint |
-| Zic64b         | x         |                   | 64-byte cache blocks |
-| Zicbom         | x         |                   | Cache-block management instructions |
-| Zicbop         | x         |                   | Cache-block prefetch instructions |
-| Zicboz         | x         |                   | Cache-block zero instructions |
+| Zic64b         | x         | TP                | 64-byte cache blocks |
+| Zicbom         | x         | TP                | Cache-block management instructions |
+| Zicbop         | x         | TP                | Cache-block prefetch instructions |
+| Zicboz         | x         | TP                | Cache-block zero instructions |
 | Zfhmin         | x         | Bringup           | Half-precision floating-point |
 | Zkt            | x         | TP                | Data-independent execution latency |
 | Zvfhmin        | x         | Bringup           | Vector minimal half-precision floating-point |

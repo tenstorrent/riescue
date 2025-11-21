@@ -323,12 +323,20 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
             ]
         ),
     )
+
+    # FIXME: Interrupts disabled by default. This should be removed in the future.
     trap_handler_args.add_argument(
         "--interrupts_enabled",
         "-ie",
         action="store_true",
         default=None,
-        help="Enable interrupts",
+        help="(deprecated) Interrupts are enabled by default. Disable with --interrupts_disabled",
+    )
+    trap_handler_args.add_argument(
+        "--interrupts_disabled",
+        action="store_true",
+        default=None,
+        help="Disable interrupts. By default interrupts are enabled in the handler.",
     )
     trap_handler_args.add_argument(
         "--skip_instruction_for_unexpected",

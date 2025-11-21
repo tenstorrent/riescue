@@ -19,7 +19,18 @@ class MemoryAction(Action):
 
     register_fields: list[str] = []
 
-    def __init__(self, size: int, page_size: PageSize, flags: PageFlags, exclude_flags: Optional[PageFlags] = None, modify: bool = False, page_cross_en: bool = False, num_pages: int = 1, **kwargs):
+    def __init__(
+        self,
+        size: int,
+        page_size: PageSize,
+        flags: PageFlags,
+        exclude_flags: Optional[PageFlags] = None,
+        modify: bool = False,
+        page_cross_en: bool = False,
+        num_pages: int = 1,
+        or_mask: str = "",
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.constraints = {}
         self.size = size
@@ -30,6 +41,7 @@ class MemoryAction(Action):
         self.page_cross_en = page_cross_en
         self.data: list[Any] = [".dword 0xc001c0de"]
         self.modify = modify
+        self.or_mask = or_mask
 
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "MemoryAction":
@@ -50,6 +62,7 @@ class MemoryAction(Action):
             exclude_flags=step.step.exclude_flags,
             page_cross_en=step.step.page_cross_en,
             num_pages=num_pages,
+            or_mask=step.step.or_mask or "",
             modify=step.step.modify,
             **kwargs,
         )

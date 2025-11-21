@@ -41,7 +41,7 @@ class Page(AssemblyBase):
     page_cross_en: bool = False
     num_pages: Optional[int] = 1
     and_mask: str = "0xffff_ffff_f000"  # Mask for generating memory addresses
-    or_mask: str = "0x00000000"  # unused, will be implemented later
+    or_mask: str = ""
     modify: bool = False
     buffer_page: bool = True  #: Indicates that the memory isn't shared with other tests and memory after shouldn't be accessed. Adds a buffer page after the memory.
 
@@ -157,15 +157,30 @@ class Page(AssemblyBase):
             # default to 4KB alignment
             and_mask = "0xffff_ffff_f000"
 
+        or_mask = self.or_mask
+
         size = self.size
         if self.buffer_page:
             size += 0x1000  # just make the VM a bit larger than the actual memory, and don't map it
         if self.start_addr is None:
-            code.append(f";#random_addr(name={self.name},  type=linear, size=0x{size:x}, and_mask={and_mask})")
-            code.append(f";#random_addr(name={self.phys_name},  type=physical, size=0x{self.size:x}, and_mask={and_mask})")
+            lin = f";#random_addr(name={self.name},  type=linear, size=0x{size:x}, and_mask={and_mask}"
+            phys = f";#random_addr(name={self.phys_name},  type=physical, size=0x{self.size:x}, and_mask={and_mask}"
+            if or_mask:
+                lin += f", or_mask={or_mask}"
+                phys += f", or_mask={or_mask}"
+            # code.append(f";#random_addr(name={self.name},  type=linear, size=0x{size:x}, and_mask={and_mask}")
+            # code.append(f";#random_addr(name={self.phys_name},  type=physical, size=0x{self.size:x}, and_mask={and_mask}, or_mask={or_mask})")
         else:
-            code.append(f";#reserve_memory(name={self.name}, start_addr=0x{self.start_addr:x},  type=linear, size=0x{size:x})")
-            code.append(f";#reserve_memory(name={self.phys_name}, start_addr=0x{self.start_addr:x},  type=physical, size=0x{self.size:x})")
+            lin = f";#reserve_memory(name={self.name}, start_addr=0x{self.start_addr:x},  type=linear, size=0x{size:x}"
+            phys = f";#reserve_memory(name={self.phys_name}, start_addr=0x{self.start_addr:x},  type=physical, size=0x{self.size:x}"
+            if or_mask:
+                lin += f", or_mask={or_mask}"
+                phys += f", or_mask={or_mask}"
+
+            # code.append(f";#reserve_memory(name={self.name}, start_addr=0x{self.start_addr:x},  type=linear, size=0x{size:x}, or_mask={or_mask})")
+            # code.append(f";#reserve_memory(name={self.phys_name}, start_addr=0x{self.start_addr:x},  type=physical, size=0x{self.size:x}, or_mask={or_mask})")
+        code.append(lin + ")")
+        code.append(phys + ")")
 
         for i in range(pages_to_generate):
             if i == 0:

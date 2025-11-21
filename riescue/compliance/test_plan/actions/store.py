@@ -72,7 +72,7 @@ class StoreAction(Action):
         new_actions = []
 
         if self.memory is None:
-            random_size = ctx.random_n_width_number(32, 12) & 0xFFFFF000
+            random_size = ctx.random_n_width_number(32, 13) & 0xFFFFF000
             # Allocate memory page, place in memory registry
             mem = MemoryAction(step_id=ctx.new_memory_id(), size=random_size, page_size=PageSize.SIZE_4K, flags=PageFlags.READ)
             ctx.mem_reg.allocate_data(mem.step_id, mem)
