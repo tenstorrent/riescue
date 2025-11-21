@@ -35,8 +35,10 @@ riescue = "riescue/"
 "riescue.dtest_framework.tests" = ["*.s"]
 "riescue.dtest_framework.lib" = ["*.json"]
 "riescue.compliance.tests" = ["*.json"]
+"riescue.compliance.tests.rv_i" = ["*.json"]
 "riescue.compliance.tests.configs" = ["*.json"]
 "riescue.lib.csr_manager" = ["*.json"]
+"riescue.lib.instr_info" = ["*.json"]
 
 
 
