@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, Any
 
 try:
-    from coretp.plans.test_plan_registry import get_plan
+    from coretp.plans.test_plan_registry import get_plan, list_plans
     from coretp.rv_enums import PagingMode, PrivilegeMode
     from coretp import TestEnv
 except ModuleNotFoundError:
@@ -80,6 +80,9 @@ class TpMode(BaseMode[TpCfg]):
         # get test plan
         if not cfg.test_plan_name:
             raise ValueError("No test plan was provided. ")
+        all_plans = list_plans()
+        if cfg.test_plan_name not in all_plans:
+            raise ValueError(f"Test plan '{cfg.test_plan_name}' not found. Available test plans: {all_plans}")
         try:
             test_plan = get_plan(cfg.test_plan_name)
         except ValueError as e:

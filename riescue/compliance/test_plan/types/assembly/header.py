@@ -26,7 +26,7 @@ class Header(AssemblyBase):
     cpus: int
     paging_mode: str
     category: str
-    hypervisor: str
+    virtualized: str
     features: str = ""
     tags: str = ""
 
@@ -42,7 +42,7 @@ class Header(AssemblyBase):
         return cls(
             plan_name=plan_name,
             arch=f"rv{env.reg_width}",
-            hypervisor="virtualized" if env.hypervisor else "bare_metal",
+            virtualized="virtualized" if env.virtualized else "bare_metal",
             priv=env.priv.long_name(),
             cpus=1,
             paging_mode=str(env.paging_mode),
@@ -56,7 +56,7 @@ class Header(AssemblyBase):
                 f";#test.author     {self.author}",
                 f";#test.arch       {self.arch}",
                 f";#test.priv       {self.priv}",
-                f";#test.env        {self.hypervisor}",
+                f";#test.env        {self.virtualized}",
                 f";#test.cpus       {self.cpus}",
                 f";#test.paging     {self.paging_mode}",
                 f";#test.category   {self.category}",

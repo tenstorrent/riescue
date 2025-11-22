@@ -38,7 +38,8 @@ class ActionRegistry:
             if step.step is not None:
                 step_type = type(step.step)
         if step_type not in self._map:
-            raise RuntimeError(f"StepIR {step} has no step associated with it. Please register the action with the ActionRegistry.")
+            raise RuntimeError(f'StepIR "{step.step.__class__.__name__}" has no Action associated with it. Please register the action with the ActionRegistry')
+        # FIXME: Add link to test plan file and line?
 
         # handle nested code actions, not all code actions supprot code
         kwargs = {}

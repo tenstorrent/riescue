@@ -145,14 +145,7 @@ class TestPlanGenerator:
                     skip_test = True
                     break
         # FIXME: NO support on multiple harts yet, we can only do tests that cater to single hart environments
-        return (
-            env.paging_mode in test.env.paging_modes
-            and env.priv in test.env.priv_modes
-            and test.env.min_num_harts == 1
-            and env.hypervisor in test.env.hypervisor
-            and env.virtualized in test.env.virtualized
-            and not skip_test
-        )
+        return env.paging_mode in test.env.paging_modes and env.priv in test.env.priv_modes and test.env.min_num_harts == 1 and env.virtualized in test.env.virtualized and not skip_test
 
     def _check_for_conflicting_labels(self, discrete_tests: list[DiscreteTest]) -> None:
         """Checks for duplicate labels in test plan, if multiple tests raises ValueError"""
