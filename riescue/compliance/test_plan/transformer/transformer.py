@@ -75,6 +75,7 @@ class Transformer:
             ctx.mem_reg.allocate_data(stack_name, stack_page)
 
             # transform DiscreteTest into TestCase
+            log.debug(f"Transforming test: {test.name}")
             test_instructions = self._transform(test.actions, ctx)
             csrs_save_instructions, allocated_csrs = self._save_csrs(test_instructions, ctx, csr_storage_name)
             restored_csrs = self._restore_csrs(allocated_csrs, ctx, csr_storage_name)
@@ -95,7 +96,7 @@ class Transformer:
     def _save_csrs(self, test_instructions: list[Instruction], ctx: LoweringContext, space_name: str):
         found_csrs = False
         for instr in test_instructions:
-            if isinstance(instr, CsrApiInstruction):
+            if isinstance(instr, CsrApiInstruction) and instr.api_call != "read":
                 found_csrs = True
                 break
         if not found_csrs:
@@ -122,7 +123,7 @@ class Transformer:
         instructions.append(li_space)
 
         for instr in test_instructions:
-            if isinstance(instr, CsrApiInstruction):
+            if isinstance(instr, CsrApiInstruction) and instr.api_call != "read":
 
                 # for every CSR write, save CSR to space and move index to next 8 bytes
 
@@ -202,6 +203,12 @@ class Transformer:
         elaborated_instructions = self.elaborator.elaborate(expanded_actions, ctx)
         legalized_instructions = self.legalizer.legalize(elaborated_instructions, ctx)
         allocated_subroutines = self.allocator.allocate(legalized_instructions, ctx)
+
+        log.debug(f"Transformed Actions: {actions}")
+        log.debug(f"Expanded actions: {expanded_actions}")
+        log.debug(f"Elaborated to Instructions: {elaborated_instructions}")
+        log.debug(f"Legalized instructions: {legalized_instructions}")
+        log.debug(f"Allocated subroutines: {allocated_subroutines}")
         return allocated_subroutines
 
     def _split_instructions(self, instructions: list[Instruction]) -> list[list[Instruction]]:

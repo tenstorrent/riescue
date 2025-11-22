@@ -205,9 +205,9 @@ eot__failed:
     ld t0, tohost_addr_mem
     li t1, 0x{self.featmgr.eot_pass_value:x}
     sw t1, 0(t0)
-    j eot__halt
         """
         code += self.featmgr.call_hook(RV.HookPoint.POST_PASS)
+        code += "\n    j eot__halt \n"
         return code
 
     def failed(self) -> str:
@@ -228,9 +228,9 @@ eot__failed:
     ld t0, tohost_addr_mem
     li t1, 0x{self.featmgr.eot_fail_value:x}
     sw t1, 0(t0)
-    j eot__halt
         """
         code += self.featmgr.call_hook(RV.HookPoint.POST_FAIL)
+        code += "\n    j eot__halt \n"
         return code
 
     def halt(self) -> str:
