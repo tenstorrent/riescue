@@ -14,7 +14,7 @@ from riescue.lib.rand import RandNum
 from .resource import Resource
 from .base_builder import BaseBuilder
 from .adapters import BringupTestAdapter, BringupArgsAdapter
-from riescue.dtest_framework.config import FeatMgrBuilder, FeatMgr
+from riescue.dtest_framework.config import FeatMgrBuilder, FeatMgr, Conf
 from riescue.compliance.lib.fpgen_intf import FpGenInterface
 
 
@@ -39,6 +39,7 @@ class ResourceBuilder(BaseBuilder):
 
     resource: Resource = field(default_factory=Resource)
     featmgr_builder: FeatMgrBuilder = field(default_factory=FeatMgrBuilder)
+    conf: Optional[Conf] = None
 
     # TODO: helper fields / methods for easily setting high-level configs
 
@@ -85,6 +86,7 @@ class ResourceBuilder(BaseBuilder):
             resource = builder.build(seed=42, toolchain=toolchain)
         """
         rng = RandNum(seed)  # create a new RandNum instance. Allows RiescueC generate() methods to be re-runnable
+        self.featmgr_builder.conf = self.conf
         if featmgr is not None:
             featmgr = featmgr
         else:

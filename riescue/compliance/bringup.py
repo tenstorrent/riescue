@@ -100,7 +100,7 @@ class BringupMode(BaseMode[Resource]):
         Since :class:`Resource` gets constructed with :class:`Toolchain` + Whisper, need to make sure that tpp;cu
         """
 
-        resource_builder = ResourceBuilder()
+        resource_builder = ResourceBuilder(conf=self.conf)
         resource_builder.with_bringup_test_json(bringup_test_json)
         if cl_args is not None:
             resource_builder.with_args(cl_args)

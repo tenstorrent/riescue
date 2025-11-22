@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional, TypeVar, Generic, Any
 
 from riescue.lib.toolchain import Toolchain
+from riescue.dtest_framework.config import Conf
 
 Cfg = TypeVar("Cfg")  # Generic configuration class that all extended classes will pass between configure and generate
 
@@ -18,12 +19,13 @@ class BaseMode(ABC, Generic[Cfg]):
     :param run_dir: The directory to run the test in. Defaults to current directory
     """
 
-    def __init__(self, run_dir: Path) -> None:
+    def __init__(self, run_dir: Path, conf: Optional[Conf] = None) -> None:
         self.run_dir = run_dir
         if not self.run_dir.exists():
             self.run_dir.mkdir(parents=True, exist_ok=True)
 
         self.package_path = Path(__file__).parents[1]
+        self.conf = conf
 
     @staticmethod
     @abstractmethod
