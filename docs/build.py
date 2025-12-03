@@ -43,10 +43,10 @@ class DocBuilder:
         self.source_dir = source_dir
         self.build_dir = build_dir
 
-        self.local_host = local_host
         self.port = port
         self.host = host
         self.interactive = interactive
+        self.local_host = local_host or interactive  # interactive implies local_host
         # Building locally will remove the build directory if it exists before building
         if self.local_host:
             self.clean = True
@@ -134,6 +134,7 @@ class DocBuilder:
             server_thread = None
             httpd = None
             stop_event = threading.Event()
+            up_character = b"\x1b\x5b\x61"
 
             try:
                 # Start server in thread
@@ -148,7 +149,7 @@ class DocBuilder:
                             print("Stopping server...")
                             stop_event.set()
                             return
-                        elif cmd == "reload" or cmd == "r":
+                        elif cmd == "reload" or cmd == "r" or bytes(cmd, "utf-8") == up_character:
                             print("Reloading documentation...")
                             stop_event.set()
                             break

@@ -28,7 +28,7 @@ To run a directed test, use
 
 .. code-block:: bash
 
-   riescued  --testname <path/to/test.s> --cpuconfig <path/to/cpuconfig.json>
+   riescued  --testfile <path/to/test.s> --cpuconfig <path/to/cpuconfig.json>
 
 
 You can also run a wrapper script, e.g.

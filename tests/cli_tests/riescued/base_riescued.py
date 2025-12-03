@@ -4,6 +4,7 @@
 import unittest
 import os
 import logging
+import re
 from pathlib import Path
 from typing import Any, Generator
 
@@ -62,6 +63,9 @@ class BaseRiescuedTest(unittest.TestCase):
         self.test_dir.mkdir(parents=True, exist_ok=True)
         self.iterations = self.get_iterations()
 
+        self.equates_regex = re.compile(r".equ ([a-zA-Z_0-9]*) *, ([0-9xa-f]+)")
+        self.phys_addr_ld_regex = re.compile(r"\. = ([0-9xa-f]*);")
+
     def get_iterations(self) -> int:
         """
         Returns the number of iterations to run the test.
@@ -71,7 +75,11 @@ class BaseRiescuedTest(unittest.TestCase):
         else:
             return self.default_iterations
 
-    def run_riescued(self, testname: str, cli_args: list, iterations: int = 5, starting_seed: int = 0) -> list[Any]:
+    def run_riescued_cli(self, command: list[str], **kwargs) -> RiescueD:
+        "Run RiescueD with arguments and return the result. Override this to change how RiescueD is run"
+        return RiescueD.run_cli(args=command)
+
+    def run_riescued(self, testname: str, cli_args: list, iterations: int = 5, starting_seed: int = 0) -> list[RiescueD]:
         """
         Runs test with arguments for iteration number of times. Uses seed=iteration.
         Optionally collects the results of each test for additional checking.
@@ -84,12 +92,12 @@ class BaseRiescuedTest(unittest.TestCase):
         :type iterations: int
         """
 
-        results = []
+        results: list[RiescueD] = []
         for i in self.run_riescued_generator(testname, cli_args, iterations, starting_seed=starting_seed):
             results.append(i)
         return results
 
-    def run_riescued_generator(self, testname: str, cli_args: list, iterations: int = 5, starting_seed: int = 0) -> Generator[Any, Any, Any]:
+    def run_riescued_generator(self, testname: str, cli_args: list, iterations: int = 5, starting_seed: int = 0) -> Generator[RiescueD, Any, Any]:
         """
         Generator for `run_riescued`. Consume results if using otherwise tests will not run. I.e. run `for i in self.run_riescued_generator(...)` not `self.run_riescued(...)`
         """
@@ -100,7 +108,7 @@ class BaseRiescuedTest(unittest.TestCase):
                 command = ["--testname", testname] + cli_args + ["--seed", seed] + ["--run_dir", str(test_dir)]
                 msg = f"test \n\t./riescued.py {' '.join(str(c) for c in command)}"
                 print("Running " + msg)
-                result = RiescueD.run_cli(args=command)
+                result = self.run_riescued_cli(command)
                 yield result
 
     def expect_toolchain_failure(self, testname: str, cli_args: list, failure_kind: ToolFailureType, iterations: int = 5) -> list[ToolchainError]:
@@ -137,7 +145,7 @@ class BaseRiescuedTest(unittest.TestCase):
                 msg = f"test \n\t./riescued.py {' '.join(str(c) for c in command)}\nExpecting failure"
                 print("Running " + msg)
                 with self.assertRaises(ToolchainError, msg=msg) as runtime_error:
-                    RiescueD.run_cli(args=command)
+                    self.run_riescued_cli(command)
                 self.assertEqual(
                     runtime_error.exception.kind,
                     failure_kind,
@@ -153,3 +161,33 @@ class BaseRiescuedTest(unittest.TestCase):
         "Should disable logging since riescue.lib.logger checks for existing"
         riescue_logger = logging.getLogger("riescue")
         riescue_logger.addHandler(NoOpHandler())
+
+    # helper and analysis methods
+    def get_all_equates(self, result: RiescueD) -> dict[str, int]:
+        "Get all equates from the result's _equates.inc file and return dictionary of equates to numbers. Only supports decimal and hexadecimal equates."
+        # get equates file, this falls apart of _equates.inc isn't present.
+        test_elf = result.generated_files.elf
+        equates_file = test_elf.with_name(f"{test_elf.stem}_equates.inc")
+        self.assertTrue(equates_file.exists(), "Equates file not found")
+
+        # read file, regex match all and put into dict
+        with open(equates_file, "r") as f:
+            equates: dict[str, int] = {}
+            equates_content = f.read()
+            for match in self.equates_regex.findall(equates_content):
+                equate = match[0]
+                value = int(match[1], 0)
+                equates[equate] = value
+        return equates
+
+    def get_all_physical_addresses(self, result: RiescueD) -> list[int]:
+        "Get all physical addresses from the result's linker script. All plain addresses are physical addresses."
+
+        linker_script = result.generated_files.linker_script
+        self.assertTrue(linker_script.exists(), f"Linker script not found at {linker_script}")
+        physical_addresses: list[int] = []
+        with open(linker_script, "r") as f:
+            for match in self.equates_regex.findall(f.read()):
+                addr = int(match[0], 0)
+                physical_addresses.append(addr)
+        return physical_addresses

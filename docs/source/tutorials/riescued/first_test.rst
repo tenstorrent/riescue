@@ -22,18 +22,18 @@ To see available options, run:
 
    riescued --help
 
-To generate and compile a test, pass in the test file using ```--testname``
+To generate and compile a test, pass in the test file using ```--testfile``
 
 .. code-block:: bash
 
-   riescued --testname tutorial_example_test.s
+   riescued --testfile tutorial_example_test.s
 
 
 To run the test on an ISS, add the ``--run_iss`` flag. By default this runs on Whisper, but using ``--iss spike`` you can run the test on Spike.
 
 .. code-block:: bash
 
-   riescued --testname tutorial_example_test.s --run_iss
+   riescued --testfile tutorial_example_test.s --run_iss
 
 Python Library Usage
 ~~~~~~~~~~~~~~~~~~~~
@@ -133,7 +133,7 @@ Run RiescueD and build the test
 
 .. code-block:: bash
 
-  riescued --testname tutorial_example_test.s
+  riescued --testfile tutorial_example_test.s
 
 
 This will generate the test runtime environment, linker script, and compile the test into an ELF binary.

@@ -13,7 +13,10 @@ class SimultaneousScheduler(Scheduler):
     """
     Generates test scheduler assembly code for MP simultaneous mode.
 
-    All harts run the same test in parallel, with a sync barrier before starting the test.
+    All harts run the same test at the same time.
+    Each ``scheduler__execute_test`` call includes a sync barrier.
+
+    test_setup and test_cleanup also include a barrier before executing.
     """
 
     EOT_WAIT_FOR_OTHERS_TIMEOUT = 500000
@@ -24,12 +27,24 @@ class SimultaneousScheduler(Scheduler):
         self.mhartid_offset = self.variable_manager.get_variable("mhartid").offset
 
     def scheduler_init(self) -> str:
-        "No additional scheduler init code is needed by default"
-        return ""
+        "Launches test_setup for all harts. Since this is a simultaneous scheduler, need a barrier before running test_setup"
+        return """
+
+    call os_barrier_amo
+    la s11, scheduler__test_setup_ptr
+    ld s11, 0(s11)
+    j scheduler__execute_test
+
+    """
 
     def scheduler_routines(self) -> str:
         """
-        Additional scheduler code that is called by the scheduler
+        Simultaneous scheduler logic.
+        Gets number of runs ``num_runs``, uses a barrier to ensure all harts have read it, and uses it to index into the test label array ``os_test_sequence``.
+        After barrier, Hart 0 decrements the number of runs and stores it back to ``num_runs``, then jumps to ``scheduler__execute_test``.
+
+        Assumes t1 has the previous number of runs left.
+
         """
         code = ""
         code += "\n# Scheduler functions\n"
@@ -42,153 +57,70 @@ class SimultaneousScheduler(Scheduler):
         """
         code = ""
 
-        # insert CSR read randomization logic here if allowed
         if not self.featmgr.no_random_csr_reads:
             code += "scheduler__csr_read_randomization:\n"
             code += self.csr_read_randomization() + "\n"
 
         code += f"""
-            la t0, scheduler__setup
-            ld t1, 0(t0)
-            {self.os_barrier_with_saves(regs_to_save=['t0', 't1'], scratch_regs=['s8', 's9'])}
-            bnez {self.hartid_reg}, scheduler__not_allowed_to_write
-            sd x0, 0(t0)
-        scheduler__not_allowed_to_write:
-            mv t0, x0
-            bnez t1, scheduler__start_next_test
-        """
+        # iff (num_runs == 0) goto scheduler__finished
+        scheduler__load_num_runs:
+            la s11, num_runs
+            lw s10, 0(s11)
+            beqz s10, {self.scheduler_finished_label}
 
-        code += self.scheduler()
-
-        code += """
-        # Get the pointer to the next test label and jump / sret to it
-        scheduler__start_next_test:
-            la t1, os_test_sequence
-            add t0, t0, t1    # t0 = current os_test_sequence pointer
-            ld t1, 0(t0)      # t1 = [os_test_sequence] (actual test label)
+        # Decrement num_runs and store it back
+        scheduler__decrement_num_runs:
+            addi s10, s10, -1
         """
-
-        return code
-
-    def scheduler_variables(self) -> str:
-        """
-        Generates scheduler-local variables.
-        """
-        code = ""
-        if self.featmgr.force_alignment:
-            code += ".align 3\n"
+        # barrier after all harts have read num_runs but before decrementing and storing it to shared memory.
+        # using s11, s10 bc a* and t* registers clobbered by barrier
         code += f"""
-        # Scheduler local variables
-        scheduler__seed:
-            .dword {self.rng.get_seed()}
-        scheduler__setup:
+            call os_barrier_amo
+            {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
+            bnez {self.hartid_reg}, scheduler__calc_test_pointer
+            sw s10, 0(s11)
+
+
+        scheduler__calc_test_pointer:
+            slli s11, s10, 3     # s11 = (--num_runs) * 8
+
+        # s11 = os_test_sequence + ((--num_runs) * 8])
+        # or os_test_sequence[--num_runs]
+        scheduler__start_next_test:
+            la t0, os_test_sequence
+            add s11, s11, t0
+            ld s11, 0(s11)
         """
-
-        for hart in range(self.featmgr.num_cpus):
-            code += f".dword 1 # Hart {hart} scheduler setup\n"
-
-        code += self.simultaneous_scheduler_variables()
 
         return code
 
     def execute_test(self) -> str:
         """
-        Logic responsible for executing a test.
-
-        FIXME: real execute test logic should be common to base scheduler.
-        If this is needed, it should be in scheduler dispatch or in base scheduler.
+        Execute test address loaded into s11.
+        Barrier clobbers a0, so need to save to a different register (doesn't follow ABI so can't use s0, s1)
         """
-        code = ""
-
-        if self.test_priv == RV.RiscvPrivileges.MACHINE:
-            code += f"""
-            # Schedule next test, t1 has the test_label
-            # priv_mode: {self.test_priv}
-
-            # Need barrier here so tests don't read num_runs after hart 0 updated it
-
-            {self.os_barrier_with_saves(regs_to_save=['t1'], scratch_regs=['s9'])}
-            """
-            code += self.os_barrier_with_saves(regs_to_save=["t1"], scratch_regs=["s9"]) + "\n"
-            code += "jr t1   # jump to t1\n"
-        else:
-            # For user mode use sret to jump to test
-            code += self.switch_test_privilege(
-                from_priv=RV.RiscvPrivileges.SUPER,
-                to_priv=self.test_priv,
-                jump_register="t1",
-                pre_xret=self.os_barrier(),
-            )
-        return code
-
-    def scheduler(self) -> str:
-        """
-        Generates main scheduler logic.
-        Assumes t1 has the previous number of runs left.
-
-        Runs all tests through a barrier, loads test pointer, decrements num_runs, and gets index to test label array.
-        """
-        code = "scheduler__endless_loop:\n"
-        code += self.os_barrier_with_saves(regs_to_save=["t0", "t1", "t2"], scratch_regs=["s7", "s8", "s9"], num_tabs=4) + "\n"
-
-        code += """# Load test pointer (all harts need to do this)
-        la t0, num_runs
-
-        scheduler__load_test_pointer:\n"""
-        if self.featmgr.big_endian:
-            code += """ld t1, 0(t0)  # t1 = [os_test_sequence] (actual test label)
-            srli t1, t1, 32
-            bnez t1, scheduler__skip_reload_test_pointer
-            ld t1, 0(t0)  # t1 = [os_test_sequence] (actual test label)
-            scheduler__skip_reload_test_pointer:
-            """
-        else:
-            code += "lw t1, 0(t0)  # t1 = [os_test_sequence] (actual test label)\n"
-        code += f"""li gp, 0x{self.featmgr.eot_pass_value:x}
-        beqz t1, os_end_test # end program, if zero
-
-        # Decrement num_runs and store it back
-        decrement_num_runs:
-        addi t2, t1, -1
-        {self.os_barrier_with_saves(regs_to_save=["t0", "t1", "t2"], scratch_regs=["s7", "s8", "s9"], num_tabs=4)}
-        {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
-        bnez {self.hartid_reg}, scheduler__dont_write
-        sw t2, 0(t0)
-
-        scheduler__dont_write:
-
-        scheduler:
-        mv t0, t1
-        slli t0, t0, 3
-        """
-        return code
-
-    def simultaneous_scheduler_variables(self) -> str:
-        """
-        Place test labels for the non-MP parallel scheduler.
-        """
-        code = f"""
-        num_runs:
-            # We need +1 below since we have cleanup as the last entry in the dtests_seq
-            .dword {len(self.dtests_sequence)+1}
-        """
-        code += """
-        .align 3
-        os_test_sequence:
-            .dword test_setup
-            .dword test_cleanup
-        """
-        for test in self.dtests_sequence:
-            code += f"    .dword {test}\n"
+        code = "call os_barrier_amo\n"
+        code += "mv a0, s11\n"
+        code += super().execute_test()
         return code
 
     # Barrier methods
     def os_barrier_amo(self) -> str:
         """
         OS Barrier implementation.
+        All harts wait at this point until every hart reaches the barrier, then all proceed together.
+        Barrier is reusable after all harts have passed it
+
+
+        .. note::
+            In the future this should just use the ABI calling convention (s0-s11 are preserved, sp/tp preserved. all others can be overwritten).
+            Not changing this just yet, becasue Routines
+
+
+
         """
-        code = ["os_barrier_amo:"]
-        barrier_code = Routines.place_barrier(
+        code = "os_barrier_amo:\n"
+        code += Routines.place_barrier(
             name="osb",
             lock_addr_reg="a0",
             arrive_counter_addr_reg="a1",
@@ -202,9 +134,7 @@ class SimultaneousScheduler(Scheduler):
             max_tries=self.MAX_OS_BARRIER_TRIES,
             disable_wfi_wait=self.featmgr.disable_wfi_wait,  # RVTOOLS-4204
         )
-        code.append(barrier_code)
-        code.append(
-            """
+        code += """
             ret
         op_nop:
             nop
@@ -229,27 +159,20 @@ class SimultaneousScheduler(Scheduler):
             #restore callers return address
             mv ra, s0
         """
-        )
-        return "\n".join(code)
-
-    def os_barrier(self) -> str:
-        """
-        Synchronization barrier for multiple harts.
-        This label doesn't exist if not in mp mode, so throwing a ValueError if it's called
-
-        All harts wait at this point until every hart reaches the barrier, then all proceed together. The barrier resets automatically for reuse.
-        """
-        return """
-            la a0, os_barrier_amo
-            jalr ra, a0
-        """
+        return code
 
     def os_barrier_with_saves(self, regs_to_save: list[str], scratch_regs: list[str], num_tabs: int = 4) -> str:
-        assert len(regs_to_save) == len(scratch_regs), "regs_to_save and scratch_regs must be the same length"
+        """
+        This calls os_barrier_amo, but does some moves.
+        Callers could just not use the registers that the os_barrier clobbers and call os_barrier_amo directly.
+        This would save a few instructions.
+        """
+        if len(regs_to_save) != len(scratch_regs):
+            raise ValueError("regs_to_save and scratch_regs must be the same length")
         routine = ""
         for src, dst in zip(regs_to_save, scratch_regs):
             routine += "\t".join("" for _ in range(num_tabs + 1)) + f"mv {dst}, {src}\n"
-        routine += self.os_barrier()
+        routine += "call os_barrier_amo\n"
         for src, dst in zip(scratch_regs, regs_to_save):
             routine += "\t".join("" for _ in range(num_tabs + 1)) + f"mv {dst}, {src}\n"
 

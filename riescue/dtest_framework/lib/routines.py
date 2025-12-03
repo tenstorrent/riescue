@@ -91,6 +91,34 @@ class Routines:
         max_tries: int,
         disable_wfi_wait: bool,
     ) -> str:
+        """
+        Barrier routine.
+
+        :param name: Name of the barrier. Used for labels in routine.
+        :param lock_addr_reg: Register to hold the lock address.
+        :param arrive_counter_addr_reg: Register to hold the arrive counter address.
+        :param depart_counter_addr_reg: Register to hold the depart counter address.
+        :param flag_addr_reg: Register to hold the flag address.
+        :param swap_val_reg: Register to hold the swap value.
+        :param work_reg_1: Register to hold the work register 1.
+        :param work_reg_2: Register to hold the work register 2.
+        :param num_cpus: Number of CPUs.
+        :param end_test_label: Label to end the test.
+        :param max_tries: Maximum number of tries to acquire the lock.
+        :param disable_wfi_wait: Whether to disable WFI wait.
+
+        Requires these symbols to be defined in the assembly:
+        - ``barrier_lock``: Word-sized lock variable (init 0)
+        - ``barrier_arrive_counter``: Word-sized counter (init 0)
+        - ``barrier_depart_counter``: Word-sized counter (init num_cpus)
+        - ``barrier_flag``: Word-sized flag (init 0)
+        - ``num_harts_ended``: Word-sized early-exit indicator
+
+        .. warning::
+        All 7 register parameters are clobbered. On failure/early-bail paths,
+        ``gp``, ``a0``, ``a1``, and ``ra`` are also clobbered.
+
+        """
         return f"""
         li {lock_addr_reg}, barrier_lock
         li {arrive_counter_addr_reg}, barrier_arrive_counter

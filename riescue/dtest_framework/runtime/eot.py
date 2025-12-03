@@ -111,7 +111,14 @@ eot__failed:
         Called by syscalls, scheduler. If not in M mode, need to return to M mode.
         I think this means that any system calls will need to make sure we are in M mode?
         """
-        code = ""
+
+        # nonzero gp means test failed, so increment number of hard fails
+        code = f"""
+    li t0, 0x1
+    beq t0, gp, 1f
+    {self.num_hard_fails.increment("t0", "a0")}
+1:
+"""
         # TODO: return to M mode, set Tvec to eot__failed (worst case panic will jump to this and fail instantly)
         # Can write the rest of the code assuming that we are in M mode, and panic will jump to eot__failed
         # TODO: FIX UP OS_END_TEST to use correct prefix and not use gp to tell if test passed or failed.

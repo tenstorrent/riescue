@@ -161,7 +161,15 @@ class SysCalls(TrapHandler):
         # Decide the page used for transfering control back to test
         switch_page = self.featmgr.switch_to_machine_page
 
-        if self.test_priv == RV.RiscvPrivileges.MACHINE:
+        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
+            code += f"""
+                # FIXME: RVTOOLS-2841
+                # cannot switch from virtualized to machine mode.
+                {self.restore_context()}
+                j test_failed
+
+            """
+        elif self.test_priv == RV.RiscvPrivileges.MACHINE:
             code += f"""
                 # If already in machine mode, do nothing
                 li t0, {switch_page}

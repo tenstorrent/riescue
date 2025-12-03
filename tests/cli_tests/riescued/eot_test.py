@@ -74,9 +74,31 @@ class FailTests(BaseRiescuedTest):
                 self.run_riescued(testname=self.testname, cli_args=args, iterations=1)
 
     def test_cli_fail_dead(self):
-        "Test that uses non-standard EOT fail value with eot_fail overwritten. FIXME: Check that test writes 0xDEAD on failure"
+        "Test that uses non-standard EOT fail value with eot_fail overwritten."
         fail_code = 0xDEAD
         args = ["--run_iss", "--eot_fail_value", str(fail_code)]
+        for failure in self.expect_toolchain_failure_generator(testname=self.testname, cli_args=args, failure_kind=ToolFailureType.TOHOST_FAIL, iterations=self.iterations):
+            self.assertEqual(failure.fail_code, fail_code)
+
+
+class FailMpTests(BaseRiescuedTest):
+    "Tests that target fail_test_mp.s"
+
+    def setUp(self):
+        self.testname = "dtest_framework/tests/fail_test_mp.s"
+        super().setUp()
+
+    def test_cli_fail_mp_simultaneous(self):
+        "Test that uses non-standard EOT fail value with eot_fail overwritten."
+        fail_code = 0xDEAD
+        args = ["--run_iss", "--eot_fail_value", str(fail_code), "--eot_pass_value=0x1", "--mp_mode", "simultaneous"]
+        for failure in self.expect_toolchain_failure_generator(testname=self.testname, cli_args=args, failure_kind=ToolFailureType.TOHOST_FAIL, iterations=self.iterations):
+            self.assertEqual(failure.fail_code, fail_code)
+
+    def test_cli_fail_mp_parallel(self):
+        "Test that uses non-standard EOT fail value with eot_fail overwritten."
+        fail_code = 0xDEAD
+        args = ["--run_iss", "--eot_fail_value", str(fail_code), "--eot_pass_value=0x1", "--mp_mode", "parallel"]
         for failure in self.expect_toolchain_failure_generator(testname=self.testname, cli_args=args, failure_kind=ToolFailureType.TOHOST_FAIL, iterations=self.iterations):
             self.assertEqual(failure.fail_code, fail_code)
 

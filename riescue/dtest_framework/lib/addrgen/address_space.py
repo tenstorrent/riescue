@@ -202,6 +202,7 @@ class AddressSpace:
             if len(clusters) == 0:
                 raise AddrGenError(f"No compatible clusters found for {constraint}")
 
+        log.debug(f"filtered clusters with qualifiers {qualifiers}: {clusters}")
         cluster_list2 = []
         if log.isEnabledFor(logging.DEBUG):
             log.debug(f"clusters: {clusters}")
@@ -238,7 +239,7 @@ class AddressSpace:
 
         return ret_list
 
-    def _possible_clusters(self, address_mask, address_bits):
+    def _possible_clusters(self, address_mask, address_bits) -> SortedSet:
         """
         Convert address mask to possible clusters
         """

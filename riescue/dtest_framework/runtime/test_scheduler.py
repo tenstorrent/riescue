@@ -12,13 +12,7 @@ from riescue.dtest_framework.runtime.schedulers import DefaultScheduler, LinuxMo
 class TestScheduler(AssemblyGenerator):
     """
     Generates test scheduler assembly code for coordinating test execution.
-
-    Manages test sequencing, randomization, and synchronization across single or multiple harts.
-    Handles barriers, mutexes, and test cleanup coordination.
-    Supports both sequential and parallel test execution modes.
-
     Hands control to individual tests and manages test completion flow.
-
 
     Scheduler supports different modes for scheduling tests:
     - single hart (default): tests are scheduled for reapeat_times number of times
@@ -26,18 +20,12 @@ class TestScheduler(AssemblyGenerator):
     - Simulataneous MP: All harts run the same test in parallel, with a sync barrier before starting the test
     - linux mode: tests are scheduled at runtime using a randomization algorithm. Can be ran endlessly if repeat_times=-1
 
-    It seems like this would benefit greatly from not re-using the same code for all modes, and separating the logic out.
-    The logic for a single hart, default mode isn't that complex. But reusing the same code for all modes means there's
-    undocumented dependencies (expecting the t1 to be an offset, or the number of harts, etc.)
+    Scheduler runs in ``handler_mode`` which can be M, HS, or VS. Tests can run in ``user_mode`` or ``supervisor_mode``. The scheduler interface consists of
 
-    Need to have some scheduler interface that Runtime code understands, i.e.
-    - scheduler__init
-    - scheduler__dispatch
-    - scheduler__finished
-    - scheduler__panic
-
-    This would allow other code to just know how to start and continue the scheduler.
-    Having a panic routine would make it a lot easier to debug errors. But this requires the scheduler to be running in a privileged mode (M or S)
+    scheduler__init - initializes the scheduler and runs test_setup
+    scheduler__dispatch - load a0 with the next test's address
+    scheduler__finished - called when the scheduler is finished with all tests OR when ``end_test`` is called
+    scheduler__panic - trap vector for scheduler panic. Jumps to end of test immediately.
     """
 
     EOT_WAIT_FOR_OTHERS_TIMEOUT = 500000

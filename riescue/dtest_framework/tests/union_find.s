@@ -71,6 +71,10 @@
 ;#page_mapping(lin_addr=0x5000000, phys_addr=0x5000000, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 ;#page_mapping(lin_addr=0x6000000, phys_name=&random, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'], modify_pt=1)
 
+# We need a larger stack than the 0x1000 large hart_stack_n, so we allocate a stack here
+;#random_addr(name=stack_addr,  type=linear,   size=0x200000, and_mask=0xfffffffffffff000)
+;#page_mapping(lin_name=stack_addr, phys_name=&random, v=1, r=1, w=1, a=1, d=1, pagesize=['2mb'])
+
 
 .section .code, "aw"
 
@@ -125,7 +129,7 @@ test01:
 test02:
     # Initialize stack pointer
     # la sp, _stack_top
-    li sp, os_stack+(0x1000*31)
+    li sp, stack_addr+(0x1000*31)
 
 # Define array of nodes and parent pointers
 # Define constants

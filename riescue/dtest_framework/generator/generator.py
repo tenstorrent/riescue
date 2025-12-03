@@ -614,7 +614,7 @@ class Generator:
 
         return lin_addr
 
-    def handle_random_addr(self, random_addr):
+    def handle_random_addr(self, random_addr: ParsedRandomAddress):
         """
         Generate addresses for left over random_addrs
         """
@@ -625,11 +625,13 @@ class Generator:
         phys_address_mask = address_mask = random_addr.and_mask
         secure = False
 
+        log.debug(f"handle_random_addr: name={addr_name}, type={addr_type}, phys_address_size=0x{phys_address_size:x}, phys_address_mask=0x{phys_address_mask:x}")
         if self.pool.parsed_page_mapping_with_lin_name_exists(addr_name) and self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE:
             log.debug(f"Random Address {addr_name} already exists in a page mapping")
             for map_key in self.pool.get_parsed_page_mapping_with_lin_name(addr_name):
                 parsed_page_mapping = self.pool.get_parsed_page_mapping(addr_name, map_key)
                 address_mask = parsed_page_mapping.address_mask
+                log.debug(f"parsed_page_mapping address_mask: 0x{address_mask:x}")
                 phys_address_size = RV.RiscvPageSizes.memory(parsed_page_mapping.final_pagesize)
                 phys_address_mask = RV.RiscvPageSizes.address_mask(parsed_page_mapping.final_pagesize)
                 # If g-stage s enabled, this physical address becomes GPA. It means that the alignment of
@@ -640,6 +642,7 @@ class Generator:
 
                 # also update address_bits/mask for the physical address, if fixed address is not proivded in the page_mapping
                 if self.pool.parsed_random_addr_exists(addr_name=parsed_page_mapping.phys_name):
+                    log.debug(f"parsed_random_addr_exists: {parsed_page_mapping.phys_name}. Using it for {addr_name}")
                     phys_random_addr = self.pool.get_parsed_addr(parsed_page_mapping.phys_name)
                     phys_random_addr.size = address_size
                     phys_random_addr.align = address_mask

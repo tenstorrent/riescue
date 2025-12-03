@@ -492,6 +492,22 @@ class HookPoint(MyEnum):
     This describes the name of the hook; behavior of the hook is defined where the hook is used.
     """
 
+    # Loader hooks
+    #: Insert code before the loader.
+    #: Can be used to insert code for custom CSRs, platform intialization code. GPRs, and changes to tvec, status, and satp will be overwritten by loader.
+    PRE_LOADER = "pre_loader"
+    POST_LOADER = "post_loader"  #: Insert code after the loader but before the test jumps to the scheduler, inside ``loader__done`` label.
+
+    # Scheduler hooks
+    PRE_DISPATCH = "pre_dispatch"  #: Insert code before the scheduler loads the next test into a0.
+    POST_DISPATCH = "post_dispatch"  #: Insert code after the scheduler loads the next test into a0. Should not modify a0
+
+    # Trap Hooks
+    #: Insert code after a trap is taken. Useful for logging/bookkeeping traps. Code should resume to return code after to continue execution.
+    #: ``tp`` is initialized here - push and pop any registers used by post-trap code.
+    POST_TRAP = "post_trap"
+
+    # EOT hooks
     PRE_FAIL = "pre_fail"  #: Insert code before the test is marked as failed.
     POST_FAIL = "post_fail"  #: Insert code after the test is marked as failed.
     PRE_PASS = "pre_pass"  #: Insert code before the test is marked as passed.

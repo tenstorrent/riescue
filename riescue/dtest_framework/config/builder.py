@@ -189,7 +189,8 @@ class FeatMgrBuilder:
         # exception delegation
         if featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
             # if test env virtualized, should not be running machine mode tests
-            featmgr.priv_mode = RV.RiscvPrivileges.SUPER
+            if featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
+                featmgr.priv_mode = RV.RiscvPrivileges.SUPER
             featmgr.deleg_excp_to = RV.RiscvPrivileges.SUPER
         elif featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
             featmgr.deleg_excp_to = RV.RiscvPrivileges.MACHINE

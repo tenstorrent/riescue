@@ -153,8 +153,12 @@ class Whisper(Tool):
         return super().run(output_file=None, cwd=cwd, timeout=timeout, args=extra_args)
 
     def _classify(self, process: subprocess.CompletedProcess, output_file: Optional[Path]):
+        print(f"process.stderr={process.stderr}")
+
         if process.returncode != 0:
-            if "Failed to load ELF" in process.stderr:
+            if "Reached instruction limit" in process.stderr:
+                raise ToolchainError(tool_name=self.__class__.__name__, cmd=process.args, kind=ToolFailureType.MAX_INSTRUCTION_LIMIT, returncode=process.returncode, error_text=process.stderr)
+            elif "Failed to load ELF" in process.stderr:
                 failed_to_load_message = process.stderr.split("Error:")[-1].strip()
                 self._raise_toolchain_error(process, ToolFailureType.ELF_FAILURE, failed_to_load_message)
             elif "No program file specified" in process.stderr:
@@ -179,8 +183,6 @@ class Whisper(Tool):
             else:
                 log.error(f"Couldn't find a log file at {self.log_file}")
             self._raise_toolchain_error(process, ToolFailureType.NONZERO_EXIT, process.stderr)
-        if "Reached instruction limit" in process.stderr:
-            raise ToolchainError(tool_name=self.__class__.__name__, cmd=process.args, kind=ToolFailureType.MAX_INSTRUCTION_LIMIT, returncode=process.returncode, error_text=process.stderr)
 
     def _find_tohost_write(self, log_lines: list[str]):
         "Assumes the last line is a write to the tohost address, doesn't check what the tohost address is"

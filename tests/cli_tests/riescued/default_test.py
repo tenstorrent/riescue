@@ -3,6 +3,7 @@
 
 import unittest
 
+from riescue import RiescueD
 from tests.cli_tests.riescued.base_riescued import BaseRiescuedTest
 
 
@@ -33,7 +34,9 @@ class DefaultTest(BaseRiescuedTest):
     def test_2gb_dragm_4kb_pages(self):
         "Default test with 2gb dram and 4kb pages"
         cli_args = ["--run_iss", "--cpuconfig", "dtest_framework/lib/twogb_dram_config.json", "--reserve_partial_phys_memory", "--all_4kb_pages", "--seed", "0"]
-        self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=self.iterations)
+        for result in self.run_riescued_generator(testname=self.testname, cli_args=cli_args, iterations=self.iterations):
+            for addr in self.get_all_physical_addresses(result):
+                self.assertTrue(addr < 2**32, f"Physical address {addr} is greater than {2**32} (2GB DRAM). The memory map should constrain the generated addresses.")
 
     def test_cli_force_alignment_whisper(self):
         "Default test with force alignment"

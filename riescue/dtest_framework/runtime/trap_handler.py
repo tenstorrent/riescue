@@ -497,6 +497,7 @@ class TrapHandler(AssemblyGenerator):
         return f"""
 .align 2
 {self.trap_exit_label}:
+    {self.featmgr.call_hook(RV.HookPoint.POST_TRAP)}
     {self.restore_context()}
     {self.xret}
 """

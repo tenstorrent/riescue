@@ -88,6 +88,7 @@ release = version
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
+    "sphinxcontrib.mermaid",
 ]
 
 # Control autodoc behavior

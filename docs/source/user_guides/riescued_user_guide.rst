@@ -42,10 +42,10 @@ Basic Workflow
 .. code-block:: bash
 
     # Basic usage
-    riescued  run --testname test.s --cpuconfig cpu_config.json
+    riescued  run --testfile test.s --cpuconfig cpu_config.json
 
     # With specific environment settings
-    riescued  run --testname test.s \
+    riescued  run --testfile test.s \
         --cpuconfig cpu_config.json \
         --test_paging_mode sv39 \
         --test_privilege_mode supervisor \
