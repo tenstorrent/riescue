@@ -18,6 +18,7 @@ from coretp.step import (
     LoadImmediateStep,
     MemAccess,
     System,
+    Comment,
 )
 from coretp.step.memory import ReadLeafPTE, WriteLeafPTE, ReadPTE, WritePTE
 
@@ -42,6 +43,7 @@ from riescue.compliance.test_plan.actions import (
     LiAction,
     MemAccessAction,
     SystemAction,
+    CommentAction,
 )
 
 
@@ -65,4 +67,5 @@ DEFAULT_MAPPINGS: list[tuple[type[TestStep], type[Action]]] = [
     (WritePTE, WritePteAction),
     (WriteLeafPTE, WriteLeafPteAction),
     (System, SystemAction),
+    (Comment, CommentAction),
 ]

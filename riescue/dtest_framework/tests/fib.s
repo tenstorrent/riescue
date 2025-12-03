@@ -71,6 +71,10 @@
 ;#page_mapping(lin_addr=0x5000000, phys_addr=0x5000000, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 ;#page_mapping(lin_addr=0x6000000, phys_name=&random, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'], modify_pt=1)
 
+# We need a larger stack than the 0x1000 large hart_stack_n, so we allocate a stack here
+;#random_addr(name=stack_addr,  type=linear,   size=0x200000, and_mask=0xfffffffffffff000)
+;#page_mapping(lin_name=stack_addr, phys_name=&random, v=1, r=1, w=1, a=1, d=1, pagesize=['2mb'])
+
 
 .section .code, "aw"
 
@@ -125,7 +129,7 @@ test01:
 test02:
     # Initialize stack pointer
     # la sp, _stack_top
-    li sp, os_stack+(0x1000*30)
+    li sp, stack_addr+(0x1000*30)
 
     # Calculate the 10th Fibonacci number
     li a0, 15
@@ -137,27 +141,31 @@ test02:
 # Recursive Fibonacci function
 fibonacci:
     # Save the return address and stack frame pointer
-    addi sp, sp, -16
+    addi sp, sp, -24
     sd ra, 0(sp)
     sd s0, 8(sp)
+    sd s1, 16(sp)
+
+    mv s0, a0
 
     # Base case: if n <= 1, return n
     li a1, 3
     bleu a0, a1, end_fibonacci
     # Recursive case: return fibonacci(n-1) + fibonacci(n-2)
-    addi a0, a0, -1
+    addi s0, s0, -1
+    mv a0, s0
     call fibonacci
-    ld s1, 0(sp)    # load result of fibonacci(n-1)
-    addi a0, a0, -1
+    mv s1, a0
+    addi a0, s0, -1
     call fibonacci
-    ld s2, 0(sp)    # load result of fibonacci(n-2)
-    add s0, s1, s2  # calculate fibonacci(n-1) + fibonacci(n-2)
+    add a0, s1, a0  # calculate fibonacci(n-1) + fibonacci(n-2)
 
 end_fibonacci:
     # Restore the return address and stack frame pointer
     ld ra, 0(sp)
     ld s0, 8(sp)
-    addi sp, sp, 16
+    ld s1, 16(sp)
+    addi sp, sp, 24
 
     # Return the Fibonacci result
     ret

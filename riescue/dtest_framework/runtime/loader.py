@@ -24,13 +24,20 @@ class Loader(AssemblyGenerator):
 
     .. note::
         This sets initial mtvec to loader panic (fast fail during loader)
-        If virtualized test, will set vstvec to trap handler
-        If delegating exceptions to supervisor, will set stvec to trap handler
+
+        If virtualized test, will set vstvec to trap handler.
+
+        If delegating exceptions to supervisor, will set stvec to trap handler.
         Otherwise, mtvec gets trap handler.
 
-        This means that switching privlige modes is not allowed.
+    Jumps to runtime privilege mode (``handler_priv``), and hands control to scheduler when finished.
 
-    Jumps to runtime privilege mode, and hands control to scheduler when finished.
+    Interface:
+
+    - ``_start``: entry point, required for linker. Initialize GPRs
+    - ``loader__initialize_runtime``: Initialize runtime environment, setup CSRs
+    - ``loader__done``: Routine used to jump to scheduler. Includes any post-loader hooks
+    - ``loader__panic``: Routine used to jump to ``eot__failed``. Assumes in M mode and jumps directly to ``eot__failed`` sequence.
     """
 
     def __init__(self, **kwargs: Any):
@@ -48,24 +55,101 @@ class Loader(AssemblyGenerator):
         # registere loader variables
         self.zero_data = self.variable_manager.register_shared_variable("zero_data", 0x0)
 
-        self.panic_cause = "LOADER_PANIC_CAUSE"
-        self.register_equate(self.panic_cause, "13")
-
     def generate(self) -> str:
+        """
+        Generate loader code. If linux/wysiwyg mode is enabled, use the appropriate loader.
+        Otherwise, use the generic loader with loader interface.
+
+
+        .. note:: Loader Hooks
+
+            PRE_LOADER is after GPR initialization and panic address is loaded.
+            POST_LOADER is before jumping to scheduler.
+
+            Hooks should return control back to loader code after they are done.
+            Writes to CSRs in PRE_LOADER may be overwritten by loader code. USe featmgr.init_csr or --init_csr instead
+            POST_LOADER code will be in the handler privilege mode.
+        """
+
         if self.featmgr.linux_mode:
             return self.linux_loader()
+        elif self.featmgr.wysiwyg:
+            return self.wysiwyg_loader()
 
-        code = self.base_loader()
-        code += self.init_int_registers()
+        code = f"""
+.section .text
+.globl _start
+.option norvc
 
-        if not self.featmgr.wysiwyg:
-            code += self.load_panic_address()
+_start:
+    {self.init_int_registers()}
+    {self.set_initial_panic()}
+
+loader__initialize_runtime:
+    {self.featmgr.call_hook(RV.HookPoint.PRE_LOADER)}
+    {self.initialize_runtime()}
+
+loader__done:
+    {self.featmgr.call_hook(RV.HookPoint.POST_LOADER)}
+    j {self.scheduler_start_label}
+
+loader__panic:
+    j eot__failed
+
+"""
+        return code
+
+    # Loader code
+    def linux_loader(self) -> str:
+        "Returns the loader used for linux mode"
+        return f"""
+.section .text
+.global _start
+_start:
+call main
+li a7, 93 # SYS_exit
+li a0, 0  # exit code
+
+main:
+    call {self.scheduler_init_label}
+    ret
+"""
+
+    def wysiwyg_loader(self) -> str:
+        """
+        Returns the loader used for `What You See Is What You Get` (wysiwyg) mode.
+
+        Since wysiwyg mode doesn't have a scheduler, the loader just initializes the GPRs
+        and any init_csr_code and continues to test.
+        """
+
+        code = f"""
+.section .text
+.globl _start
+.option norvc
+
+_start:
+    {self.init_int_registers()}
+
+loader__initialize_runtime:
+    {self.init_csr_code()}
+
+loader__done:
+
+"""
+        return code
+
+    def initialize_runtime(self) -> str:
+        """
+        Generate code to initialize runtime environment, setup CSRs
+
+        """
+        code = ""
+
         if self.featmgr.big_endian:
             code += self.enable_big_endian()
         if self.featmgr.csr_init or self.featmgr.csr_init_mask:
             code += self.init_csr_code()
-        if self.featmgr.wysiwyg:
-            return code
 
         if self.featmgr.counter_event_path is not None:
             code += self.enable_counters(event_path=self.featmgr.counter_event_path)
@@ -140,46 +224,6 @@ class Loader(AssemblyGenerator):
         # Enable paging, must be in M / S to enable paging
         if self.paging_mode != RV.RiscvPagingModes.DISABLE:
             code += self.enable_paging()
-
-        if self.test_priv == RV.RiscvPrivileges.USER:
-            # Need to be in M mode to schedule tests
-            code += "    li x31, 0xf0000001\n"
-            code += "    ecall\n"
-        code += "\nloader__done:\n"
-        code += f"    j {self.scheduler_start_label}"
-        code += "\n" + self.kernel_panic(name="loader_panic", cause=self.panic_cause)
-
-        return code
-
-    # Loader code
-    def linux_loader(self) -> str:
-        "Returns the loader used for linux mode"
-        return f"""
-.section .text
-.global _start
-_start:
-call main
-li a7, 93 # SYS_exit
-li a0, 0  # exit code
-
-main:
-    call {self.scheduler_init_label}
-    ret
-"""
-
-    def base_loader(self) -> str:
-        """
-        Basic loader, initialize integer registers. Optionally allocated stack pointer and big-endian mode.
-        """
-
-        code = """
-.section .text
-.globl _start
-.option norvc
-
-_start:
-"""
-
         return code
 
     # env setup code
@@ -384,8 +428,6 @@ loader__set_mstatus:
     def setup_trap_delegation(self) -> str:
         """
         Generate code to setup exception and interrupt delegation.
-
-        FIXME: Interrupts should be enabled by default.
         """
         medeleg_val = 0
         if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
@@ -569,11 +611,14 @@ loader__setup_mstateen:
         return "\n" + "\n".join(code) + "\n"
 
     # panic code
-    def load_panic_address(self) -> str:
-        "load panic address to mtvec. If loader error, fails immediately instead of infinte reset-0 loop"
+    # Making these separate jump tables for simpler debug, rather than having code go through trap handler
+    def set_initial_panic(self) -> str:
+        """
+        load panic address to mtvec.
+        Jumps to eot__failed to end the test directly since already in M mode.
+        """
         return """
 loader__load_panic_address:
-    la t0, loader_panic
+    la t0, eot__failed
     csrw mtvec, t0
-    nop
 """

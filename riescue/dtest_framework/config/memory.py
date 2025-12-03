@@ -254,6 +254,7 @@ class Memory:
         :raises ValueError: if ``dram`` is not present
         """
         if not cfg:
+            log.warning("No memory map provided, using default memory ranges")
             return cls()
         # validate dram
         dram = cfg.get("dram")

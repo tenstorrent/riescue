@@ -48,13 +48,6 @@ class Scheduler(AssemblyGenerator, ABC):
         """
         return ""
 
-    @abstractmethod
-    def scheduler_variables(self) -> str:
-        """
-        Generates scheduler-local variables.
-        """
-        return ""
-
     def generate(self) -> str:
         """
         Generates scheduler assmebly code for scheduler. Subclasses should really only implement the abstract methods, scheduler_init, scheduler_dispatch, and scheduler_finished.
@@ -69,9 +62,9 @@ class Scheduler(AssemblyGenerator, ABC):
 # Entry point for scheduling next test
 {self.scheduler_dispatch_label}:
     {self._dispatch_setup()}
-    {self.pre_dispatch_hooks()}
+    {self.featmgr.call_hook(RV.HookPoint.PRE_DISPATCH)}
     {self.scheduler_dispatch()}
-    {self.post_dispatch_hooks()}
+    {self.featmgr.call_hook(RV.HookPoint.POST_DISPATCH)}
 
 # Jump to test. Test address should be loaded into a0 before running
 scheduler__execute_test:
@@ -90,25 +83,24 @@ scheduler__execute_test:
 
 # scheduler-local variables
 {self.scheduler_variables()}
+
+# test pointers
+.align 3
+scheduler__test_setup_ptr:
+    .dword test_setup
+scheduler__test_cleanup_ptr:
+    .dword test_cleanup
+
 """
-
-    def pre_dispatch_hooks(self) -> str:
-        """
-        Pre-dispatch hooks. Add additional code here to be executed before test is executed. Ensure a0 contains the test to jump to at the end
-        """
-        return ""
-
-    def post_dispatch_hooks(self) -> str:
-        """
-        Post-dispatch hooks. Add additional code here to be executed after test is executed. Ensure a0 contains the test to jump to at the end
-        """
-        return ""
 
     def scheduler_finished(self) -> str:
         """
-        Subclasses can override this to run additional cleanup code.
+        Done with scheduler, proceed to EOT. Override if any additional cleanup is needed
         """
-        return ""
+        return """
+    li gp, 1
+    j eot__end_test
+"""
 
     def scheduler_routines(self) -> str:
         """
@@ -143,4 +135,32 @@ scheduler__execute_test:
                 to_priv=self.featmgr.priv_mode,
                 jump_register="a0",
             )
+        return code
+
+    def scheduler_variables(self) -> str:
+        """
+        Default scheduler-local variables. Uses an array of test labels to store the test sequence.
+        Essentially the array is``os_test_sequence = ["test_cleanup", "test01", "test02", ...]``,
+        which can be indexed by the ``num_runs`` variable to get the next test to run
+
+        .. note:: Not scalable for large repeat_times values
+            This stores the self.dtests_sequence list into memory.
+            Since self.dtest_sequences is the tests repeated repeat_times times, it has a size of O(MxN) for M tests and N ``repeat_times``.
+
+            This can be optimized in the future using a static array of M tests and iterating through the array N times at runtime.
+
+        Since test_cleanup is always ran last, it is inlcuded in ``os_test_sequence``.
+        This is a bit faster than setting a flag in scheduler__finished to check if test_cleanup has been ran.
+        """
+        code = f"""
+        .align 3
+        num_runs:
+            .dword {len(self.dtests_sequence)+1}
+
+        .align 3
+        os_test_sequence:
+            .dword test_cleanup
+        """
+        for test in self.dtests_sequence:
+            code += f"    .dword {test}\n"
         return code

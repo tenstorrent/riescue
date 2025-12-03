@@ -48,6 +48,7 @@ class Container:
         self.container_config = self._find_container_config()
         self.registry_uri = None
         self.registry_remote = None
+        self.token = ""
 
         if self.container_config is not None:
             with open(self.container_config, "r") as f:
@@ -64,7 +65,7 @@ class Container:
                 else:
                     token_path = Path(token_path)
                 with open(token_path, "r") as f:
-                    self.token = f.read()
+                    self.token = f.read().strip()
 
         self.sif = self.infra / "riescue.sif"
         self.container_def = self.infra / "Container.def"
@@ -268,7 +269,12 @@ class Container:
         if self.registry_remote is None:
             raise ValueError(f"registry_remote is not set in .container_config")
         remote_login_cmd.append(self.registry_remote)
-        self.singularity(remote_login_cmd, check=True)
+
+        try:
+            self.singularity(remote_login_cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            cmd = [arg if arg != self.token else "<token>" for arg in e.cmd]
+            raise RuntimeError(f"Error logging in to remote. Command: {cmd} returned {e.returncode}") from None
 
     def _find_container_config(self) -> Optional[Path]:
         """

@@ -210,7 +210,7 @@ The list of supported features can be found below. RiescueC is aiming to support
 | Sstc           | x         | TP                | Supervisor-mode timer interrupts |
 | Sscofpmf       | x         |                   | Count overflow and mode-based filtering |
 | Ssnpm          | x         |                   | Pointer masking |
-| Ssu64xl        | x         |                   | UXLEN=64 support |
+| Ssu64xl        | x         | TP                | UXLEN=64 support |
 | Sha            | x         |                   | Augmented hypervisor extension |
 | H              | x         | All           | Hypervisor extension |
 | Ssstateen      | x         |                   | Supervisor-mode state-enable extension |

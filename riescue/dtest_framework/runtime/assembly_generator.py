@@ -382,7 +382,7 @@ class AssemblyGenerator(ABC):
         }
         # Get up to max_random_csr_reads random CSR to read
         available_privileges.discard(RV.RiscvPrivileges.USER)  # no user CSRs supported in CsrManager
-        available_privilege_list = list(available_privileges)
+        available_privilege_list = sorted(available_privileges, key=lambda x: x.value)  # without sorting the set will be randomly ordered based on PYTHONHASHSEED. Sorting for deterministic behavior.
         for _ in range(self.rng.randint(3, self.featmgr.max_random_csr_reads)):
             random_priv_mode = self.rng.choice(available_privilege_list)
             priv_mode_str = priv_mode_to_str[random_priv_mode]

@@ -25,6 +25,7 @@ from .assertions.assert_nequal import AssertNotEqualAction
 from .assertions.assert_exception import AssertExceptionAction
 from .memaccess import MemAccessAction
 from .system import SystemAction
+from .comment import CommentAction
 from .mappings import DEFAULT_MAPPINGS
 
 
@@ -58,5 +59,6 @@ __all__ = [
     "AssertExceptionAction",
     "MemAccessAction",
     "SystemAction",
+    "CommentAction",
     "DEFAULT_MAPPINGS",
 ]

@@ -32,7 +32,13 @@ class TpArgsAdapter(BaseAdapter):
         cfg.isa = args.isa
         cfg.test_plan_name = args.test_plan_name
 
+        # configure feat manager builder
         # handle pass-through args
+        if args.cpuconfig is not None:
+            cpu_config = self.find_config(args.cpuconfig)
+            builder.featmgr_builder.with_cpu_json(cpu_config)
+        else:
+            log.error("Using default memory map (not default cpuconfig). This is likely in error")
         builder.featmgr_builder.with_args(args)
 
         # build tool chain
