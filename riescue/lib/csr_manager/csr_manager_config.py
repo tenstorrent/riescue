@@ -78,12 +78,14 @@ class CsrManager:
         rs: str = "",
         rd: str = "",
         subfield: dict[str, str] = {},
+        value_in_reg: bool = False,
     ) -> str:
         reg1 = instruction_helper.get_random_gpr_reserve("int")
         reg2 = instruction_helper.get_random_gpr_reserve("int")
         instruction = None
 
-        if value is None:
+        if value is None and len(rs) == 0:
+            # force none if rs is empty or unreserved, assume RS already has something
             value = self.rng.get_rand_bits(64)
         if imm is None:
             imm = self.rng.get_rand_bits(5)
@@ -101,17 +103,32 @@ class CsrManager:
             csr_config_ = list(csr_config.values())[0]
             csr_name = list(csr_config.keys())[0]
             subfield_name = list(subfield.keys())[0]
-            value = int(list(subfield.values())[0])
+            subfield_val = list(subfield.values())[0]
+            value_from_reg = value_in_reg
 
             if subfield_name in csr_config_.Fields:
                 field_config_ = csr_config_.Fields[subfield_name]
                 field_range = field_config_.field_config["fields-range"]
-                and_mask, or_mask = self.utils.utils_and_or_mask(field_range, value)
+                if ":" in field_range:
+                    higher, lower = map(int, field_range.split(":"))
+                else:
+                    higher = lower = int(field_range)
+                width = higher - lower + 1
+                field_mask = (1 << width) - 1
+                and_mask = ~(field_mask << lower) & 0xFFFFFFFFFFFFFFFF
+
                 instruction = f"li  {reg1}, {and_mask}\n"
                 instruction += self.utils.utils_access_csr(inst="csrr", csr=csr_name, rd=reg2)
                 instruction += f"and {reg2}, {reg2}, {reg1}\n"
-                instruction += f"li {reg1}, {or_mask}\n"
-                instruction += f"or {reg2}, {reg2}, {reg1}\n"
+                if value_from_reg:
+                    instruction += f"andi {rs}, {rs}, {field_mask}\n"
+                    instruction += f"slli {rs}, {rs}, {lower}\n"
+                    instruction += f"or {reg2}, {reg2}, {rs}\n"
+                else:
+                    val = int(subfield_val) if subfield_val is not None and subfield_val != "" else 0
+                    _, or_mask = self.utils.utils_and_or_mask(field_range, val)
+                    instruction += f"li {reg1}, {or_mask}\n"
+                    instruction += f"or {reg2}, {reg2}, {reg1}\n"
                 instruction += self.utils.utils_access_csr(inst="csrrw", rs=reg2, rd="x0", csr=csr_name, value=None)
             else:
                 print("Error : sub field not found")
@@ -136,6 +153,24 @@ class CsrManager:
 
         if access_type == "read":
             instruction = self.utils.utils_access_csr(inst="csrr", rd=rd, csr=csr_name)
+
+        if access_type == "read_subfield":
+            csr_config_ = list(csr_config.values())[0]
+            subfield_name = list(subfield.keys())[0]
+            if subfield_name in csr_config_.Fields:
+                field_config_ = csr_config_.Fields[subfield_name]
+                field_range = field_config_.field_config["fields-range"]
+                if ":" in field_range:
+                    higher, lower = map(int, field_range.split(":"))
+                else:
+                    higher = lower = int(field_range)
+                width = higher - lower + 1
+                mask = (1 << width) - 1
+                instruction = self.utils.utils_access_csr(inst="csrr", rd=rd, csr=csr_name)
+                instruction += f"srli {rd}, {rd}, {lower}\n"
+                instruction += f"andi {rd}, {rd}, {mask}\n"
+            else:
+                raise Exception(f"subfield {subfield_name} not found in {csr_name}")
 
         regs = [reg1, reg2]
         instruction_helper.unreserve_regs(regs)
@@ -178,18 +213,19 @@ class CsrManagerUtils:
         return matching_csrs
 
     def utils_access_csr(self, inst: str, rd: str, csr: str, value: Optional[int] = None, imm: str = "", rs: str = ""):
-
+        # Assembler expects lowercase CSR names (e.g. tselect, tdata1, tinfo)
+        csr_asm = csr.lower() if isinstance(csr, str) else csr
         instruction = ""
         if inst == "csrrw" or inst == "csrrs" or inst == "csrrc":
             assert value is not None or len(rs) != 0, "Neither Value nor source register specified along with csrr w/s/c instruction"
             if value is not None:
                 instruction = f"li {rs}, {value}\n"
-            instruction += f"{inst} {rd}, {csr}, {rs}\n"
+            instruction += f"{inst} {rd}, {csr_asm}, {rs}\n"
             return instruction
         elif inst == "csrrwi" or inst == "csrrsi" or inst == "csrrci":
-            return f"{inst} {rd}, {csr}, {imm}\n"
+            return f"{inst} {rd}, {csr_asm}, {imm}\n"
         elif inst == "csrr":
-            return f"{inst} {rd}, {csr}\n"
+            return f"{inst} {rd}, {csr_asm}\n"
         else:
             assert False, f"No csr access instruction named : {inst} found"
 

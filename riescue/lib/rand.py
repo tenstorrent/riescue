@@ -5,10 +5,13 @@
 
 import random
 import abc
+import uuid
 from typing import TypeVar, Optional, Sequence
 
 T = TypeVar("T")
 U = TypeVar("U")
+
+_UUID_HISTORY: list[str] = []
 
 
 def initial_random_seed() -> int:
@@ -332,6 +335,18 @@ class RandNum:
             rand.randrange(1, 10)  # Returns a random number between 1 and 9
         """
         return self.rand.randrange(start, stop, step)
+
+    def get_uuid(self) -> str:
+        """
+        Return a random UUID string after ensuring it is unique across all instances of this class
+        :returns: A random UUID string
+        :rtype: str
+        """
+        val = str(uuid.UUID(int=self.random_nbit(128)))[:8]
+        while val in _UUID_HISTORY:
+            val = str(uuid.UUID(int=self.random_nbit(128)))[:8]
+        _UUID_HISTORY.append(val)
+        return val
 
 
 class RandomDistribution(abc.ABC):

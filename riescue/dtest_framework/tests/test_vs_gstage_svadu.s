@@ -158,24 +158,6 @@
     li x31, 0xf0001004
     ecall
 
-# Following code would be executed before and after launching the guest
-# Execute before switching from Hypervisor to guest i.e. HS -> VS/VU
-# This code is executed as hypervisor in HS mode
-vmm_handler_pre:
-    # This code is executed before launching the guest HS -> VS/VU
-    li t0, 0xc0010003
-
-    # Must add this return instruction at the end of the handler
-    ret
-
-# The following code will be executed when going back to hypervisor from guest i.e. VS/VU -> HS
-# This generally happens when there's a trap that's taken to hypervisor
-vmm_handler_post:
-    # This code is executed before launching the guest HS -> VS/VU
-    li t0, 0xc0010004
-    # Must add this return instruction at the end of the handler
-    ret
-
 .section .code, "ax"
 
 #####################

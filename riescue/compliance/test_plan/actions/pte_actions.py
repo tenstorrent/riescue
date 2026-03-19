@@ -6,7 +6,7 @@ from abc import abstractmethod
 
 from coretp import Instruction, StepIR, TestStep
 from coretp.step.memory import ReadLeafPTE, WritePTE, WriteLeafPTE, ReadPTE
-from coretp.rv_enums import Category, OperandType, Extension, Xlen, PagingMode
+from coretp.rv_enums import Category, OperandType, Extension, Xlen, PagingMode, PageSize
 from coretp.isa.operands import Operand
 from coretp.isa import get_register
 
@@ -26,6 +26,34 @@ def get_leaf_level_for_paging_mode(paging_mode: PagingMode) -> int:
     else:
         # Default to sv39
         return 2
+
+
+def get_leaf_level(paging_mode: PagingMode, page_size: PageSize) -> int:
+    """Get the leaf PTE level based on paging mode and page size.
+
+    4KB pages are always at the deepest level (max level for the paging mode),
+    with larger superpages at progressively shallower levels:
+
+      SV39 (max 2): 4KB=2, 2MB=1, 1GB=0
+      SV48 (max 3): 4KB=3, 2MB=2, 1GB=1, 512GB=0
+      SV57 (max 4): 4KB=4, 2MB=3, 1GB=2, 512GB=1, 256TB=0
+
+    Falls back to the max level for the paging mode if the page size is
+    unrecognized (e.g. CUSTOM).
+    """
+    max_level = get_leaf_level_for_paging_mode(paging_mode)
+
+    # Offset from the deepest level: 4KB is 0 (deepest), larger pages go up
+    page_size_offset = {
+        PageSize.SIZE_4K: 0,
+        PageSize.SIZE_2M: 1,
+        PageSize.SIZE_1G: 2,
+        PageSize.SIZE_512G: 3,
+        PageSize.SIZE_256T: 4,
+    }
+
+    offset = page_size_offset.get(page_size, 0)
+    return max_level - offset
 
 
 def paging_mode_to_string(paging_mode: PagingMode) -> str:
@@ -92,7 +120,12 @@ class ReadPteAction(PteAction):
         if memory is None:
             raise ValueError("ReadPteAction requires a memory input")
 
-        return cls(step_id=step_id, memory=memory, level=level, **kwargs)
+        # Directly map step level to read_pte API level (0=root .. max=leaf)
+        pte_level = step.step.level if step.step.level is not None else level
+        if pte_level < 0:
+            raise ValueError("ReadPteAction requires a level (from step or argument)")
+
+        return cls(step_id=step_id, memory=memory, level=pte_level, **kwargs)
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
         # Get paging mode from context environment
@@ -139,10 +172,15 @@ class WritePteAction(PteAction):
         if memory is None:
             raise ValueError("WritePteAction requires a memory input")
 
+        # Directly map step level to write_pte API level (0=root .. max=leaf)
+        pte_level = step.step.level if step.step.level is not None else level
+        if pte_level < 0:
+            raise ValueError("WritePteAction requires a level (from step or argument)")
+
         # Use src from step.step if not found in inputs, otherwise use from inputs
         final_src = src_value if src_value is not None else (step.step.src if hasattr(step.step, "src") else None)
 
-        return cls(step_id=step_id, memory=memory, level=level, src=final_src, **kwargs)
+        return cls(step_id=step_id, memory=memory, level=pte_level, src=final_src, **kwargs)
 
     def expand(self, ctx: LoweringContext) -> Optional[list["Action"]]:
         """
@@ -169,11 +207,15 @@ class WritePteAction(PteAction):
 
 class ReadLeafPteAction(ReadPteAction):
     """
-    Action that reads a leaf PTE (last level PTE based on paging mode).
+    Action that reads a leaf PTE (last level PTE based on paging mode and page size).
     This is a convenience class that automatically determines the leaf level.
     """
 
     register_fields = ["memory"]
+
+    def __init__(self, memory: str, level: int, page_size: PageSize = PageSize.SIZE_4K, **kwargs):
+        super().__init__(memory=memory, level=level, **kwargs)
+        self.page_size = page_size
 
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, level: int = -1, **kwargs) -> "ReadLeafPteAction":
@@ -193,25 +235,31 @@ class ReadLeafPteAction(ReadPteAction):
         if memory is None:
             raise ValueError("ReadLeafPteAction requires a memory input")
 
-        # Level will be determined at pick_instruction time based on paging mode
-        return cls(step_id=step_id, memory=memory, level=-1, **kwargs)
+        page_size = step.step.memory.page_size
+
+        # Level will be determined at pick_instruction time based on paging mode and page size
+        return cls(step_id=step_id, memory=memory, level=-1, page_size=page_size, **kwargs)
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
         # Get paging mode from context environment and determine leaf level
         paging_mode_enum = ctx.env.paging_mode
         paging_mode_str = paging_mode_to_string(paging_mode_enum)
-        leaf_level = get_leaf_level_for_paging_mode(paging_mode_enum)
+        leaf_level = get_leaf_level(paging_mode_enum, self.page_size)
 
         return ReadPteApiInstruction(memory_name=self.memory, paging_mode=paging_mode_str, pte_level=leaf_level)
 
 
 class WriteLeafPteAction(WritePteAction):
     """
-    Action that writes a leaf PTE (last level PTE based on paging mode).
+    Action that writes a leaf PTE (last level PTE based on paging mode and page size).
     This is a convenience class that automatically determines the leaf level.
     """
 
     register_fields = ["memory", "src"]
+
+    def __init__(self, memory: str, level: int, src: Optional[Union[TestStep, str, int]] = None, page_size: PageSize = PageSize.SIZE_4K, **kwargs):
+        super().__init__(memory=memory, level=level, src=src, **kwargs)
+        self.page_size = page_size
 
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, level: int = -1, **kwargs) -> "WriteLeafPteAction":
@@ -242,14 +290,16 @@ class WriteLeafPteAction(WritePteAction):
         # Use src from step.step if not found in inputs, otherwise use from inputs
         final_src = src_value if src_value is not None else (step.step.src if hasattr(step.step, "src") else None)
 
-        # Level will be determined at pick_instruction time based on paging mode
-        return cls(step_id=step_id, memory=memory, level=-1, src=final_src, **kwargs)
+        page_size = step.step.memory.page_size
+
+        # Level will be determined at pick_instruction time based on paging mode and page size
+        return cls(step_id=step_id, memory=memory, level=-1, src=final_src, page_size=page_size, **kwargs)
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
         # Get paging mode from context environment and determine leaf level
         paging_mode_enum = ctx.env.paging_mode
         paging_mode_str = paging_mode_to_string(paging_mode_enum)
-        leaf_level = get_leaf_level_for_paging_mode(paging_mode_enum)
+        leaf_level = get_leaf_level(paging_mode_enum, self.page_size)
 
         return WritePteApiInstruction(memory_name=self.memory, paging_mode=paging_mode_str, pte_level=leaf_level)
 

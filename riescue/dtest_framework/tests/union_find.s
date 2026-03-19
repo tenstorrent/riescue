@@ -37,10 +37,6 @@
 ;#random_addr(name=phys1, type=physical, size=0x1000, and_mask=0xfffffffffffff000)
 ;#page_mapping(lin_name=lin1, phys_name=phys1, v=1, r=1, w=1, a=1, d=1, pagesize=['4kb', '2mb', '1gb', '512gb', '256tb', 'any'])
 
-;#random_addr(name=lin1_io,  type=linear,   size=0x1000, and_mask=0xfffffffffffff000)
-;#random_addr(name=phys1_io, type=physical, io=1, size=0x1000, and_mask=0xfffffffffffff000)
-;#page_mapping(lin_name=lin1_io, phys_name=phys1_io, v=1, r=1, w=1, a=1, d=1, pagesize=['4kb', '2mb', '1gb', '512gb', '256tb', 'any'])
-
 # Another random_data and page_mapping entry
 ;#random_addr(name=lin2,  type=linear,   size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys2, type=physical, size=0x1000, and_mask=0xfffffffffffff000)

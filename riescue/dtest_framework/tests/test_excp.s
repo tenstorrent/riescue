@@ -68,6 +68,10 @@
 ;#page_mapping(lin_name=lin7+0x204000, phys_name=phys7+0x204000, v=0, r=1, w=1, a=1, d=1, pagesize=['4kb'])
 ;#page_mapping(lin_name=lin7+0x205000, phys_name=phys7+0x205000, v=1, r=1, w=1, a=1, d=1, pagesize=['4kb'])
 
+;#random_addr(name=lin8,  type=linear,   size=0x1000, and_mask=0xffffffffffe00000)
+;#random_addr(name=phys8, type=physical, size=0x1000, and_mask=0xffffffffffe00000)
+;#page_mapping(lin_name=lin8, phys_name=&random, v=1, r=1, w=1, a=1, d=1, r_leaf_gleaf=0, pagesize=['4kb'])
+
 # Another random_data and page_mapping entry
 # ;#reserve_memory(start_addr=0x500000, addr_type=linear, size=0x1000)
 # ;#reserve_memory(start_addr=0x600000, addr_type=linear, size=0x1000)
@@ -328,6 +332,28 @@ excp6_ret:
     ;#test_passed()
 
 #####################
+# test07: Check htval on guest page fault
+#####################
+;#discrete_test(test=test07)
+test07:
+    addi x0, x0, 0
+
+.if ENV_VIRTUALIZED && !PAGING_G_MODE_DISABLE && !PAGING_MODE_DISABLE
+    OS_SETUP_CHECK_EXCP LOAD_GUEST_PAGE_FAULT, excp7, excp7_ret, lin8, (lin8__vsleaf0__gpa>>2)
+
+    li x1, lin8
+excp7:
+    lw t2, 0(x1)
+
+    ;#test_failed()
+
+.endif
+
+excp7_ret:
+
+    ;#test_passed()
+
+#####################
 # test_cleanup: RiESCUE defined label
 #             Add code below which is needed to perform any cleanup activity
 #             This label is executed exactly once _after_ running all of the
@@ -337,14 +363,6 @@ test_cleanup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010002
     ;#test_passed()
-
-vmm_handler_pre:
-    nop
-    ret
-
-vmm_handler_post:
-    nop
-    ret
 
 excp_handler_pre:
     # Discrete test can setup any register to pick custom code here per discrete_test

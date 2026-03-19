@@ -3,7 +3,7 @@
 
 from typing import Generator
 
-from riescue.compliance.test_plan.actions import Action, MemoryAction, CodePageAction, CodeMixin
+from riescue.compliance.test_plan.actions import Action, MemoryAction, CodePageAction, CodeMixin, RequestPmpAction
 from riescue.compliance.test_plan.types import DiscreteTest
 from riescue.compliance.test_plan.context import LoweringContext
 
@@ -56,6 +56,7 @@ class Canonicalizer:
         local_step_id_to_canonical: dict[str, str] = {}  # Used to map local step IDs to canonical steps
         global_functions: dict[str, CodePageAction] = {}
         memory_actions: dict[str, MemoryAction] = {}
+        memory_request_actions: dict[str, RequestPmpAction] = {}
 
         # 1 gather all the step IDs from DT, gather global functions
         for action in self._action_generator(test.actions):
@@ -67,6 +68,10 @@ class Canonicalizer:
                 global_function_id = ctx.new_code_memory_id()
                 local_step_id_to_canonical[action.step_id] = global_function_id
                 global_functions[global_function_id] = action
+            elif isinstance(action, RequestPmpAction):
+                new_memory_request_id = ctx.new_memory_id()
+                local_step_id_to_canonical[action.step_id] = new_memory_request_id
+                memory_request_actions[new_memory_request_id] = action
             elif isinstance(action, MemoryAction):
                 new_memory_id = ctx.new_memory_id()
                 local_step_id_to_canonical[action.step_id] = new_memory_id
@@ -88,10 +93,12 @@ class Canonicalizer:
         for memory_action in memory_actions.values():
             ctx.mem_reg.allocate_data(memory_action.step_id, memory_action)
 
+        for memory_request_action in memory_request_actions.values():
+            ctx.mem_reg.allocate_data(memory_request_action.step_id, memory_request_action)
+
         # 5 remove memory and code actions from actions
         test.actions = self._pop_memory_actions(test.actions)
         test.actions = self._pop_global_functions(test.actions)
-
         return test, list(global_functions.values()), list(memory_actions.values())
 
     def _action_generator(self, actions: list[Action]) -> Generator[Action, None, None]:
@@ -107,7 +114,7 @@ class Canonicalizer:
 
     def _pop_memory_actions(self, actions: list[Action]) -> list[Action]:
         """
-        Recursively pop MemoryActions from actions
+        Recursively pop CodeMixins and MemoryActions from actions. Enables
         """
         ret_actions: list[Action] = []
         for action in actions:

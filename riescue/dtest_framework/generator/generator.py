@@ -5,11 +5,14 @@ import re
 import io
 import logging
 from pathlib import Path
+from typing import Optional
 import copy
 
 import riescue.dtest_framework.lib.addrgen as addrgen
 import riescue.lib.common as common
 import riescue.lib.enums as RV
+from riescue.dtest_framework.runtime.selfcheck import SELFCHECK_CHECKSUM_SIZE
+from riescue.dtest_framework.runtime.test_execution_logger import TEST_EXECUTION_DATA_PER_HART_SIZE
 from riescue.lib.address import Address
 from riescue.lib.numgen import NumGen
 from riescue.lib.rand import RandNum
@@ -19,6 +22,7 @@ from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.lib.page_map import Page, PageMap
 from riescue.dtest_framework.generator.assembly_writer import AssemblyWriter
 from riescue.dtest_framework.artifacts import GeneratedFiles
+from riescue.dtest_framework.config.memory import IoRange
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +40,9 @@ class Generator:
         self.pool = pool
         self.rng = rng
         self.featmgr = featmgr
+        # Auto-enable debug_mode when ;#discrete_debug_test() is present in the test
+        if self.pool.get_parsed_discrete_debug_test() is not None:
+            self.featmgr.debug_mode = True
         self.numgen = NumGen(self.rng)
         self.numgen.default_genops()
 
@@ -50,11 +57,23 @@ class Generator:
         self.linker_script = self.run_dir / f"{self.pool.testname}.ld"
 
         # Default sections
-        self.os_code_sections = ["text"]
+        self.os_code_sections = ["runtime"]
         self.os_data_sections = ["os_data", "hart_context"]
-        self.io_sections = []  # IO sections to be added
-        if self.featmgr.io_htif_addr is not None:
-            self.io_sections.append("io_htif")  # If unset, don't want to make it a section (and add to linker); this effectively places io_htif after OS code
+        if self.featmgr.selfcheck:
+            self.os_data_sections.append("selfcheck_data")
+        if self.featmgr.log_test_execution:
+            self.os_data_sections.append("test_execution_data")
+        self.io_sections = ["io_htif"]  # IO sections to be added
+        if self.featmgr.io_maplic_addr is not None:
+            self.io_sections.append("maplic")
+        if self.featmgr.io_saplic_addr is not None:
+            self.io_sections.append("saplic")
+        if self.featmgr.io_imsic_mfile_addr is not None:
+            self.io_sections.append("imsic_mfile")
+        if self.featmgr.io_imsic_sfile_addr is not None:
+            self.io_sections.append("imsic_sfile")
+        if self.featmgr.debug_mode and self.featmgr.debug_rom_address is not None and self.featmgr.debug_rom_size is not None:
+            self.io_sections.append("debug_rom")
 
         self.c_used_sections = [
             "bss",
@@ -64,7 +83,7 @@ class Generator:
             "rela.c_text",
             "c_stack",
             "rodata",
-            "c_data",
+            "data",
             "c_comment",
             "symtab",
             "strtab",
@@ -132,28 +151,46 @@ class Generator:
         ]
         if self.featmgr.add_gcc_cstdlib_sections:
             self.c_used_sections += self.gcc_cstdlib_sections
-        self.next_c_section_addr = None
+        self.next_c_section_lin_addr = None
+
+        # Track pre-allocated PMA regions for in_pma=1 addresses
+        self._pre_allocated_pma_regions: dict[str, "PmaInfo"] = {}
 
         memory = featmgr.memory
 
         # Setup PMAs and PMP regions
         for range in memory.dram_ranges:
-            # Setup default PMAs for DRAM
-            # FIXME: Did we really mean to only create a PMA for the last dram range?
-            self.pool.pma_regions.add_region(base=range.start, size=range.size, type="memory")
-            self.pool.pmp_regions.add_region(base=range.start, size=range.size)
+            # this should scale to arbitrary PMA attributes
+            pma_cacheability = "cacheable" if range.cacheable else "noncacheable"
+            self.pool.pma_regions.add_region(
+                base=range.start,
+                size=range.size,
+                type="memory",
+                cacheability=pma_cacheability,
+            )
+            self.pool.pmp_regions.add_region(range=range)
 
         for range in memory.secure_ranges:
-            # Since this secure region, we need to set bit-55 to 1
-            start_addr = range.start | 0x0080000000000000
             self.pool.pma_regions.add_region(base=range.start, size=range.size, type="memory")
-            self.pool.pmp_regions.add_region(base=start_addr, size=range.size)
+
+            # Since this secure region, we need to set bit-55 to 1 for PMP entries only
+            self.pool.pmp_regions.add_region(range=range, secure=True)
 
         for range in memory.io_ranges + memory.reserved_ranges:
             self.pool.pma_regions.add_region(base=range.start, size=range.size, type="io")
-            self.pool.pmp_regions.add_region(base=range.start, size=range.size)
+            if isinstance(range, IoRange) and (range.name == "htif" or range in memory.io_ranges):
+                self.pool.pmp_regions.add_region(range=range)
 
-        self.addrgen = addrgen.AddrGen(self.rng, memory, self.featmgr.addrgen_limit_indices, self.featmgr.addrgen_limit_way_predictor_multihit)
+        # Generate PMA regions from hints and configuration
+        self._generate_pma_from_hints(memory)
+
+        # Pre-allocate PMA regions for all in_pma=1 addresses
+        # This ensures all PMA regions are determined during initialization
+        self._pre_allocate_pma_regions_for_in_pma(memory)
+
+        self.addrgen = addrgen.AddrGen(
+            self.rng, memory, self.featmgr.addrgen_limit_indices, self.featmgr.addrgen_limit_way_predictor_multihit, pma_regions=self.pool.pma_regions  # Pass PMA regions for address checking
+        )
 
         # Set the linear and physical address bits
         self.linear_addr_bits = RV.RiscvPagingModes.linear_addr_bits(self.featmgr.paging_mode)
@@ -184,6 +221,249 @@ class Generator:
         # Set physical address bits in feature manager
         self.featmgr.physical_addr_bits = self.physical_addr_bits
         log.debug(f"Using physical address bits: {self.physical_addr_bits}")
+
+    def _generate_pma_from_hints(self, memory) -> None:
+        """
+        Generate PMA regions from hints and configuration.
+
+        This method:
+        1. Gets PMA config from cpu_config (if available)
+        2. Gets parsed hints from pool
+        3. Uses PmaGenerator to generate regions
+        4. Adds generated regions to pool
+
+        :param memory: Memory configuration object
+        """
+        from riescue.dtest_framework.lib.pma_generator import PmaGenerator
+
+        # Get PMA config from feature manager
+        pma_config = None
+        if hasattr(self.featmgr, "cpu_config") and self.featmgr.cpu_config:
+            pma_config = self.featmgr.cpu_config.pma_config
+
+        # Get parsed hints from pool
+        parsed_hints = list(self.pool.get_parsed_pma_hints().values())
+
+        # If no hints and no config, skip
+        if not parsed_hints and not (pma_config and (pma_config.hints or pma_config.regions)):
+            log.debug("No PMA hints or config found, skipping PMA generation from hints")
+            return
+
+        # Create generator
+        pma_generator = PmaGenerator(pma_config, memory, self.rng)
+
+        # Generate regions
+        generated_regions = pma_generator.generate_all(parsed_hints)
+
+        # Add to pool
+        for pma_info in generated_regions:
+            self.pool.pma_regions.add_entry(pma_info)
+            log.info(f"Generated PMA region: {pma_info.pma_name} at 0x{pma_info.pma_address:x}, " f"size 0x{pma_info.pma_size:x}, type={pma_info.pma_memory_type}")
+
+        # Log summary
+        total_regions = len(self.pool.pma_regions.consolidated_entries())
+        log.info(f"Generated {len(generated_regions)} PMA regions from hints and config. " f"Total PMA regions: {total_regions}")
+
+        # Warn if approaching limit
+        max_regions = pma_config.max_regions if pma_config else 15
+        if total_regions > max_regions:
+            log.warning(f"Total PMA regions ({total_regions}) exceeds max_regions limit ({max_regions}). " f"Some regions may not be used.")
+
+    def _pre_allocate_pma_regions_for_in_pma(self, memory) -> None:
+        """
+        Pre-allocate PMA regions for all addresses with in_pma=1.
+
+        This ensures all PMA regions are determined during initialization.
+        First tries to reuse existing PMA hint regions, then creates new ones if needed.
+
+        :param memory: Memory configuration object
+        """
+        from riescue.dtest_framework.lib.pma import PmaInfo
+
+        # Get PMA config to check max_regions
+        pma_config = None
+        if hasattr(self.featmgr, "cpu_config") and self.featmgr.cpu_config:
+            pma_config = self.featmgr.cpu_config.pma_config
+        max_regions = pma_config.max_regions if pma_config else 15
+
+        # Count current PMA regions (after consolidation)
+        current_regions = len(self.pool.pma_regions.consolidated_entries())
+        available_slots = max_regions - current_regions
+
+        if available_slots <= 0:
+            log.warning(f"No PMA slots available for in_pma=1 addresses. " f"Current regions: {current_regions}, max: {max_regions}")
+
+        # Find all parsed addresses with in_pma=1
+        in_pma_addresses = []
+        for addr_name, parsed_addr in self.pool.get_parsed_addrs().items():
+            if parsed_addr.in_pma:
+                in_pma_addresses.append((addr_name, parsed_addr))
+
+        if not in_pma_addresses:
+            log.debug("No addresses with in_pma=1 found, skipping pre-allocation")
+            return
+
+        log.info(f"Pre-allocating PMA regions for {len(in_pma_addresses)} addresses with in_pma=1")
+
+        # Track pre-allocated regions (name -> PmaInfo)
+        self._pre_allocated_pma_regions: dict[str, PmaInfo] = {}
+        # Track pre-allocated regions by attributes for sharing within this batch
+        pre_allocated_by_attrs: dict[tuple, PmaInfo] = {}
+
+        for addr_name, parsed_addr in in_pma_addresses:
+            if available_slots <= 0:
+                log.error(f"Cannot pre-allocate PMA region for {addr_name}: " f"no available slots (max_regions={max_regions})")
+                continue
+
+            # Ensure pma_info exists
+            if parsed_addr.pma_info is None:
+                parsed_addr.pma_info = PmaInfo()
+
+            # Set default pma_size if not specified
+            if parsed_addr.pma_info.pma_size == 0:
+                parsed_addr.pma_info.pma_size = parsed_addr.size
+
+            # Try to find matching existing PMA hint region
+            matching_region = self._find_matching_pma_region(parsed_addr.pma_info)
+
+            # If no hint region matches, check if we've already pre-allocated a region with matching attributes
+            if not matching_region:
+                # Create a key from PMA attributes to check for sharing
+                attr_key = (
+                    parsed_addr.pma_info.pma_memory_type,
+                    parsed_addr.pma_info.pma_cacheability,
+                    parsed_addr.pma_info.pma_combining,
+                    parsed_addr.pma_info.pma_read,
+                    parsed_addr.pma_info.pma_write,
+                    parsed_addr.pma_info.pma_execute,
+                    parsed_addr.pma_info.pma_amo_type,
+                    parsed_addr.pma_info.pma_routing_to,
+                )
+                # Check if we've already pre-allocated a region with these attributes
+                if attr_key in pre_allocated_by_attrs:
+                    existing_pre_alloc = pre_allocated_by_attrs[attr_key]
+                    # Check if the existing region is large enough
+                    if existing_pre_alloc.pma_size >= parsed_addr.pma_info.pma_size:
+                        matching_region = existing_pre_alloc
+                        log.debug(f"Reusing pre-allocated region '{existing_pre_alloc.pma_name}' " f"for address {addr_name} (matching attributes)")
+
+            if matching_region:
+                # Reuse existing PMA hint region
+                log.debug(f"Reusing PMA hint region '{matching_region.pma_name}' " f"for address {addr_name}")
+                # Store reference to existing region
+                self._pre_allocated_pma_regions[addr_name] = matching_region
+                # Update parsed_addr to point to existing region
+                parsed_addr.pma_info = matching_region
+            else:
+                # Need to create new PMA region
+                # Generate a placeholder address (will be updated when actual address is generated)
+                pma_info = PmaInfo(
+                    pma_name=f"pma_{addr_name}",
+                    pma_address=0,  # Will be set when address is generated
+                    pma_size=parsed_addr.pma_info.pma_size,
+                    pma_memory_type=parsed_addr.pma_info.pma_memory_type,
+                    pma_read=parsed_addr.pma_info.pma_read,
+                    pma_write=parsed_addr.pma_info.pma_write,
+                    pma_execute=parsed_addr.pma_info.pma_execute,
+                    pma_amo_type=parsed_addr.pma_info.pma_amo_type,
+                    pma_cacheability=parsed_addr.pma_info.pma_cacheability,
+                    pma_combining=parsed_addr.pma_info.pma_combining,
+                    pma_routing_to=parsed_addr.pma_info.pma_routing_to,
+                    pma_valid=True,
+                )
+
+                # Store pre-allocated region
+                self._pre_allocated_pma_regions[addr_name] = pma_info
+                # Update parsed_addr to point to pre-allocated region
+                parsed_addr.pma_info = pma_info
+
+                # Track this region by attributes for potential sharing
+                attr_key = (
+                    pma_info.pma_memory_type,
+                    pma_info.pma_cacheability,
+                    pma_info.pma_combining,
+                    pma_info.pma_read,
+                    pma_info.pma_write,
+                    pma_info.pma_execute,
+                    pma_info.pma_amo_type,
+                    pma_info.pma_routing_to,
+                )
+                pre_allocated_by_attrs[attr_key] = pma_info
+
+                # Note: We don't add it to pool.pma_regions yet because we don't have the address
+                # It will be added in handle_random_addr when the address is generated
+                available_slots -= 1
+                log.debug(f"Pre-allocated PMA region for {addr_name}: " f"size=0x{pma_info.pma_size:x}, type={pma_info.pma_memory_type}")
+
+        # Log summary
+        reused = sum(1 for r in self._pre_allocated_pma_regions.values() if r.pma_address != 0)  # Address != 0 means it's from existing region
+        new_regions = len(self._pre_allocated_pma_regions) - reused
+        log.info(f"Pre-allocated PMA regions: {reused} reused from hints, {new_regions} new regions. " f"Remaining slots: {available_slots}")
+
+    def _find_matching_pma_region(self, pma_info: "PmaInfo") -> Optional["PmaInfo"]:
+        """
+        Find an existing PMA region that matches the given PMA attributes.
+
+        :param pma_info: PMA info to match against
+        :return: Matching PmaInfo if found, None otherwise
+        """
+        from riescue.dtest_framework.lib.pma import PmaInfo
+
+        # Check consolidated entries (final PMA regions)
+        for region in self.pool.pma_regions.consolidated_entries():
+            # Check if attributes match (excluding address and size)
+            if (
+                region.pma_memory_type == pma_info.pma_memory_type
+                and region.pma_read == pma_info.pma_read
+                and region.pma_write == pma_info.pma_write
+                and region.pma_execute == pma_info.pma_execute
+                and region.pma_amo_type == pma_info.pma_amo_type
+                and region.pma_cacheability == pma_info.pma_cacheability
+                and region.pma_combining == pma_info.pma_combining
+                and region.pma_routing_to == pma_info.pma_routing_to
+            ):
+                # Check if region has enough space (at least the requested size)
+                if region.pma_size >= pma_info.pma_size:
+                    return region
+
+        return None
+
+    def _generate_address_in_pma_region(self, region: "PmaInfo", constraints: addrgen.AddressConstraint) -> Optional[int]:
+        """
+        Generate an address within the specified PMA region.
+
+        :param region: PMA region to generate address within
+        :param constraints: Address constraints (size, mask, etc.)
+        :return: Generated address or None if not possible
+        """
+        # Ensure address fits within region
+        min_addr = region.pma_address
+        region_end = region.get_end_address()
+        max_addr = region_end - constraints.size
+
+        # Check if region is large enough
+        if max_addr < min_addr or region.pma_size < constraints.size:
+            return None  # Region too small
+
+        # Ensure we have valid range
+        if max_addr <= min_addr:
+            return None
+
+        # Generate address within region bounds
+        try:
+            address = self.rng.random_in_range(min_addr, max_addr)
+        except ValueError:
+            return None  # Invalid range
+
+        # Apply alignment mask
+        address = address & constraints.mask
+        # Ensure it's still within bounds after alignment
+        if address < min_addr:
+            address = (min_addr + constraints.mask) & ~constraints.mask
+        if address + constraints.size > region_end:
+            return None  # Can't fit after alignment
+
+        return address
 
     def generate(self, file_in: Path, generated_files: GeneratedFiles):
         """
@@ -696,13 +976,59 @@ class Generator:
                 bits=random_addr.addr_bits,
                 size=phys_address_size,
                 mask=phys_address_mask,
+                or_mask=random_addr.or_mask,
             )
             log.debug(f"Adding addr: {addr_name}, addr_c: {address_contstaint}")
-            try:
-                address = self.addrgen.generate_address(constraint=address_contstaint)
-            except Exception as e:
-                log.error(f"Error generating address for {addr_name}")
-                raise e
+
+            # Check if this address has a pre-allocated PMA region
+            use_pma_region = False
+            if addr_name in self._pre_allocated_pma_regions:
+                pre_allocated_region = self._pre_allocated_pma_regions[addr_name]
+
+                # If region already has an address (reused from hint), generate within it
+                # But only if the region is large enough and address is set
+                if pre_allocated_region.pma_address != 0 and pre_allocated_region.pma_size >= phys_address_size:
+                    log.debug(f"Using pre-allocated PMA region '{pre_allocated_region.pma_name}' " f"for address {addr_name}")
+                    address = self._generate_address_in_pma_region(pre_allocated_region, address_contstaint)
+                    if address is None:
+                        log.warning(f"Could not generate address within PMA region " f"'{pre_allocated_region.pma_name}' for {addr_name}, " f"falling back to normal generation")
+                    else:
+                        use_pma_region = True
+
+            if not use_pma_region:
+                # Normal address generation
+                try:
+                    address = self.addrgen.generate_address(constraint=address_contstaint)
+                except Exception as e:
+                    log.error(f"Error generating address for {addr_name}")
+                    raise e
+
+                # If we have a pre-allocated region (but no address yet), update it
+                if addr_name in self._pre_allocated_pma_regions:
+                    pre_allocated_region = self._pre_allocated_pma_regions[addr_name]
+                    if pre_allocated_region.pma_address == 0:
+                        # For shared regions, we need to ensure the address is within the region
+                        # But since we don't know the region address yet, we'll set it to the first generated address
+                        # and subsequent addresses in the same region will be generated within it
+                        pre_allocated_region.pma_address = address
+                        # Only add to pool if not already added (might be shared with other addresses)
+                        existing_region = self.pool.pma_regions.find_region_for_address(address)
+                        if existing_region is None or existing_region.pma_address != address:
+                            # Add to pool (will be consolidated later)
+                            self.pool.pma_regions.add_entry(pre_allocated_region)
+                        log.debug(f"Updated pre-allocated PMA region '{pre_allocated_region.pma_name}' " f"with address 0x{address:x} for {addr_name}")
+                    else:
+                        # Region already has an address (shared region), try to generate within it
+                        # But only if the region is large enough and we can fit the address
+                        if pre_allocated_region.pma_size >= phys_address_size:
+                            # Calculate valid range within the region
+                            region_min = pre_allocated_region.pma_address
+                            region_max = pre_allocated_region.get_end_address() - phys_address_size
+                            if region_max >= region_min:
+                                address_in_region = self._generate_address_in_pma_region(pre_allocated_region, address_contstaint)
+                                if address_in_region is not None:
+                                    address = address_in_region
+                                    log.debug(f"Generated address 0x{address:x} within shared PMA region " f"'{pre_allocated_region.pma_name}' for {addr_name}")
 
             if marked_secure:
                 address = address | (1 << 55)
@@ -798,17 +1124,24 @@ class Generator:
         log.debug(f"lin_name: {lin_name}, final_pagesize: {final_pagesize}, addr_size: {addr_size:x}, addr_mask: {addr_mask:x}")
 
         if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-            specified_pagesizes = page_mapping.gstage_vs_leaf_pagesizes
-            log.debug(f"lin_name_leaf: {lin_name}, specified_pagesizes: {specified_pagesizes}")
-            (
-                gstage_vs_leaf_final_pagesize,
-                gstage_vs_leaf_addr_size,
-                gstage_vs_leaf_addr_mask,
-            ) = self.pick_pagesize(
-                specified_pagesizes=specified_pagesizes,
-                paging_mode=self.featmgr.paging_g_mode,
-                page_mapping=page_mapping,
-            )
+            if not page_mapping.gstage_vs_leaf_pagesizes:
+                # Not specified — use the exact same pagesize as the VS-stage page
+                gstage_vs_leaf_final_pagesize = final_pagesize
+                gstage_vs_leaf_addr_size = RV.RiscvPageSizes.memory(final_pagesize)
+                gstage_vs_leaf_addr_mask = RV.RiscvPageSizes.address_mask(final_pagesize)
+                log.debug(f"lin_name_leaf: {lin_name}, gstage_vs_leaf_pagesize defaulting to VS-stage pagesize: {final_pagesize}")
+            else:
+                specified_pagesizes = page_mapping.gstage_vs_leaf_pagesizes
+                log.debug(f"lin_name_leaf: {lin_name}, specified_pagesizes: {specified_pagesizes}")
+                (
+                    gstage_vs_leaf_final_pagesize,
+                    gstage_vs_leaf_addr_size,
+                    gstage_vs_leaf_addr_mask,
+                ) = self.pick_pagesize(
+                    specified_pagesizes=specified_pagesizes,
+                    paging_mode=self.featmgr.paging_g_mode,
+                    page_mapping=page_mapping,
+                )
             log.debug(f"lin_name_nonleaf: {lin_name}, specified_pagesizes: {specified_pagesizes}")
             specified_pagesizes = page_mapping.gstage_vs_nonleaf_pagesizes
             (
@@ -828,7 +1161,7 @@ class Generator:
                 paging_mode = self.featmgr.paging_g_mode
 
         # Handle the non-leaf attributes forcing, i.e. v_level1=0 etc
-        for attr in ["v", "a", "d", "g", "u", "x", "w", "r"]:
+        for attr in ["v", "a", "d", "g", "u", "x", "w", "r", "n", "pbmt"]:
             (addr_size, addr_mask) = self.randomize_pt_attrs(
                 attr=attr,
                 page_mapping=page_mapping,
@@ -873,6 +1206,14 @@ class Generator:
                 "u_nonleaf_gleaf",
                 "u_leaf_gnonleaf",
                 "u_leaf_gleaf",
+                "n_nonleaf_gnonleaf",
+                "n_nonleaf_gleaf",
+                "n_leaf_gnonleaf",
+                "n_leaf_gleaf",
+                "pbmt_nonleaf_gnonleaf",
+                "pbmt_nonleaf_gleaf",
+                "pbmt_leaf_gnonleaf",
+                "pbmt_leaf_gleaf",
             ]
 
             # Setup the U-bit
@@ -1033,17 +1374,19 @@ class Generator:
         )
         # if page_mapping.v_nonleaf == 0:
         map_max_levels = RV.RiscvPagingModes.max_levels(paging_mode_g)
+        base_attr = attr.split("_")[0]
         # For most bits, clearing it will generate a fault, e.g. v=0, w=0, r=0, x=0. But, for g-bit common case is to set it to 0
-        significant_bit_value = 0
-        # if attr[0] in ['g', 'x']:
-        if attr[0] in ["g"]:
-            significant_bit_value = 1
-        if attr[0] in ["u"]:
+        insignificant_value = 1
+        # if base_attr in ['g', 'x']:
+        if base_attr in ["g", "n", "pbmt"]:
+            insignificant_value = 0
+        if base_attr in ["u"]:
             # If current mode is super mode, then significant bit is 1, else 0
             if self.featmgr.priv_mode == RV.RiscvPrivileges.SUPER:
-                significant_bit_value = 1
+                insignificant_value = 0
 
-        if not page_mapping.__getattribute__(attr) == significant_bit_value:
+        attr_value = page_mapping.__getattribute__(attr)
+        if attr_value is None or attr_value == insignificant_value:
             return (
                 addr_size_leaf,
                 addr_mask_leaf,
@@ -1055,9 +1398,9 @@ class Generator:
         if "_nonleaf_" in attr:
             # If vs-stage is disabled, then randomization should be taken care at the g-stage map itself
             if paging_mode_vs == RV.RiscvPagingModes.DISABLE:
-                page_mapping.__setattr__(f"{attr[0]}_nonleaf", significant_bit_value)
+                page_mapping.__setattr__(f"{base_attr}_nonleaf", attr_value)
                 (addr_size_leaf, addr_mask_leaf) = self.randomize_pt_attrs(
-                    attr=attr[0],
+                    attr=base_attr,
                     page_mapping=page_mapping,
                     paging_mode=paging_mode_g,
                     final_pagesize=final_pagesize_gleaf,
@@ -1105,8 +1448,8 @@ class Generator:
             # If vs-stage is disabled, then randomization should be taken care at the g-stage map itself
             if paging_mode_vs == RV.RiscvPagingModes.DISABLE:
                 g_leaf_level = RV.RiscvPageSizes.pt_leaf_level(final_pagesize_gleaf)
-                page_mapping.__setattr__(f"{attr[0]}_level{g_leaf_level}", significant_bit_value)
-                log.debug(f"Setting {attr[0]}: {significant_bit_value} for {page_mapping.lin_name}")
+                page_mapping.__setattr__(f"{base_attr}_level{g_leaf_level}", attr_value)
+                log.debug(f"Setting {base_attr}: {attr_value} for {page_mapping.lin_name}")
                 # (addr_size_leaf, addr_mask_leaf) = self.randomize_pt_attrs(attr=attr[0],
                 #                                                  page_mapping=page_mapping,
                 #                                                  paging_mode=paging_mode_g,
@@ -1200,17 +1543,17 @@ class Generator:
             # taken care of it
 
         # Now construct the final attribute name for page_mapping, so it can be used in pagetables, e.g. v_level2_glevel1
-        pt_attr = f"{attr[0]}_level{vslevel_to_randomize}_glevel{glevel_to_randomize}"
+        pt_attr = f"{base_attr}_level{vslevel_to_randomize}_glevel{glevel_to_randomize}"
         log.debug(
             " ".join(
                 [
-                    f"setting {pt_attr} for {page_mapping.lin_name} with {significant_bit_value},",
+                    f"setting {pt_attr} for {page_mapping.lin_name} with {attr_value},",
                     f"reserving: {addr_size_leaf:x}, {addr_mask_leaf:x}, {addr_size_nonleaf:x}, {addr_mask_nonleaf:x},",
                     f"pt_attr: {pt_attr}",
                 ]
             ),
         )
-        page_mapping.__setattr__(f"{pt_attr}", significant_bit_value)
+        page_mapping.__setattr__(f"{pt_attr}", attr_value)
 
         return (addr_size_leaf, addr_mask_leaf, addr_size_nonleaf, addr_mask_nonleaf)
 
@@ -1252,15 +1595,15 @@ class Generator:
         map_max_levels = RV.RiscvPagingModes.max_levels(paging_mode)
         pt_leaf_level = RV.RiscvPageSizes.pt_leaf_level(final_pagesize)
         # For most bits, clearing it will generate a fault, e.g. v=0. But, for g-bit common case is to set it to 0
-        significant_bit_value = 0
+        insignificant_value = 1
         leaf_bit_val = 1
         # if attr in ['g', 'x']:
-        if attr in ["g"]:
-            significant_bit_value = 1
+        if attr in ["g", "n", "pbmt"]:
+            insignificant_value = 0
         if attr[0] in ["u"]:
             # If current mode is super mode, then significant bit is 1, else 0
             if self.featmgr.priv_mode == RV.RiscvPrivileges.SUPER:
-                significant_bit_value = 1
+                insignificant_value = 0
                 leaf_bit_val = 0
             # If vs-paging is disabled, then we need to set the U-bit to 1
             if paging_mode == RV.RiscvPagingModes.DISABLE:
@@ -1280,12 +1623,14 @@ class Generator:
 
         # Need to handle v=0, x=0, r=0 etc cases where we need to transfer thainformation to actual level
         # based on the current pagesize, e.g. v=0 will translate to v_level0=0 for a 4kb page
-        if page_mapping.__getattribute__(attr) == significant_bit_value:
+        attr_value = page_mapping.__getattribute__(attr)
+        if attr_value is not None and attr_value != insignificant_value:
             # Make sure we update the correct level based on the pagesize
-            page_mapping.__setattr__(f"{attr}_level{pt_leaf_level}", significant_bit_value)
+            page_mapping.__setattr__(f"{attr}_level{pt_leaf_level}", attr_value)
             return (addr_size, addr_mask)
 
-        if page_mapping.__getattribute__(f"{attr}_nonleaf") == significant_bit_value:
+        nonleaf_value = page_mapping.__getattribute__(f"{attr}_nonleaf")
+        if nonleaf_value is not None and nonleaf_value != insignificant_value:
             # Based on the current pagesize, select a level to clear the v-bit
             # 4KB and SV57
             # map_max_levels (based on current paging map) = 5
@@ -1344,7 +1689,7 @@ class Generator:
                 addr_size = address_size
                 addr_mask = address_mask
             log.debug(f"rnd_pt for {page_mapping.lin_name}, {attr}: {rnd_pt_level}, {addr_size:x}, {0xffffffffffffffff << (common.msb(addr_size)):x}")
-            page_mapping.__setattr__(f"{attr}_level{rnd_pt_level}", significant_bit_value)
+            page_mapping.__setattr__(f"{attr}_level{rnd_pt_level}", nonleaf_value)
 
         return (addr_size, addr_mask)
 
@@ -1497,11 +1842,11 @@ class Generator:
                 if var == "phys_name":
                     if val == "&random":
                         ppm_inst.resolve_priority = 20
-                        # Check if phys_name exists in any value instance in ppm
-                        exists = any(ppm.phys_name == val for ppm in self.pool.get_parsed_page_mappings().values())
-                        if exists:
-                            log.debug(f"phys_name {val} already exists in another page mapping, marking as alias case")
-                            ppm_inst.alias = True
+                    # Check if phys_name exists in any value instance in ppm
+                    exists = any(ppm.phys_name == val for ppm in self.pool.get_parsed_page_mappings().values())
+                    if exists:
+                        log.debug(f"phys_name {val} already exists in another page mapping, marking as alias case")
+                        ppm_inst.alias = True
 
             if fixed_addr_specified:
                 ppm_inst.resolve_priority = 15
@@ -1663,7 +2008,7 @@ class Generator:
 
         # Generate all level combinations
         levels = range(5)  # 0 to 4
-        level_types = ["v", "u", "a", "d", "r", "w", "x"]
+        level_types = ["v", "u", "a", "d", "r", "w", "x", "pbmt", "n"]
 
         # Generate all level combinations
         level_attrs = []
@@ -1706,22 +2051,43 @@ class Generator:
                 log.debug(f"Setting {attr_name} = {ppm_attr_val} for {page.name}")
 
     def handle_sections(self, section):
-        sections_to_process = ["data", "text", "code"] + self.os_data_sections + self.io_sections
+        sections_to_process = ["data", "runtime", "code"] + self.os_data_sections + self.io_sections
         if self.featmgr.c_used:
             sections_to_process += self.c_used_sections
 
         if section not in sections_to_process:
             return
 
-        if self.featmgr.wysiwyg and self.pool.random_addr_exists("text"):
+        if section == "debug_rom":
+            # Only reserve and create page tables when test has ;#discrete_debug_test()
+            if self.pool.get_parsed_discrete_debug_test() is None:
+                return
+            # Reserve memory and create page tables via add_section_handler (same pattern as io_htif/maplic/saplic)
+            page_size = 0x1000
+            size = self.featmgr.debug_rom_size
+            size_aligned = max((size + page_size - 1) & ~(page_size - 1), page_size)
+            (lin_addr, phys_addr) = self.add_section_handler(
+                name="debug_rom",
+                size=size_aligned,
+                iscode=True,
+                start_addr=self.featmgr.debug_rom_address,
+            )
             return
 
-        num_text_pages = 16
-        num_user_text_pages = 1 if self.featmgr.priv_mode == RV.RiscvPrivileges.USER else 0
+        if self.featmgr.wysiwyg and self.pool.random_addr_exists("code"):
+            return
+
+        num_runtime_pages = 16
+        num_user_runtime_pages = 1 if self.featmgr.priv_mode == RV.RiscvPrivileges.USER else 0
+        num_runtime_s_pages = 4 if RV.RiscvPrivileges.SUPER in self.featmgr.supported_priv_modes else 0
 
         num_code_pages = 128
         if self.featmgr.more_os_pages:
             num_code_pages = 500
+
+        # C text pages
+        num_c_text_pages = 30 if self.featmgr.c_used else 0
+
         # Also add some default super and user code pages
         num_super_code_pages = 8
         num_user_code_pages = 8
@@ -1732,111 +2098,182 @@ class Generator:
         num_super_csr_pages = 1
 
         # pte pages
-        num_machine_pte_pages = 1
+        # Each pte machine code entry generates at most ~256 bytes (sv57 worst case: ~58 instructions
+        # of page-table walk code + 2 dispatch instructions). With alloc_size=0x1000, that is at most
+        # 16 entries per page. Compute the number of pages dynamically so the section never overflows
+        # into the adjacent page-table section.
+        _pte_entry_count = len(self.pool.get_parsed_read_ptes()) + len(self.pool.get_parsed_write_ptes())
+        num_machine_pte_pages = max(1, (_pte_entry_count + 15) // 16)
 
-        if section == "text":
+        if section == "runtime":
             alloc_size = 0x1000
             alloc_addr = self.featmgr.reset_pc
 
-            reserve_page_count = num_text_pages + num_user_text_pages
+            reserve_page_count = num_runtime_pages + num_user_runtime_pages + num_runtime_s_pages
             if not self.featmgr.randomize_code_location:
-                # Allocate .code immediately after .text
+                # Allocate .code immediately after .runtime
                 # This is useful to avoid far jumps.
-                reserve_page_count += num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages
+                reserve_page_count += (
+                    num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages + num_machine_csr_pages + num_super_csr_pages + num_machine_pte_pages + num_c_text_pages
+                )
 
             # First allocate space for ALL the pages. Then add all the individual pages
             (lin_addr, phys_addr) = self.add_section_handler(
-                name="text",
+                name="runtime",
                 size=alloc_size * reserve_page_count,
                 iscode=True,
-                always_super=True,
-                phys_name="_section_text",
+                phys_name="_section_runtime",
                 start_addr=alloc_addr,
+                skip_page_map=True,
             )
 
-            alloc_addr = lin_addr + alloc_size
-            for i in range(1, num_text_pages):
+            alloc_lin_addr = lin_addr + alloc_size
+            alloc_phys_addr = phys_addr + alloc_size
+            for i in range(1, num_runtime_pages):
                 (lin_addr, phys_addr) = self.add_section_handler(
-                    name=f"__section__text_{i}",
+                    name=f"__section__runtime_{i}",
                     size=alloc_size,
                     iscode=True,
-                    always_super=True,
                     phys_name="",
-                    start_addr=alloc_addr,
+                    start_addr=alloc_phys_addr,
+                    skip_page_map=True,
                 )
-                # increment alloc_addr to the next available address
-                alloc_addr = lin_addr + alloc_size
+                # increment alloc addresses to the next available address
+                alloc_lin_addr = lin_addr + alloc_size
+                alloc_phys_addr = phys_addr + alloc_size
 
-            if num_user_text_pages:
-                # Allocate text page for user space OS routines.
+            if num_user_runtime_pages:
+                # Allocate runtime_user contiguous with runtime
                 (lin_addr, phys_addr) = self.add_section_handler(
-                    name="text_user",
-                    size=alloc_size * num_user_text_pages,
+                    name="runtime_user",
+                    size=alloc_size * num_user_runtime_pages,
                     iscode=True,
                     always_user=True,
                     phys_name="",
-                    start_addr=alloc_addr,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
                 )
 
-                alloc_addr = lin_addr + alloc_size
-                for i in range(1, num_user_text_pages):
+                alloc_lin_addr = lin_addr + alloc_size
+                alloc_phys_addr = phys_addr + alloc_size
+                for i in range(1, num_user_runtime_pages):
                     (lin_addr, phys_addr) = self.add_section_handler(
-                        name=f"text_user_{i}",
+                        name=f"runtime_user_{i}",
                         size=alloc_size,
                         iscode=True,
                         always_user=True,
                         phys_name="",
-                        start_addr=alloc_addr,
+                        start_addr=alloc_phys_addr,
+                        start_lin_addr=alloc_lin_addr,
                     )
-                # increment alloc_addr to the next available address
-                alloc_addr = lin_addr + alloc_size
+                    alloc_lin_addr = lin_addr + alloc_size
+                    alloc_phys_addr = phys_addr + alloc_size
+                # increment alloc addresses to the next available address
+                alloc_lin_addr = lin_addr + alloc_size
 
-            self.text_end_addr = alloc_addr
+            if num_runtime_s_pages:
+                # Allocate runtime_s contiguous with runtime and runtime_user
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name="runtime_s",
+                    size=alloc_size * num_runtime_s_pages,
+                    iscode=True,
+                    always_super=True,
+                    phys_name="",
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
+                )
+                alloc_lin_addr = lin_addr + alloc_size
+                alloc_phys_addr = phys_addr + alloc_size
+                for i in range(1, num_runtime_s_pages):
+                    (lin_addr, phys_addr) = self.add_section_handler(
+                        name=f"runtime_s_{i}",
+                        size=alloc_size,
+                        iscode=True,
+                        always_super=True,
+                        phys_name="",
+                        start_addr=alloc_phys_addr,
+                        start_lin_addr=alloc_lin_addr,
+                    )
+                    alloc_lin_addr = lin_addr + alloc_size
+                    alloc_phys_addr = phys_addr + alloc_size
 
-        if section == "code":
+            self.runtime_end_addr = alloc_lin_addr
+
+        elif section == "code":
             alloc_size = 0x1000
+            code_skip_page_map = self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE
             # Randomize code offset with interesting values for cacheline alignment of 64B and in anywhere in
             # the first 5-cachelines
-            self.code_offset = None
-            if self.featmgr.code_offset is not None:
-                self.code_offset = self.featmgr.code_offset
-            elif self.featmgr.force_alignment:
-                self.code_offset = 0
-            else:
-                self.code_offset = self.rng.random_in_range(0, 0x3F * 5, 2)
-
-            if self.featmgr.randomize_code_location:
+            if self.featmgr.wysiwyg:
+                # Allocate code at the reset_pc
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name="code",
+                    # +1 at the end to account for loader code
+                    size=alloc_size
+                    * (
+                        num_code_pages
+                        + num_super_code_pages
+                        + num_user_code_pages
+                        + num_machine_code_pages
+                        + num_machine_csr_pages
+                        + num_super_csr_pages
+                        + num_machine_pte_pages
+                        + num_c_text_pages
+                        + 1
+                    ),
+                    iscode=True,
+                    start_addr=self.featmgr.reset_pc,
+                    phys_name="__section_code",
+                    skip_page_map=code_skip_page_map,
+                )
+            elif self.featmgr.randomize_code_location:
                 # First allocate space for ALL the code pages. Then add all the individual pages
                 (lin_addr, phys_addr) = self.add_section_handler(
                     name="code",
-                    size=alloc_size * (num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages + num_machine_csr_pages + num_super_csr_pages + num_machine_pte_pages),
+                    size=alloc_size
+                    * (num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages + num_machine_csr_pages + num_super_csr_pages + num_machine_pte_pages + num_c_text_pages),
                     iscode=True,
                     phys_name="__section_code",
-                    identity_map=True,
+                    skip_page_map=code_skip_page_map,
                 )
             else:
-                # Allocate .code immediately after .text. .text already reserved the space for .code
+                # Reserve PA for all code pages upfront; sub-sections use contiguous block
                 (lin_addr, phys_addr) = self.add_section_handler(
                     name="code",
-                    size=alloc_size,
+                    size=alloc_size
+                    * (num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages + num_machine_csr_pages + num_super_csr_pages + num_machine_pte_pages + num_c_text_pages),
                     iscode=True,
-                    start_addr=self.text_end_addr,
+                    start_lin_addr=self.runtime_end_addr,
                     phys_name="__section_code",
-                    identity_map=True,
+                    skip_page_map=code_skip_page_map,
+                    identity_map=self.featmgr.identity_map_code,
                 )
-            alloc_addr = lin_addr + alloc_size
+            alloc_lin_addr = lin_addr + alloc_size
+            alloc_phys_addr = phys_addr + alloc_size
 
             for i in range(1, num_code_pages):
-                (lin_addr, phys_addr) = self.add_section_handler(
-                    name=f"__section__code_{i}",
-                    size=alloc_size,
-                    iscode=True,
-                    start_addr=alloc_addr,
-                    phys_name="",
-                    identity_map=True,
-                )
-                # increment alloc_addr to the next available address
-                alloc_addr = lin_addr + alloc_size
+                if code_skip_page_map:
+                    (lin_addr, phys_addr) = self.add_section_handler(
+                        name=f"__section__code_{i}",
+                        size=alloc_size,
+                        iscode=True,
+                        start_addr=alloc_lin_addr,
+                        phys_name="",
+                        skip_page_map=code_skip_page_map,
+                    )
+                else:
+                    (lin_addr, phys_addr) = self.add_section_handler(
+                        name=f"__section__code_{i}",
+                        size=alloc_size,
+                        iscode=True,
+                        start_addr=alloc_phys_addr,
+                        start_lin_addr=alloc_lin_addr,
+                        phys_name="",
+                        skip_page_map=code_skip_page_map,
+                    )
+                # increment alloc addrs to the next available address
+                alloc_lin_addr += alloc_size
+                alloc_phys_addr += alloc_size
             # Every call to add_section_handler already adds the sections to the pool
             # self.pool.add_section(section_name="code")
 
@@ -1849,12 +2286,13 @@ class Generator:
                     size=alloc_size,
                     iscode=True,
                     always_super=True,
-                    start_addr=alloc_addr,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
                     phys_name=page_phys_name,
-                    identity_map=True,
                 )
-                # increment alloc_addr to the next available address
-                alloc_addr = lin_addr + alloc_size
+                # increment alloc addrs to the next available address
+                alloc_lin_addr += alloc_size
+                alloc_phys_addr += alloc_size
                 # Every call to add_section_handler already adds the sections to the pool
                 # self.pool.add_section(section_name=page_name)
 
@@ -1867,16 +2305,17 @@ class Generator:
                     size=alloc_size,
                     iscode=True,
                     always_user=True,
-                    start_addr=alloc_addr,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
                     phys_name=page_phys_name,
-                    identity_map=True,
                 )
-                # increment alloc_addr to the next available address
-                alloc_addr = lin_addr + alloc_size
+                # increment alloc addrs to the next available address
+                alloc_lin_addr += alloc_size
+                alloc_phys_addr += alloc_size
                 # Every call to add_section_handler already adds the sections to the pool
                 # self.pool.add_section(section_name=page_name)
 
-            # Add user pages with name starting code_user
+            # Add machine code pages
             for i in range(num_machine_code_pages):
                 page_name = f"code_machine_{i}"
                 page_phys_name = f"__section_{page_name}"
@@ -1885,12 +2324,14 @@ class Generator:
                     size=alloc_size,
                     iscode=True,
                     always_user=True,
-                    start_addr=alloc_addr,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
                     phys_name=page_phys_name,
-                    identity_map=True,
+                    skip_page_map=True,
                 )
-                # increment alloc_addr to the next available address
-                alloc_addr = lin_addr + alloc_size
+                # Only advance the physical pointer; these sections do not consume VA space.
+                alloc_lin_addr += alloc_size
+                alloc_phys_addr += alloc_size
                 # Every call to add_section_handler already adds the sections to the pool
                 # self.pool.add_section(section_name=page_name)
 
@@ -1902,11 +2343,13 @@ class Generator:
                     name=page_name,
                     size=alloc_size,
                     iscode=True,
-                    start_addr=alloc_addr,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
                     phys_name=page_phys_name,
-                    identity_map=True,
+                    skip_page_map=True,
                 )
-                alloc_addr = lin_addr + alloc_size
+                alloc_lin_addr += alloc_size
+                alloc_phys_addr += alloc_size
 
             for i in range(num_super_csr_pages):
                 page_name = f"csr_super_{i}"
@@ -1916,12 +2359,14 @@ class Generator:
                     size=alloc_size,
                     iscode=True,
                     always_super=True,
-                    start_addr=alloc_addr,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
                     phys_name=page_phys_name,
-                    identity_map=True,
                 )
-                alloc_addr = lin_addr + alloc_size
+                alloc_lin_addr += alloc_size
+                alloc_phys_addr += alloc_size
 
+            # PTE pages for machine mode
             for i in range(num_machine_pte_pages):
                 page_name = f"pte_machine_{i}"
                 page_phys_name = f"__section_{page_name}"
@@ -1929,11 +2374,38 @@ class Generator:
                     name=page_name,
                     size=alloc_size,
                     iscode=True,
-                    start_addr=alloc_addr,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
                     phys_name=page_phys_name,
-                    identity_map=True,
+                    skip_page_map=True,
                 )
-                alloc_addr = lin_addr + alloc_size
+                alloc_lin_addr += alloc_size
+                alloc_phys_addr += alloc_size
+
+            # If C code is used, allocate .text section immediately after .code
+            # so that jal calls from .code into .text stay within range
+            if self.featmgr.c_used:
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name="text",
+                    size=alloc_size,
+                    iscode=True,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
+                    phys_name="__section_text",
+                )
+                alloc_lin_addr = lin_addr + alloc_size
+                alloc_phys_addr = phys_addr + alloc_size
+                for i in range(1, num_c_text_pages):
+                    (lin_addr, phys_addr) = self.add_section_handler(
+                        name=f"__section__text_{i}",
+                        size=alloc_size,
+                        iscode=True,
+                        start_addr=alloc_phys_addr,
+                        start_lin_addr=alloc_lin_addr,
+                        phys_name="",
+                    )
+                    alloc_lin_addr += alloc_size
+                    alloc_phys_addr += alloc_size
 
         elif section == "data" or section == "os_data":
             data_page_size = 0x1000
@@ -1945,21 +2417,22 @@ class Generator:
                 size=size,
                 iscode=False,
                 phys_name=f"__section_{section}",
-                identity_map=True,
             )
 
-            alloc_addr = lin_addr + data_page_size
+            alloc_lin_addr = lin_addr + data_page_size
+            alloc_phys_addr = phys_addr + data_page_size
             for i in range(1, size // data_page_size):
                 (lin_addr, phys_addr) = self.add_section_handler(
                     name=f"__section_{section}_{i}",
                     size=data_page_size,
                     iscode=False,
                     phys_name="",
-                    identity_map=True,
-                    start_addr=alloc_addr,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
                 )
-                # increment alloc_addr to the next available address
-                alloc_addr = lin_addr + data_page_size
+                # increment alloc addrs to the next available address
+                alloc_lin_addr = lin_addr + data_page_size
+                alloc_phys_addr = phys_addr + data_page_size
 
         # SUGGESTION tie the size of these sections to the size of the c code compiled sections that more or less use this exclusively.
         elif self.featmgr.c_used and section in self.c_used_sections:
@@ -1979,28 +2452,10 @@ class Generator:
                     page_count = 1
                 return page_count
 
-            # In order to put all C sections close to each other, we first make a single allocation for all the pages.
-            # Then we add the individual sections. This section can be far from the .text region as all sections used by C tests
-            # are remapped in here.
-            if self.next_c_section_addr is None:
-                # Make first allocation to cover all the pages
-                total_page_count = 0
-                for s in self.c_used_sections:
-                    total_page_count += get_page_count(s)
-
-                (lin_addr, phys_addr) = self.add_section_handler(
-                    name="c_sections",
-                    size=0x1000 * total_page_count,
-                    iscode=True,
-                    phys_name="__section_c_sections",
-                    identity_map=True,
-                )
-                # Make the next section address point to the start of the first page
-                self.next_c_section_addr = lin_addr
-
+            # C sections: contiguous VA, independent PA per section
             num_total_pages = get_page_count(section)
             page_name = section
-            is_code = True if "text" in section else False
+            is_code = True if "runtime" in section else False
             phys_page_name = f"__section_{section}"
             (lin_addr, phys_addr) = self.add_section_handler(
                 name=page_name,
@@ -2008,12 +2463,13 @@ class Generator:
                 iscode=is_code,
                 phys_name=phys_page_name,
                 always_user=not is_code,
-                identity_map=True,
-                start_addr=self.next_c_section_addr,
+                start_lin_addr=self.next_c_section_lin_addr,
             )
-            self.next_c_section_addr += 0x1000 * num_total_pages
+            self.next_c_section_lin_addr = lin_addr + 0x1000 * num_total_pages
 
             # add page mapping for all pages
+            alloc_lin_addr = lin_addr + 0x1000
+            alloc_phys_addr = phys_addr + 0x1000
             for i in range(1, num_total_pages):
                 page_name = f"{section}_{i}"
                 phys_page_name = f"__section_{section}_{i}"
@@ -2023,9 +2479,11 @@ class Generator:
                     iscode=is_code,
                     phys_name=phys_page_name,
                     always_user=not is_code,
-                    identity_map=True,
-                    start_addr=lin_addr + 0x1000,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
                 )
+                alloc_lin_addr = lin_addr + 0x1000
+                alloc_phys_addr = phys_addr + 0x1000
 
         elif "hart_context" == section:
             # handle hart context and stack
@@ -2034,13 +2492,38 @@ class Generator:
             page_size = 0x1000
 
             ctx = "hart_context"
-            self.add_section_handler(
+
+            # Compute actual total section size to determine number of pages needed
+            total_size = self.writer.runtime.variable_manager.get_hart_context_total_size()
+            num_pages = (total_size + page_size - 1) // page_size
+
+            # Allocate full block; sub-pages (skip_linker) fill remainder
+            (lin_addr, phys_addr) = self.add_section_handler(
                 name=ctx,
-                size=page_size,
+                size=page_size * num_pages,
                 iscode=False,
                 phys_name=f"__section_{ctx}",
-                identity_map=True,
             )
+
+            # Additional pages (page table entries only, no linker sections)
+            alloc_lin_addr = lin_addr + page_size
+            alloc_phys_addr = phys_addr + page_size
+            for i in range(1, num_pages):
+                page_name = f"__page_{ctx}_{i}"
+                phys_page_name = f"__section___page_{ctx}_{i}"
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name=page_name,
+                    size=page_size,
+                    iscode=False,
+                    phys_name=phys_page_name,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
+                    skip_linker=True,
+                )
+                alloc_lin_addr = lin_addr + page_size
+                alloc_phys_addr = phys_addr + page_size
+
+            # Hart stacks (each is already 1 page)
             for hid in range(self.featmgr.num_cpus):
                 stk = f"hart_stack_{hid}"
                 self.add_section_handler(
@@ -2048,7 +2531,6 @@ class Generator:
                     size=page_size,
                     iscode=False,
                     phys_name=f"__section_{stk}",
-                    identity_map=True,
                 )
 
         elif section == "io_htif":
@@ -2059,9 +2541,88 @@ class Generator:
                 identity_map=True,
                 start_addr=self.featmgr.io_htif_addr,
             )
-            # Every call to add_section_handler already adds the sections to the pool
-            # self.pool.add_section(section_name="io_htif")
 
+        elif section == "maplic":
+            page_size = 0x1000
+            n_pages = int((self.featmgr.io_maplic_size + (page_size - 1)) / page_size)
+            start_addr = self.featmgr.io_maplic_addr
+            for i in range(n_pages):
+                (lin_addr, phys_addr) = self.add_section_handler(name=f"maplic_{i}", size=self.featmgr.io_maplic_size, iscode=False, identity_map=True, start_addr=start_addr)
+                start_addr += page_size
+
+        elif section == "saplic":
+            page_size = 0x1000
+            n_pages = int((self.featmgr.io_saplic_size + (page_size - 1)) / page_size)
+            start_addr = self.featmgr.io_saplic_addr
+            for i in range(n_pages):
+                (lin_addr, phys_addr) = self.add_section_handler(name=f"saplic_{i}", size=self.featmgr.io_saplic_size, iscode=False, identity_map=True, start_addr=start_addr)
+                start_addr += page_size
+
+        elif section == "imsic_mfile":
+            start_addr = self.featmgr.io_imsic_mfile_addr
+            page_size = 0x1000
+            for i in range(self.featmgr.num_cpus):
+                (lin_addr, phys_addr) = self.add_section_handler(name=f"imsic_mfile_{i}", size=page_size, iscode=False, identity_map=True, start_addr=start_addr)
+                start_addr += self.featmgr.io_imsic_mfile_stride
+
+        elif section == "imsic_sfile":
+            start_addr = self.featmgr.io_imsic_sfile_addr
+            page_size = 0x1000
+            for i in range(self.featmgr.num_cpus):
+                (lin_addr, phys_addr) = self.add_section_handler(name=f"imsic_sfile_{i}", size=page_size, iscode=False, identity_map=True, start_addr=start_addr)
+                start_addr += self.featmgr.io_imsic_sfile_stride
+
+        elif section == "text":
+            pass
+
+        elif section == "selfcheck_data":
+            # Selfcheck data section for saving architectural state
+            per_hart_size = 8 + SELFCHECK_CHECKSUM_SIZE * self.featmgr.repeat_times * (len(self.pool.discrete_tests) + 2)
+
+            # Total size = per_hart_size * num_cpus, rounded up to 4KB
+            total_size = per_hart_size * self.featmgr.num_cpus
+            total_size = ((total_size + 0xFFF) // 0x1000) * 0x1000
+            num_selfcheck_pages = total_size // 0x1000
+            alloc_size = 0x1000
+
+            (lin_addr, phys_addr) = self.add_section_handler(
+                name="selfcheck_data",
+                size=total_size,
+                iscode=False,
+                phys_name="__section_selfcheck_data",
+            )
+            alloc_addr = lin_addr + alloc_size
+            for i in range(1, num_selfcheck_pages):
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name=f"__section__selfcheck_data_{i}",
+                    size=alloc_size,
+                    iscode=False,
+                    phys_name="",
+                    start_addr=alloc_addr,
+                )
+                alloc_addr = lin_addr + alloc_size
+        elif section == "test_execution_data":
+            # Per-hart: test_counter(8) + current_test_ptr(8) + (test_tracker, m_time)[256]
+            page_size = 0x1000
+            num_pages = (self.featmgr.num_cpus * TEST_EXECUTION_DATA_PER_HART_SIZE + 0xFFF) // page_size
+            (lin_addr, phys_addr) = self.add_section_handler(
+                name="test_execution_data",
+                size=num_pages * page_size,
+                iscode=False,
+                phys_name="__section_test_execution_data",
+                skip_page_map=True,
+            )
+            alloc_addr = lin_addr + page_size
+            for i in range(1, num_pages):
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name=f"__page_test_execution_data_{i}",
+                    size=page_size,
+                    iscode=False,
+                    phys_name="",
+                    start_addr=alloc_addr,
+                    skip_page_map=True,
+                )
+                alloc_addr = lin_addr + page_size
         else:
             log.error(f"Unknown section: {section}")
 
@@ -2071,10 +2632,13 @@ class Generator:
         size,
         iscode,
         start_addr=None,
+        start_lin_addr=None,
         identity_map=False,
         always_super=False,
         always_user=False,
         phys_name="",
+        skip_linker=False,
+        skip_page_map=False,
     ):
         """
         Add a section with name, size and number of pages information
@@ -2082,25 +2646,131 @@ class Generator:
           - name
           - size
           - iscode
+          - start_addr: Physical address start (when specified, reserves PA)
+          - start_lin_addr: Virtual address start (when specified with start_addr, allows VA != PA;
+                            when specified alone, fixes VA and generates PA randomly;
+                            when paging is disabled/skip_page_map=True, used as PA directly)
+          - identity_map: When True, forces VA == PA
+          - skip_page_map: When True, don't add to page tables (e.g. M-mode code sections)
         """
+        if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE and self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE:
+            skip_page_map = True
+
+        # When identity_map is requested, normalize so that the start_addr-only path handles it
+        if identity_map:
+            if start_addr is None and start_lin_addr is not None:
+                start_addr = start_lin_addr
+            start_lin_addr = None
+
         # Generate address or reserve memory
         lin_addr = None
         phys_addr = None
 
-        if start_addr is not None:
-            # No need to generate addresses
-            lin_addr = start_addr
+        if skip_page_map:
+            # No page tables: allocate only PA, use it for both linker LMA and VMA
+            if start_addr is not None:
+                phys_addr = start_addr
+                self.addrgen.reserve_memory(
+                    address_type=RV.AddressType.PHYSICAL,
+                    start_address=start_addr,
+                    size=size,
+                )
+                # VMA == PA for skip_page_map sections; reserve linear space too to avoid
+                # linker errors from data sections being assigned VMAs that overlap this region.
+                self.addrgen.reserve_memory(
+                    address_type=RV.AddressType.LINEAR,
+                    start_address=start_addr,
+                    size=size,
+                )
+            elif start_lin_addr is not None:
+                # Paging disabled: use the provided VA as PA (VA == PA)
+                phys_addr = start_lin_addr
+                self.addrgen.reserve_memory(
+                    address_type=RV.AddressType.PHYSICAL,
+                    start_address=start_lin_addr,
+                    size=size,
+                )
+                # Reserve linear space too to avoid linker errors from VMAs overlapping this region.
+                self.addrgen.reserve_memory(
+                    address_type=RV.AddressType.LINEAR,
+                    start_address=start_lin_addr,
+                    size=size,
+                )
+            else:
+                phys_addr_bits = min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps())
+                address_mask = common.address_mask_from_size(size)
+                phys_addr_c = addrgen.AddressConstraint(
+                    type=RV.AddressType.PHYSICAL,
+                    qualifiers={RV.AddressQualifiers.ADDRESS_DRAM},
+                    bits=phys_addr_bits,
+                    mask=address_mask,
+                    size=size,
+                )
+                phys_addr = self.addrgen.generate_address(constraint=phys_addr_c)
+                if phys_addr is None:
+                    raise ValueError(f"Failed to generate address for {name}")
+                log.debug(f"phys_addr_constraints, {phys_name}: {phys_addr_c}, phys_addr: {phys_addr:016x}")
+            lin_addr = phys_addr
+        elif start_addr is not None and start_lin_addr is not None:
+            # Both PA and VA explicitly specified (contiguous non-identity-mapped sections)
             phys_addr = start_addr
-            self.addrgen.reserve_memory(
-                address_type=RV.AddressType.LINEAR,
-                start_address=start_addr,
-                size=size,
-            )
+            lin_addr = start_lin_addr
             self.addrgen.reserve_memory(
                 address_type=RV.AddressType.PHYSICAL,
                 start_address=start_addr,
                 size=size,
             )
+            self.addrgen.reserve_memory(
+                address_type=RV.AddressType.LINEAR,
+                start_address=start_lin_addr,
+                size=size,
+            )
+        elif start_addr is not None:
+            # Only PA specified
+            phys_addr = start_addr
+            self.addrgen.reserve_memory(
+                address_type=RV.AddressType.PHYSICAL,
+                start_address=start_addr,
+                size=size,
+            )
+            if (self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE) or identity_map:
+                # Identity map: VA = PA (paging off, or caller explicitly requests it)
+                lin_addr = phys_addr
+                self.addrgen.reserve_memory(
+                    address_type=RV.AddressType.LINEAR,
+                    start_address=phys_addr,
+                    size=size,
+                )
+            else:
+                # Generate VA independently (non-identity mapping)
+                lin_addr_bits = min(self.linear_addr_bits, self.pool.get_min_linear_addr_bits_for_page_maps())
+                address_mask = common.address_mask_from_size(size)
+                lin_addr_c = addrgen.AddressConstraint(
+                    type=RV.AddressType.LINEAR,
+                    bits=lin_addr_bits,
+                    mask=address_mask,
+                    size=size,
+                )
+                lin_addr_orig = self.addrgen.generate_address(constraint=lin_addr_c)
+                lin_addr = self.canonicalize_lin_addr(lin_addr_orig)
+        elif start_lin_addr is not None:
+            # Only VA specified — fix VA, generate PA randomly
+            lin_addr = start_lin_addr
+            self.addrgen.reserve_memory(
+                address_type=RV.AddressType.LINEAR,
+                start_address=start_lin_addr,
+                size=size,
+            )
+            phys_addr_bits = min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps())
+            address_mask = common.address_mask_from_size(size)
+            phys_addr_c = addrgen.AddressConstraint(
+                type=RV.AddressType.PHYSICAL,
+                qualifiers={RV.AddressQualifiers.ADDRESS_DRAM},
+                bits=phys_addr_bits,
+                mask=address_mask,
+                size=size,
+            )
+            phys_addr = self.addrgen.generate_address(constraint=phys_addr_c)
         else:
             # Calculate mask, addr_bits from size
             # Sections are mapped across all page_maps. So we need the min address bits of all page maps for address selection.
@@ -2150,7 +2820,8 @@ class Generator:
         phys_addr_name = phys_name if phys_name else f"{name}_phys"
 
         # Create Address and Page instances
-        addr_inst = Address(name=name, type=RV.AddressType.LINEAR, address=lin_addr)
+        addr_type = RV.AddressType.PHYSICAL if skip_page_map else RV.AddressType.LINEAR
+        addr_inst = Address(name=name, type=addr_type, address=lin_addr)
         self.pool.add_random_addr(addr_name=name, addr=addr_inst)
 
         addr_inst = Address(name=phys_addr_name, type=RV.AddressType.PHYSICAL, address=phys_addr)
@@ -2193,11 +2864,13 @@ class Generator:
         if always_user:
             p.attrs["u_level0"] = 1
 
-        self.pool.add_page(page=p, map_names=maps_to_add)
+        if not skip_page_map:
+            self.pool.add_page(page=p, map_names=maps_to_add)
 
         # Add address as a section so they can be used in the linker script
         log.debug(f"Adding section {name} with lin_addr: {lin_addr:016x}, phys_addr: {phys_addr:016x}")
-        self.pool.add_section(section_name=name)
+        if not skip_linker:
+            self.pool.add_section(section_name=name)
 
         return (lin_addr, phys_addr)
 
@@ -2228,13 +2901,15 @@ class Generator:
         # page_mappings = self.pool.get_page_mappings()
         for init_mem_name in self.pool.get_parsed_init_mem_addrs():
             log.debug(f"Adding init_mem section {init_mem_name}")
-            self.pool.add_section(section_name=init_mem_name)
+            section_name = self.pool.resolve_canonical_lin_name(init_mem_name, "map_os")
+            self.pool.add_section(section_name=section_name)
 
     def generate_sections(self):
-        # We need to explicitely add 'text' section since we moved to using '.section .code' for the user tests, which will be in
-        # different section than the .text
-        # .text will contain mostly the operating system code
-        self.pool.add_parsed_sections(val="text", index=0)
+        if not self.featmgr.wysiwyg:
+            # We need to explicitely add 'runtime' section since we moved to using '.section .code' for the user tests, which will be in
+            # different section than the .runtime
+            # .runtime will contain mostly the operating system code
+            self.pool.add_parsed_sections(val="runtime", index=0)
         for section in self.os_data_sections:
             self.pool.add_parsed_sections(val=section)
         for section in self.io_sections:

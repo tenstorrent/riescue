@@ -15,6 +15,7 @@ from .tp_cfg import TpCfg
 from .adapters import TpArgsAdapter
 from riescue.dtest_framework.config import FeatMgrBuilder, FeatMgr
 from riescue.lib.toolchain import Toolchain
+from riescue.dtest_framework.config import Conf
 
 
 @dataclass
@@ -25,11 +26,13 @@ class TpBuilder(BaseBuilder):
 
     cfg: TpCfg = field(default_factory=TpCfg)
     featmgr_builder: FeatMgrBuilder = field(default_factory=FeatMgrBuilder)
+    conf: list[Conf] = field(default_factory=list)
 
     def with_args(self, args: argparse.Namespace) -> "TpBuilder":
         """
         Configure command line arguments.
         """
+        self.conf = [Conf.load_conf_from_path(path) for path in args.conf]
         return TpArgsAdapter().apply(self, args)
 
     def build(
@@ -74,7 +77,7 @@ class TpBuilder(BaseBuilder):
             featmgr = self.featmgr_builder.build(rng)
         tp_cfg = self.cfg.duplicate(featmgr=featmgr)
         tp_cfg.seed = seed
-
+        tp_cfg.conf = self.conf
         if toolchain is not None:
             tp_cfg.toolchain = toolchain
         return tp_cfg

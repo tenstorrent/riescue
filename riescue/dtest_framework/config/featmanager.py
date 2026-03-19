@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 import logging
+from collections import defaultdict
 from pathlib import Path
 from dataclasses import dataclass, field, replace
-from typing import TypeVar, Optional, Union, Callable, Any
+from typing import TypeVar, Optional, Union, Callable, Any, List
 
 import riescue.lib.enums as RV
 from riescue.lib.feature_discovery import FeatureDiscovery
@@ -79,18 +80,13 @@ class FeatMgr:
 
     # Paths
     counter_event_path: Optional[Path] = None
+    compiler_include_dir: Optional[Path] = None  # When set, added as -I <path> to compiler args
 
     # non-cmdline
     cpu_config: CpuConfig = field(default_factory=CpuConfig)  # This is really a dict for cpu config, later it should be a typed class
     memory: Memory = field(default_factory=Memory)
     feature: FeatureDiscovery = field(default_factory=lambda: FeatureDiscovery({}))
-    hooks: dict[RV.HookPoint, Callable[[FeatMgr], str]] = field(default_factory=dict)
-
-    # Labels
-    trap_handler_label: str = "trap_entry"
-    syscall_table_label: str = "syscall_table"
-    check_exception_label: str = "check_exception_cause"
-    trap_exit_label: str = "trap_exit"
+    hooks: dict[RV.HookPoint, list[Hookable]] = field(default_factory=lambda: defaultdict(list))
 
     # Run options
     tohost_nonzero_terminate: bool = False
@@ -103,15 +99,21 @@ class FeatMgr:
     env: RV.RiscvTestEnv = RV.RiscvTestEnv.TEST_ENV_BARE_METAL
     arch: RV.RiscvBaseArch = RV.RiscvBaseArch.ARCH_RV64I
     secure_mode: RV.RiscvSecureModes = RV.RiscvSecureModes.NON_SECURE
-    deleg_excp_to: RV.RiscvPrivileges = RV.RiscvPrivileges.MACHINE
 
     supported_priv_modes: set[RV.RiscvPrivileges] = field(default_factory=lambda: {RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER, RV.RiscvPrivileges.USER})
 
     reset_pc: int = 0x8000_0000
     io_htif_addr: Optional[int] = None  # This could probably be use a better name, e.g. eot_addr + note that it defaults to htif in memmap
+    io_maplic_addr: Optional[int] = None
+    io_maplic_size: Optional[int] = None
+    io_saplic_addr: Optional[int] = None
+    io_saplic_size: Optional[int] = None
+    io_imsic_mfile_addr: Optional[int] = None
+    io_imsic_mfile_stride: Optional[int] = None
+    io_imsic_sfile_addr: Optional[int] = None
+    io_imsic_sfile_stride: Optional[int] = None
     eot_pass_value: int = 1
     eot_fail_value: int = 3
-    more_os_pages: bool = False
 
     # MP mode
     mp: RV.RiscvMPEnablement = RV.RiscvMPEnablement.MP_ON
@@ -123,6 +125,7 @@ class FeatMgr:
     single_assembly_file: bool = False
     force_alignment: bool = False
     c_used: bool = False
+    more_os_pages: bool = False
     small_bss: bool = False
     big_bss: bool = False
     big_endian: bool = False
@@ -130,8 +133,13 @@ class FeatMgr:
     addrgen_limit_indices: bool = False
     code_offset: Optional[int] = None  # unused?
     randomize_code_location: bool = False
+    identity_map_code: bool = False
     repeat_times: int = 3
     cfiles: Optional[list[Path]] = None
+    inc_path: Optional[list[Path]] = None
+    selfcheck: bool = False
+    save_restore_gprs: bool = False
+    log_test_execution: bool = False
 
     # bringup mode
     fe_tb: bool = False
@@ -152,11 +160,9 @@ class FeatMgr:
     switch_to_machine_page: str = "code_machine_0"
     switch_to_super_page: str = "code_super_0"
     switch_to_user_page: str = "code_user_0"
-    user_interrupt_table: bool = False
     excp_hooks: bool = False
     interrupts_enabled: bool = True
     skip_instruction_for_unexpected: bool = False
-    disable_wfi_wait: bool = False
 
     # CSR R/W handling
     machine_mode_jump_table_for_csr_rw: str = "csr_machine_0"
@@ -170,10 +176,11 @@ class FeatMgr:
     needs_pma: bool = False
     num_pmas: int = 16
 
-    # Hypervisor
-    setup_stateen: bool = False
-    vmm_hooks: bool = False
-    # hypervisor: bool = True
+    # Debug mode (RISC-V Debug Spec Ch.4): ;#discrete_debug_test() and/or config
+    debug_mode: bool = False
+    # debug_rom_address: must be identity-mapped (VA=PA) so the ROM is reachable when the hart enters debug mode.
+    debug_rom_address: Optional[int] = None
+    debug_rom_size: Optional[int] = None
 
     # CSR Initialization
     # FIXME: This should probably be managed by it's own configuration class instead of being part of FeatMgr
@@ -185,13 +192,16 @@ class FeatMgr:
     random_supervisor_csr_list: Optional[str] = None
     random_user_csr_list: Optional[str] = None
 
-    medeleg: int = 0xFFFFFFFF_FFFFFFFF
+    medeleg: int = 0xFFFFFFFF_FFFFF0FF  # Don't delegate any ecall exceptions (bits 8-11 clear)
     mideleg: int = 0xFFFFFFFF_FFFFFFFF
-    hedeleg: int = 0xFFFFFFFF_FFFFFFFF
+    hedeleg: int = 0xFFFFFFFF_FFFFF0FF  # Don't delegate any ecall exceptions (bits 8-11 clear)
     hideleg: int = 0xFFFFFFFF_FFFFFFFF
     menvcfg: int = 0
     henvcfg: int = 0
     senvcfg: int = 0
+    mstateen: int = -1
+    hstateen: int = -1
+    sstateen: int = -1
 
     # enabled features?
     pbmt_ncio: bool = False
@@ -201,6 +211,10 @@ class FeatMgr:
     # Feature randomization?
     a_d_bit_randomization: int = 0  # unused?
     pbmt_ncio_randomization: int = 0  # unused?
+    fs_randomization: int = 0
+    fs_randomization_values: List[int] = field(default_factory=lambda: [2])  # 0=Off, 1=Initial, 2=Clean, 3=Dirty
+    vs_randomization: int = 0
+    vs_randomization_values: List[int] = field(default_factory=lambda: [2])
     secure_access_probability: int = 30
     secure_pt_probability: int = 0
 
@@ -243,6 +257,7 @@ class FeatMgr:
 
         presence["NUM_CPUS"] = self.num_cpus
         presence["MP_ENABLED"] = self.mp == RV.RiscvMPEnablement.MP_ON
+
         presence["MP_SIMULTANEOUS"] = self.mp_mode == RV.RiscvMPMode.MP_SIMULTANEOUS
         presence["MP_PARALLEL"] = self.mp_mode == RV.RiscvMPMode.MP_PARALLEL
         presence["MP_PARALLEL_SCHEDULING_MODE_ROUND_ROBIN"] = self.parallel_scheduling_mode == RV.RiscvParallelSchedulingMode.ROUND_ROBIN
@@ -258,6 +273,18 @@ class FeatMgr:
 
         # Add pbmt information
         presence["PBMT_NCIO"] = self.pbmt_ncio
+
+        # Sdtrig (Trigger Module)
+        presence["SDTRIG_SUPPORTED"] = 1 if self.is_feature_supported("sdtrig") and self.is_feature_enabled("sdtrig") else 0
+
+        # Test generation (probabilities 0-100)
+        presence["SECURE_ACCESS_PROBABILITY"] = self.secure_access_probability
+        presence["SECURE_PT_PROBABILITY"] = self.secure_pt_probability
+        presence["A_D_BIT_RANDOMIZATION"] = self.a_d_bit_randomization
+        presence["PBMT_NCIO_RANDOMIZATION"] = self.pbmt_ncio_randomization
+        presence["FS_RANDOMIZATION"] = self.fs_randomization
+        presence["VS_RANDOMIZATION"] = self.vs_randomization
+        presence["ALL_4KB_PAGES"] = self.all_4kb_pages
 
         return presence
 
@@ -312,6 +339,7 @@ class FeatMgr:
     def register_hook(self, hook_point: RV.HookPoint, hook: Hookable):
         """
         Register a hook for a given hook point
+        Multiple hooks can be registered for the same hook point. The order of hooks registered is preserved.
 
         :param hook_point: The :py:class:`riescue.lib.enums.HookPoint` enum value to register the hook.
         :param hook: Callable hook function to register; returns a string of assembly code
@@ -323,7 +351,7 @@ class FeatMgr:
             featmgr.register_hook(RV.HookPoint.PRE_PASS, hook)
 
         """
-        self.hooks[hook_point] = hook
+        self.hooks[hook_point].append(hook)
 
     def call_hook(self, hook_point: RV.HookPoint) -> str:
         """Get a hook for a given hook point"""
@@ -331,4 +359,4 @@ class FeatMgr:
             log.debug(f"Hook point {hook_point} was not registered")
             return ""
         else:
-            return self.hooks[hook_point](self)
+            return "\n".join([hook(self) for hook in self.hooks[hook_point]])

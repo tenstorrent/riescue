@@ -24,18 +24,10 @@ class SimultaneousScheduler(Scheduler):
 
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        self.mhartid_offset = self.variable_manager.get_variable("mhartid").offset
 
     def scheduler_init(self) -> str:
         "Launches test_setup for all harts. Since this is a simultaneous scheduler, need a barrier before running test_setup"
-        return """
-
-    call os_barrier_amo
-    la s11, scheduler__test_setup_ptr
-    ld s11, 0(s11)
-    j scheduler__execute_test
-
-    """
+        return "call os_barrier_amo\n" + super().scheduler_init()
 
     def scheduler_routines(self) -> str:
         """
@@ -74,9 +66,13 @@ class SimultaneousScheduler(Scheduler):
         """
         # barrier after all harts have read num_runs but before decrementing and storing it to shared memory.
         # using s11, s10 bc a* and t* registers clobbered by barrier
+        code += "call os_barrier_amo\n"
+
+        # writing num_runs back to shared memory
+        # only hart 0 needs to store s10
+        # FIXME: Use variable manager to make this more readable.
+        code += f"csrr {self.hartid_reg}, mhartid\n"
         code += f"""
-            call os_barrier_amo
-            {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
             bnez {self.hartid_reg}, scheduler__calc_test_pointer
             sw s10, 0(s11)
 
@@ -86,10 +82,10 @@ class SimultaneousScheduler(Scheduler):
 
         # s11 = os_test_sequence + ((--num_runs) * 8])
         # or os_test_sequence[--num_runs]
-        scheduler__start_next_test:
+        scheduler__load_test_addr:
             la t0, os_test_sequence
             add s11, s11, t0
-            ld s11, 0(s11)
+            ld t1, 0(s11)
         """
 
         return code
@@ -100,7 +96,6 @@ class SimultaneousScheduler(Scheduler):
         Barrier clobbers a0, so need to save to a different register (doesn't follow ABI so can't use s0, s1)
         """
         code = "call os_barrier_amo\n"
-        code += "mv a0, s11\n"
         code += super().execute_test()
         return code
 
@@ -127,12 +122,13 @@ class SimultaneousScheduler(Scheduler):
             depart_counter_addr_reg="a2",
             flag_addr_reg="a3",
             swap_val_reg="t0",
-            work_reg_1="t1",
+            work_reg_1="s1",
             work_reg_2="t2",
             num_cpus=self.featmgr.num_cpus,
-            end_test_label="os_end_test_addr",
+            end_test_label="os_end_test_addr_pa",
             max_tries=self.MAX_OS_BARRIER_TRIES,
-            disable_wfi_wait=self.featmgr.disable_wfi_wait,  # RVTOOLS-4204
+            use_zawrs=self.featmgr.is_feature_enabled("zawrs"),
+            bare=True,
         )
         code += """
             ret
@@ -143,7 +139,7 @@ class SimultaneousScheduler(Scheduler):
         # a1 holds subroutine address
         os_critical_section_amo:
             mv s0, ra # Preserve return address
-            li a0, barrier_lock
+            li a0, barrier_lock_pa
             li t0, 1        # Initialize swap value.
             os_cs_again:
                 lw           t1, (a0)     # Check if lock is held.

@@ -44,7 +44,7 @@ class Eot(AssemblyGenerator):
     def generate(self) -> str:
         code = f"""
 
-.section .text
+.section .runtime, "ax"
 # End of test data
 .align 3
 tohost_mutex:
@@ -78,28 +78,20 @@ eot__failed:
         Generates end of test code.
         Code should be in handler_mode when jumping here.
 
-        TODO:Returns to M mode if handler isn't in M mode.
-
         Uses gp as a boolean for pass/fail. If gp is 1 it passed, otherwise failed.
 
         Since only one hart will write to tohost.
         """
         code = ""
 
-        # TODO: Return to M mode if not in M mode.
-        # if self.handler_priv != RV.RiscvPrivileges.MACHINE:
-        #     # jump to M mode
-        #     # code += "csrr sp, sscratch\n"
-        #     code += "ecall" + "\n"
-
         if self.mp_active:
             code += self._mp_end_test()
             return code
 
-        code = """
-        li t0, 0x1
-        beq t0, gp, eot__passed
-        j eot__failed
+        code += """
+    li t0, 0x1
+    beq t0, gp, eot__passed
+    j eot__failed
         """
 
         return code
@@ -126,13 +118,7 @@ eot__failed:
         if self.mp_parallel:
             # If parallel mode, holding a lock for other tests. Need to release lock
 
-            # eot__end_test is running in handler privilege mode
-            if self.handler_priv == RV.RiscvPrivileges.MACHINE:
-                code += "csrr s1, mhartid\n"
-            else:
-                hartid_offset = self.variable_manager.get_variable("mhartid").offset
-                code += "csrr tp, sscratch\n"
-                code += f"ld s1, {hartid_offset}(tp)\n"
+            code += "csrr s1, mhartid\n"
 
             # loading gp with 1, otherwise it will be garbage value. If it wins tohost_mutex it will write garbage value
             code += """
@@ -180,7 +166,7 @@ eot__failed:
 
             # obtained lock, no need to release this one since we are ending the simulation.
             li t2, {self.featmgr.num_cpus}
-            li t1, num_hard_fails
+            li t1, num_hard_fails_pa
             li t4, {self.eot_wait_for_others_timeout} # Timeout for eot waiting
 
         eot__wait_for_others:
@@ -211,7 +197,7 @@ eot__failed:
     fence iorw, iorw
     ld t0, tohost_addr_mem
     li t1, 0x{self.featmgr.eot_pass_value:x}
-    sw t1, 0(t0)
+    {"sw" if not self.featmgr.big_endian else "sd"} t1, 0(t0)
         """
         code += self.featmgr.call_hook(RV.HookPoint.POST_PASS)
         code += "\n    j eot__halt \n"
@@ -234,7 +220,7 @@ eot__failed:
     fence iorw, iorw
     ld t0, tohost_addr_mem
     li t1, 0x{self.featmgr.eot_fail_value:x}
-    sw t1, 0(t0)
+    {"sw" if not self.featmgr.big_endian else "sd"} t1, 0(t0)
         """
         code += self.featmgr.call_hook(RV.HookPoint.POST_FAIL)
         code += "\n    j eot__halt \n"

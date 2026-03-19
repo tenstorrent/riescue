@@ -19,16 +19,6 @@ class DefaultScheduler(Scheduler):
 
     Hands control to individual tests and manages test completion flow.
 
-
-    Scheduler supports different modes for scheduling tests:
-    - single hart (default): tests are scheduled for reapeat_times number of times
-    - Parallel MP: All harts run different tests in parallel with no sync before running
-    - Simulataneous MP: All harts run the same test in parallel, with a sync barrier before starting the test
-
-    It seems like this would benefit greatly from not re-using the same code for all modes, and separating the logic out.
-    The logic for a single hart, default mode isn't that complex. But reusing the same code for all modes means there's
-    undocumented dependencies (expecting the t1 to be an offset, or the number of harts, etc.)
-
     Need to have some scheduler interface that Runtime code understands, i.e.
     - scheduler__init
     - scheduler__dispatch
@@ -44,19 +34,26 @@ class DefaultScheduler(Scheduler):
 
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        self.mhartid_offset = self.variable_manager.get_variable("mhartid").offset
+
+        self.variable_manager.register_hart_variable(name="num_runs", value=0)
+        self.num_runs = self.variable_manager.get_variable("num_runs")
 
     def scheduler_init(self) -> str:
-        "Runs test_setup code. Loads test_setup into a0 and launches scheduler__execute_test"
-        return """
-    la a0, scheduler__test_setup_ptr
-    ld a0, (a0)
-    j scheduler__execute_test
-"""
+        """
+        Assumes hart context is already in tp. Sets up num_runs for run.
+        This runs number of tests + test_cleanup
+        """
+        code = ""
+
+        num_runs_init_value = len(self.dtests_sequence) + 1
+        code += f"li t0, {num_runs_init_value} # setting num_runs to {num_runs_init_value}\n "
+        code += self.num_runs.store(src_reg="t0")
+        code += super().scheduler_init()
+        return code
 
     def scheduler_dispatch(self) -> str:
         """
-        Logic responsible for loading a0 with the next test.
+        Logic responsible for loading t1 with the next test.
         """
         code = ""
 
@@ -68,22 +65,21 @@ class DefaultScheduler(Scheduler):
         code += f"""
         # (num_runs == 0) goto scheduler__finished
         scheduler__load_num_runs:
-            la t0, num_runs
-            lw t1, 0(t0)
+            {self.num_runs.load(dest_reg="t1")}
             beqz t1, {self.scheduler_finished_label}
 
         scheduler__decrement_num_runs:
             addi t2, t1, -1
-            sw t2, 0(t0)
+            {self.num_runs.store(src_reg="t2")}
 
         scheduler__calc_test_pointer:
             slli t0, t2, 3
 
-        # a0 = os_test_sequence[(--num_runs) * 8]
-        scheduler__start_next_test:
+        # t1 = os_test_sequence[(--num_runs) * 8]
+        scheduler__load_test_addr:
             la t1, os_test_sequence
             add t0, t0, t1
-            ld a0, 0(t0)
+            ld t1, 0(t0)
         """
 
         return code

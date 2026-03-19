@@ -135,7 +135,7 @@
 ;#random_addr(name=mut_phys10, type=physical, size=0x1000, and_mask=0xfffffffffffff000)
 ;#page_mapping(lin_name=mut_lin10, phys_name=mut_phys10, v=1, r=1, w=1)
 
-.section .text
+.section .code, "ax"
 
 cl0:
     ld x1, 0(x0)

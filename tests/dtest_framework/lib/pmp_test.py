@@ -3,7 +3,9 @@
 
 import unittest
 
+import riescue.lib.enums as RV
 from riescue.dtest_framework.lib.pmp import PmpRegisters, PmpRegion, PmpCfg, PmpAddr, RiscvPmpAddressMatchingModes
+from riescue.dtest_framework.config.memory import DramRange
 
 
 class PmpTest(unittest.TestCase):
@@ -16,7 +18,7 @@ class PmpTest(unittest.TestCase):
         start = 0x8000_0000
         size = 0x8000_0000
         pmp_region = PmpRegion()
-        pmp_region.add_region(start, size, "rwx")
+        pmp_region.add_region(DramRange(start, size, permissions=RV.PmpAttributes.R_W_X))
 
         registers = pmp_region.encode()
         self.assertEqual(len(registers), 1)
@@ -44,7 +46,7 @@ class PmpTest(unittest.TestCase):
         size = 0xC000_0000
 
         pmp_region = PmpRegion(pad_napot=False)
-        pmp_region.add_region(start, size)
+        pmp_region.add_region(DramRange(start, size))
         registers = pmp_region.encode()
         self.assertEqual(len(registers), 1, "Expected 1 PmpRegister with 2 PmpAddr and 1 PmpCfg")
         for pmp in registers:
@@ -74,7 +76,7 @@ class PmpTest(unittest.TestCase):
         two_gb = 0x8000_0000
         pmp_region = PmpRegion(pad_napot=False)
         for i in range(16):
-            pmp_region.add_region(two_gb + i * one_gb, one_gb, "rwx")
+            pmp_region.add_region(DramRange(two_gb + i * one_gb, one_gb, permissions=RV.PmpAttributes.R_W_X))
         registers = pmp_region.encode()
         self.assertEqual(len(registers), 2, "Expected 2 PmpRegister with 1 PmpAddr and 1 PmpCfg")
 
@@ -99,7 +101,7 @@ class PmpTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             pmp_region = PmpRegion(pad_napot=False)
-            pmp_region.add_region(0x8000_0000, 0x24, "rwx")
+            pmp_region.add_region(DramRange(0x8000_0000, 0x24, permissions=RV.PmpAttributes.R_W_X))
 
     def test_pmp_region_large_range(self):
         """
@@ -115,7 +117,7 @@ class PmpTest(unittest.TestCase):
 
         pmp_region = PmpRegion(pad_napot=False)
         for start, size in regions:
-            pmp_region.add_region(start, size, "rwx")
+            pmp_region.add_region(DramRange(start, size, permissions=RV.PmpAttributes.R_W_X))
         registers = pmp_region.encode()
         self.assertEqual(len(registers), 3, "Expected 3 PmpRegisters")
         for reg in registers:

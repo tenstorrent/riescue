@@ -44,5 +44,8 @@ The available hooks are defined in the :py:class:`riescue.lib.enums.HookPoint` e
 
 Hooks can be added using the :py:meth:`riescue.FeatMgr.register_hook` method with a valid enum value.
 
+
+Multiple hooks can be registered for the same hook point. The order of hooks registered is preserved.
+
 Hooks can also be added using the :py:class:`riescue.dtest_framework.config.Conf` class.
 See the :doc:`Conf <../python_api/Conf>` reference for more information on how to use the ``Conf`` class.

@@ -80,6 +80,7 @@ scheduler__start_next_test:
 la t1, os_test_sequence
 add t0, t0, t1    # t0 = os_test_sequence + offset
 ld a0, 0(t0)      # a0 = [os_test_sequence]
+mv t1, a0         # t1 = a0. a0 is being still used for test offset jumps
         """
 
         return code
@@ -114,17 +115,7 @@ ld a0, 0(t0)      # a0 = [os_test_sequence]
         os_test_sequence:
         {os_test_sequence}
         """
-
-        # previously test setup and cleanup were in the test sequence
-        code += """
-# Test pointers
-scheduler__test_setup_ptr:
-    .dword test_setup               # pointer to test's test_setup code, ran exactly once at start of test
-scheduler__test_cleanup_ptr:
-    .dword test_cleanup             # pointer to test's test_cleanup code, ran exactly once at end of test
-
-        """
-
+        code += self._fs_vs_rr_tables_section()
         return code
 
     def execute_test(self) -> str:
@@ -132,7 +123,7 @@ scheduler__test_cleanup_ptr:
         Jumps to test label in a0
         """
         code = ""
-        code += "jr a0\n"
+        code += "jr t1\n"
         return code
 
     def endless_loop(self) -> str:
@@ -168,3 +159,9 @@ addi t2, t1, -1
         else:
             code += "sw t2, 0(t0)\n"
         return code
+
+    def get_test_address_register(self) -> str:
+        """
+        Returns the register that contains the address of the current test.
+        """
+        return "t1"

@@ -33,6 +33,7 @@ yum --enablerepo=crb -y install \
     python3-pip                     \
     python3-devel                   \
     python-sphinx                   \
-    zstd                          \
-    git
+    zstd                            \
+    git                             \
+    git-lfs
 

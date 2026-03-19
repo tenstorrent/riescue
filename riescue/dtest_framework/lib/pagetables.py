@@ -341,7 +341,42 @@ class PTAttrs(raw_attributes.RawAttributes):
         "reserved_level3": 0,
         "reserved_level4": 0,
         "pbmt": 0,
+        "pbmt_level0": 0,
+        "pbmt_level1": 0,
+        "pbmt_level2": 0,
+        "pbmt_level3": 0,
+        "pbmt_level4": 0,
+        "pbmt_level0_glevel0": 0,
+        "pbmt_level0_glevel1": 0,
+        "pbmt_level0_glevel2": 0,
+        "pbmt_level0_glevel3": 0,
+        "pbmt_level0_glevel4": 0,
+        "pbmt_level1_glevel0": 0,
+        "pbmt_level1_glevel1": 0,
+        "pbmt_level1_glevel2": 0,
+        "pbmt_level1_glevel3": 0,
+        "pbmt_level1_glevel4": 0,
+        "pbmt_level2_glevel0": 0,
+        "pbmt_level2_glevel1": 0,
+        "pbmt_level2_glevel2": 0,
+        "pbmt_level2_glevel3": 0,
+        "pbmt_level2_glevel4": 0,
+        "pbmt_level3_glevel0": 0,
+        "pbmt_level3_glevel1": 0,
+        "pbmt_level3_glevel2": 0,
+        "pbmt_level3_glevel3": 0,
+        "pbmt_level3_glevel4": 0,
+        "pbmt_level4_glevel0": 0,
+        "pbmt_level4_glevel1": 0,
+        "pbmt_level4_glevel2": 0,
+        "pbmt_level4_glevel3": 0,
+        "pbmt_level4_glevel4": 0,
         "n": 0,
+        "n_level0": 0,
+        "n_level1": 0,
+        "n_level2": 0,
+        "n_level3": 0,
+        "n_level4": 0,
         "secure": 0,
         "gstage_n": 0,
         "modify_pt": 0,
@@ -361,7 +396,7 @@ class PTAttrs(raw_attributes.RawAttributes):
                     self.__setattr__(attr_name, value)
 
         # Now set the level specific attribute value from attr_level{level} values
-        for attr in ["v", "a", "d", "r", "w", "x", "g", "u", "rsw", "reserved", "secure"]:
+        for attr in ["v", "a", "d", "r", "w", "x", "g", "u", "rsw", "reserved", "pbmt", "n", "secure"]:
             if leaf or (attr == "secure"):
                 if attr == "a" or attr == "d":
                     # If value of a is None, then randomize based on svadu is enabled
@@ -413,10 +448,7 @@ class PTAttrs(raw_attributes.RawAttributes):
         value |= common.set_bitn(original=value, bit=7, value=bool(self.d))
         value |= common.set_bits(original_value=value, bit_hi=9, bit_lo=8, value=self.rsw)
         value |= common.set_bits(original_value=value, bit_hi=60, bit_lo=54, value=self.reserved)
-        if self.leaf:
-            value |= common.set_bits(original_value=value, bit_hi=62, bit_lo=61, value=self.pbmt)
-        else:
-            value |= common.set_bits(original_value=value, bit_hi=62, bit_lo=61, value=0)
+        value |= common.set_bits(original_value=value, bit_hi=62, bit_lo=61, value=self.pbmt)
         value |= common.set_bitn(original=value, bit=63, value=bool(self.n))
 
         return value
@@ -554,7 +586,14 @@ class Pagetables:
                 qualifiers = {RV.AddressQualifiers.ADDRESS_SECURE}  # TODO: review, changed to set from list to match AddressConstraint types
                 secure_access_generated = True
 
-            phys_addr_c = addrgen.AddressConstraint(type=RV.AddressType.PHYSICAL, qualifiers=qualifiers, bits=self.featmgr.physical_addr_bits, size=size, mask=mask)
+            phys_addr_bits = self.featmgr.physical_addr_bits
+            if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
+                # Since we're identity mapping the g-stage pagetables, we need
+                # this to be a valid g-stage address too. Thus, we limit the
+                # bits to the more restrictive of the physical and guest
+                # physical space widths.
+                phys_addr_bits = min(phys_addr_bits, RV.RiscvPagingModes.linear_addr_bits(self.featmgr.paging_g_mode, gstage=True))
+            phys_addr_c = addrgen.AddressConstraint(type=RV.AddressType.PHYSICAL, qualifiers=qualifiers, bits=phys_addr_bits, size=size, mask=mask)
             # print(f'constraints: {phys_addr_c}, page: {self.page.name} {self.page}')
             base_addr = self.addrgen.generate_address(constraint=phys_addr_c)
             if secure_access_generated:
@@ -589,8 +628,9 @@ class Pagetables:
                             # print(f'adding g-stage mapping for intermediate {self.page.name} {self.page.lin_addr:x} at level {pt_level} for base {base_addr:x} in map {map.name} \
                             #       {pagesize}')
                             attrs = {"x": 1}
-                            for attr in ["v", "a", "d", "g", "u", "r", "w", "x"]:
-                                for level in range(self.max_levels):
+                            g_stage_max_levels = RV.RiscvPagingModes.max_levels(self.featmgr.paging_g_mode)
+                            for attr in ["v", "a", "d", "g", "u", "r", "w", "x", "n", "pbmt"]:
+                                for level in range(g_stage_max_levels):
                                     attr_level = f"{attr}_level{level}"
                                     # If level is leaf level then we only update v=0 and not v_level0. These are some of the stupid things I want to clean up, but for some other day
                                     leaf_level = RV.RiscvPageSizes.pt_leaf_level(pagesize)
@@ -600,8 +640,8 @@ class Pagetables:
                             map.add_raw_pt_page(
                                 linear_name=linear_name,
                                 physical_name=physical_name,
-                                linear_addr=base_addr,
-                                physical_addr=base_addr,
+                                linear_addr=base_addr & RV.RiscvPageSizes.address_mask(pagesize),
+                                physical_addr=base_addr & RV.RiscvPageSizes.address_mask(pagesize),
                                 # attrs={'x':1, 'v':1},
                                 attrs=attrs,
                                 pagesize=pagesize,
@@ -691,15 +731,45 @@ class Pagetables:
             raise ValueError(f"Physical address is None for page {self.page.name}")
         if pt_attr.secure:
             phys_addr |= 0x0080000000000000
-        leaf_basetable = PTTable(base_addr=phys_addr, leaf=True)
-        pt_entry = PTEntry(basetable=leaf_basetable, pt_attr=pt_attr, level=pt_level)
-        # Also mark the pt_entry as leaf, so we can error out if any other address tried to use this as non-leaf
-        pt_entry.leaf = True
-        base_table.insert_entry(entry=pt_entry, index=index)
-        log.debug(
-            f"insert leaf entry {pt_entry.get_base_addr():x} for page {self.page.name} {self.page.lin_addr:x} at index {index*8:x} \
-            at level {pt_level} into {base_table.base_addr:x} with map {self.page_map.name}, {self.page}",
-        )
+
+        # NAPOT 64KB: auto-set N bit and create 16 contiguous leaf PTEs
+        if self.page.pagesize == RV.RiscvPageSizes.S64KB:
+            # Auto-set N bit unless user explicitly set n=0
+            if self.page.attrs.get("n") is None or self.page.attrs.get("n") == 1:
+                pt_attr.n = 1  # type: ignore[attr-defined]
+
+            # NAPOT PPN encoding: set PPN0[3:0] = 0x8 (bits [15:12] of phys_addr)
+            napot_phys_addr = (phys_addr & ~0xF000) | 0x8000
+
+            # 16 contiguous PTEs starting at 16-entry aligned boundary
+            base_index = index & ~0xF
+            napot_entry: Optional[PTEntry] = None
+            for i in range(16):
+                napot_index = base_index + i
+                napot_leaf_basetable = PTTable(base_addr=napot_phys_addr, leaf=True)
+                napot_pt_attr = PTAttrs(rng=rng, featmgr=self.featmgr, level=pt_level, page=self.page, leaf=True)
+                napot_pt_attr.n = pt_attr.n  # type: ignore[attr-defined]
+                napot_entry = PTEntry(basetable=napot_leaf_basetable, pt_attr=napot_pt_attr, level=pt_level)
+                napot_entry.leaf = True
+                base_table.insert_entry(entry=napot_entry, index=napot_index)
+
+            log.debug(
+                f"insert NAPOT 64KB leaf entries for page {self.page.name} {self.page.lin_addr:x} "
+                f"base_index {base_index:x} at level {pt_level} into {base_table.base_addr:x} "
+                f"with map {self.page_map.name}, N={pt_attr.n}",  # type: ignore[attr-defined]
+            )
+            assert napot_entry is not None
+            pt_entry = napot_entry
+        else:
+            leaf_basetable = PTTable(base_addr=phys_addr, leaf=True)
+            pt_entry = PTEntry(basetable=leaf_basetable, pt_attr=pt_attr, level=pt_level)
+            # Also mark the pt_entry as leaf, so we can error out if any other address tried to use this as non-leaf
+            pt_entry.leaf = True
+            base_table.insert_entry(entry=pt_entry, index=index)
+            log.debug(
+                f"insert leaf entry {pt_entry.get_base_addr():x} for page {self.page.name} {self.page.lin_addr:x} at index {index*8:x} \
+                at level {pt_level} into {base_table.base_addr:x} with map {self.page_map.name}, {self.page}",
+            )
 
         # Add g-stage mapping if this is a vs-map and if g-stage is enabled
         if not self.page_map.g_map and self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
@@ -734,8 +804,9 @@ class Pagetables:
                         if self.page.phys_addr is None:  # FIXME: fallback to make sure phys_addr is not None
                             raise ValueError(f"Physical address is None for page {self.page.name}")
                         attrs = {"x": 1}
-                        for attr in ["v", "a", "d", "g", "u", "r", "w", "x"]:
-                            for level in range(self.max_levels):
+                        g_stage_max_levels = RV.RiscvPagingModes.max_levels(self.featmgr.paging_g_mode)
+                        for attr in ["v", "a", "d", "g", "u", "r", "w", "x", "n", "pbmt"]:
+                            for level in range(g_stage_max_levels):
                                 attr_level = f"{attr}_level{level}"
                                 # If level is leaf level then we only update v=0 and not v_level0. These are some of the stupid things I want to clean up, but for some other day
                                 leaf_level = RV.RiscvPageSizes.pt_leaf_level(pagesize)
@@ -745,8 +816,8 @@ class Pagetables:
                         map.add_raw_pt_page(
                             linear_name=linear_name,
                             physical_name=physical_name,
-                            linear_addr=self.page.phys_addr,
-                            physical_addr=self.page.phys_addr,
+                            linear_addr=self.page.phys_addr & RV.RiscvPageSizes.address_mask(pagesize),
+                            physical_addr=self.page.phys_addr & RV.RiscvPageSizes.address_mask(pagesize),
                             attrs=attrs,
                             pagesize=pagesize,
                         )

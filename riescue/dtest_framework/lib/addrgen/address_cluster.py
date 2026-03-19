@@ -123,7 +123,7 @@ class AddressCluster:
                     # and (50, 70) are possible
                     if start < j[0]:
                         new_list.add((start, j[0] - 1))
-                    start = j[1] + 1
+                    start = max(start, j[1] + 1)
                 if start < end:
                     new_list.add((start, end))
 

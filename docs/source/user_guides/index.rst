@@ -24,4 +24,5 @@ If you're new to RiESCUE, start with the installation guide at :doc:`/tutorials/
    riescued_user_guide
    riescuec_user_guide
    modifying_end_of_test
+   selfcheck
    ctk/vector_test_kit

@@ -50,7 +50,8 @@ class BaseRiescuedTest(unittest.TestCase):
         """
         test_dir = os.getenv("TEST_DIR")
         if test_dir is None:
-            test_dir = Path("test_out") / self.__class__.__name__
+            modulepath = self.__class__.__module__.split(".")[1:]
+            test_dir = Path("test_out") / "/".join(modulepath)
         else:
             # Handle
             if "$" in test_dir:
@@ -65,6 +66,8 @@ class BaseRiescuedTest(unittest.TestCase):
 
         self.equates_regex = re.compile(r".equ ([a-zA-Z_0-9]*) *, ([0-9xa-f]+)")
         self.phys_addr_ld_regex = re.compile(r"\. = ([0-9xa-f]*);")
+        self.whisper_regex = re.compile(r"#([0-9]*) ([0-9]*) [ A-Z]* ([a-f0-9]*) (.*)")  # captures Step, hartid, priv and pc
+        self.dis_regex = re.compile(r"([a-f0-9]*) <(.*)>:")  # captures address and subroutine name
 
     def get_iterations(self) -> int:
         """
@@ -191,3 +194,44 @@ class BaseRiescuedTest(unittest.TestCase):
                 addr = int(match[0], 0)
                 physical_addresses.append(addr)
         return physical_addresses
+
+    def get_all_pcs(self, result: RiescueD) -> list[int]:
+        "Get all PCs from the whisper log"
+        elf = result.generated_files.elf
+        whisper_log = elf.parent / (elf.name + "_whisper.log")
+        self.assertTrue(whisper_log.exists(), f"Whisper log not found at {whisper_log}")
+
+        pcs: list[int] = []
+        with open(whisper_log, "r") as f:
+            for line in f:
+                match = self.whisper_regex.match(line)
+                if match:
+                    pcs.append(int(match.group(3), 16))
+        return pcs
+
+    def get_pc_subroutines(self, result: RiescueD) -> dict[int, str]:
+        "Get the subroutine for a given PC"
+        elf = result.generated_files.elf
+        dis_log = elf.parent / (elf.name + ".dis")
+        subroutines: dict[int, str] = {}
+        with open(dis_log, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.endswith(":"):
+                    if self.dis_regex.match(line):
+                        match = self.dis_regex.match(line)
+                        if match:
+                            addr = int(match.group(1), 16)
+                            subroutine = match.group(2)
+                            subroutines[addr] = subroutine
+        return subroutines
+
+    def get_all_executed_subrountines(self, result: RiescueD) -> list[str]:
+        "Get all subroutines executed. Retrieves PCs from whisper log and subroutines from disassembly"
+
+        subroutines = self.get_pc_subroutines(result)
+        executed: list[str] = []
+        for pc in self.get_all_pcs(result):
+            if pc in subroutines:
+                executed.append(subroutines[pc])
+        return executed

@@ -103,6 +103,10 @@ class PmaInfo:
     def get_end_address(self) -> int:
         return self.pma_address + self.pma_size
 
+    def contains_address(self, address: int) -> bool:
+        """Check if an address falls within this PMA region."""
+        return self.pma_address <= address < self.get_end_address()
+
     def contains(self, other: PmaInfo) -> bool:
         return self.pma_address <= other.pma_address and self.get_end_address() >= other.get_end_address()
 
@@ -162,7 +166,11 @@ class PmaRegion:
                 c_entries.append(entry)
             elif c_entries[-1].contains(entry):
                 # last region already includes this region
-                pass
+                # However, preserve named hint regions (pma_*) even if contained
+                if entry.pma_name and entry.pma_name.startswith("pma_"):
+                    c_entries.append(entry)
+                else:
+                    pass
             elif c_entries[-1].get_end_address() == entry.pma_address:
                 # last region is adjacent to this region
                 c_entries[-1].pma_size += entry.pma_size
@@ -172,3 +180,15 @@ class PmaRegion:
             else:
                 c_entries.append(entry)
         return c_entries
+
+    def find_region_for_address(self, address: int) -> PmaInfo | None:
+        """Find the PMA region that contains the given address.
+
+        :param address: Address to check
+        :return: PmaInfo if address is within a region, None otherwise
+        """
+        # Check consolidated entries (final PMA regions)
+        for region in self.consolidated_entries():
+            if region.contains_address(address):
+                return region
+        return None

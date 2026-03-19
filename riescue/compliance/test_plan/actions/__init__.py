@@ -6,13 +6,15 @@ from .action import Action, CodeMixin
 from .registry import ActionRegistry
 from .label import LabelAction
 from .li import LiAction
-from .memory import MemoryAction, CodePageAction, StackPageAction
+from .load_physical_address import LoadPhysicalAddressAction
+from .conditional_block import ConditionalBlockAction
+from .memory import MemoryAction, CodePageAction, StackPageAction, RequestPmpAction
 from .arithmetic import ArithmeticAction
 from .load import LoadAction
 from .store import StoreAction
 from .modify_pte import ModifyPteAction
 from .branch import CallAction
-from .csr import CsrReadAction, CsrWriteAction
+from .csr import CsrReadAction, CsrWriteAction, CsrDirectAccessAction
 from .pte_actions import (
     ReadLeafPteAction,
     WriteLeafPteAction,
@@ -26,6 +28,8 @@ from .assertions.assert_exception import AssertExceptionAction
 from .memaccess import MemAccessAction
 from .system import SystemAction
 from .comment import CommentAction
+from .directive import DirectiveAction
+from .set_wait_timeout import SetWaitTimeoutAction
 from .mappings import DEFAULT_MAPPINGS
 
 
@@ -39,9 +43,11 @@ __all__ = [
     "ActionRegistry",
     "LabelAction",
     "LiAction",
+    "LoadPhysicalAddressAction",
     "LoadAction",
     "StoreAction",
     "CallAction",
+    "ConditionalBlockAction",
     "ArithmeticAction",
     "MemoryAction",
     "CodePageAction",
@@ -49,6 +55,7 @@ __all__ = [
     "ModifyPteAction",
     "CsrReadAction",
     "CsrWriteAction",
+    "CsrDirectAccessAction",
     "PteAction",
     "ReadPteAction",
     "WritePteAction",
@@ -60,5 +67,8 @@ __all__ = [
     "MemAccessAction",
     "SystemAction",
     "CommentAction",
+    "DirectiveAction",
+    "ConditionalBlockAction",
+    "SetWaitTimeoutAction",
     "DEFAULT_MAPPINGS",
 ]

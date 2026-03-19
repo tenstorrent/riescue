@@ -12,6 +12,7 @@ from riescue.compliance.test_plan.types import DiscreteTest, AssemblyFile, Heade
 from riescue.compliance.test_plan.transformer import Transformer
 from riescue.compliance.test_plan.memory import MemoryRegistry
 from riescue.compliance.test_plan.actions import CsrReadAction, CsrWriteAction
+from riescue.compliance.config import TpCfg
 from riescue.lib.rand import RandNum
 
 # Shortcut for optional list of predicates (callable functions that return bools) used to pass in more constraints
@@ -30,9 +31,9 @@ class TestPlanGenerator:
     :param env_constraints: Optional list of constraints to use for solving the test environment. If not provided, the default constraints will be used.
     """
 
-    def __init__(self, isa: str, rng: RandNum, action_registry: Optional[ActionRegistry] = None, env_constraints: Predicates = None):
+    def __init__(self, cfg: TpCfg, rng: RandNum, action_registry: Optional[ActionRegistry] = None, env_constraints: Predicates = None):
         self.rng = rng
-        self.mem_reg = MemoryRegistry()
+        self.mem_reg = MemoryRegistry(cfg)
 
         if env_constraints is None:
             self.env_solver = TestEnvSolver()
@@ -41,7 +42,7 @@ class TestPlanGenerator:
 
         # Create factory once since it only depends on action_registry
         self.test_plan_factory = TestPlanFactory(action_registry=action_registry)
-        self.transformer = Transformer(rng=self.rng, mem_reg=self.mem_reg, isa=isa)
+        self.transformer = Transformer(rng=self.rng, mem_reg=self.mem_reg, featmgr=cfg.featmgr, isa=cfg.isa)
 
     def generate_test_plan(self, test_plan: TestPlan) -> str:
         """
@@ -126,24 +127,7 @@ class TestPlanGenerator:
         Check if a test should be filtered out based on the environment.
         """
 
-        # iterate through list, check if Csr* access is feasible and allowed and/or deleg_excp_to machine is set
         skip_test = False
-        for action in test.actions:
-            if isinstance(action, CsrReadAction) or isinstance(action, CsrWriteAction):
-                priv_modes = ["m", "s", "u"]
-                main_env = priv_modes.index(env.priv.long_name()[0])
-                csr_priv_mode = action.csr_name[0]
-                if csr_priv_mode == "h":
-                    csr_priv_mode = "s"
-                if csr_priv_mode == "v":
-                    csr_priv_mode = action.csr_name[1]
-                which_priv_mode = 2  # assume U mode acesss
-                if csr_priv_mode in priv_modes:
-                    which_priv_mode = priv_modes.index(csr_priv_mode)
-
-                if which_priv_mode > main_env and env.deleg_excp_to != PrivilegeMode.M:
-                    skip_test = True
-                    break
         # FIXME: NO support on multiple harts yet, we can only do tests that cater to single hart environments
         return env.paging_mode in test.env.paging_modes and env.priv in test.env.priv_modes and test.env.min_num_harts == 1 and env.virtualized in test.env.virtualized and not skip_test
 

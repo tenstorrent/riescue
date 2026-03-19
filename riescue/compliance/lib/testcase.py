@@ -25,13 +25,19 @@ class TestCase:
     def __init__(self, signature: Path, instrs: list[InstrBase], resource_db: Resource) -> None:
         self.signature = signature
         self.testname = signature.with_suffix(".s")
+        self.disassembly = signature.with_suffix(".dis")
         self._resource_db = resource_db
 
-        self.disassembly = signature.with_suffix(".dis")
         if self._resource_db.first_pass_iss == "spike":
-            self.log = signature.parent / (signature.stem + "_spike.log")
-            self.csv_log = signature.parent / (signature.stem + "_spike_csv.log")
+            self.log, self.csv_log = self.get_spike_logs()
         else:
-            self.log = signature.parent / (signature.stem + "_whisper.log")
-            self.csv_log = signature.parent / (signature.stem + "_whisper_csv.log")
+            self.log, self.csv_log = self.get_whisper_logs()
         self.instrs = instrs
+
+    def get_spike_logs(self) -> tuple[Path, Path]:
+        "Retrive spike and csv logs for the testcase"
+        return self.signature.parent / (self.signature.stem + "_spike.log"), self.signature.parent / (self.signature.stem + "_spike_csv.log")
+
+    def get_whisper_logs(self) -> tuple[Path, Path]:
+        "Retrive whisper and csv logs for the testcase"
+        return self.signature.parent / (self.signature.stem + "_whisper.log"), self.signature.parent / (self.signature.stem + "_whisper_csv.log")

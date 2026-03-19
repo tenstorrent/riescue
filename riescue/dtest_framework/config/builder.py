@@ -59,8 +59,12 @@ class FeatMgrBuilder:
     """
 
     featmgr: FeatMgr = field(default_factory=FeatMgr)
-    conf: Optional[Conf] = None  #: ``Conf`` class applied to FeatMgrBuilder right before building the ``FeatMgr``
+    conf: list[Conf] = field(default_factory=list)  #: ``Conf`` class applied to FeatMgrBuilder right before building the ``FeatMgr``
     features: list[str] = field(default_factory=list)
+    medeleg: Optional[int] = None
+    mideleg: Optional[int] = None
+    hedeleg: Optional[int] = None
+    _mideleg_bit_overrides: list = field(default_factory=list)  #: per-vector bit overrides from ;#vector_delegation
 
     # randomized fields
     # Test options
@@ -77,7 +81,6 @@ class FeatMgrBuilder:
     env: Candidate[RV.RiscvTestEnv] = field(default_factory=lambda: Candidate.from_enum(RV.RiscvTestEnv))
     arch: Candidate[RV.RiscvBaseArch] = field(default_factory=lambda: Candidate(RV.RiscvBaseArch.ARCH_RV64I))
     secure_mode: Candidate[RV.RiscvSecureModes] = field(default_factory=lambda: Candidate(RV.RiscvSecureModes.NON_SECURE))
-    deleg_excp_to: Candidate[RV.RiscvPrivileges] = field(default_factory=lambda: Candidate(RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER))
 
     # MP mode
     mp: Candidate[RV.RiscvMPEnablement] = field(default_factory=lambda: Candidate(RV.RiscvMPEnablement.MP_OFF))
@@ -86,6 +89,13 @@ class FeatMgrBuilder:
 
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            "--conf",
+            action="append",
+            type=Path,
+            default=[],
+            help="Path to conf.py file for additional config and hooks.",
+        )
         cmdline.add_arguments(parser)
 
     def with_test_header(self, header: ParsedTestHeader) -> FeatMgrBuilder:
@@ -113,14 +123,29 @@ class FeatMgrBuilder:
 
     def with_args(self, args: Namespace) -> FeatMgrBuilder:
         """
-        Update builder with command line arguments
+        Update builder with command line arguments.
+        Also updates Conf to path if provided (takes precedence over conf passed in to builder).
 
         :param args: The command line arguments to update the builder with
 
         .. seealso:: :doc:`/reference/config/cli` for the command line interface.
 
         """
+        if args.conf:
+            self.conf = [Conf.load_conf_from_path(path) for path in args.conf]
         return CliAdapter().apply(self, args)
+
+    def with_vector_delegations(self, delegations) -> FeatMgrBuilder:
+        """
+        Register per-vector mideleg bit overrides from ;#vector_delegation directives.
+
+        Each entry is a ``ParsedVectorDelegation`` with ``vector_num`` and
+        ``delegate_to_supervisor`` fields.  The overrides are applied after the
+        base mideleg value is chosen in :meth:`build`, so they take precedence
+        over both the randomized default and any ``--mideleg`` CLI argument.
+        """
+        self._mideleg_bit_overrides = list(delegations)
+        return self
 
     def build(self, rng: RandNum) -> FeatMgr:
         """
@@ -133,8 +158,9 @@ class FeatMgrBuilder:
 
         featmgr = self.featmgr.duplicate()
 
-        if self.conf is not None:
-            self.conf.pre_build(self)
+        for conf in self.conf:
+            conf.pre_build(self)
+            conf.add_hooks(featmgr)
 
         if featmgr.wysiwyg:
             self.priv_mode = Candidate(RV.RiscvPrivileges.MACHINE)  # Always run in Machine mode for wysiwyg mode
@@ -173,7 +199,34 @@ class FeatMgrBuilder:
         featmgr.mp = self.mp.choose(rng)
         featmgr.mp_mode = self.mp_mode.choose(rng)
         featmgr.parallel_scheduling_mode = self.parallel_scheduling_mode.choose(rng)
-        featmgr.deleg_excp_to = self.deleg_excp_to.choose(rng)
+
+        if self.medeleg is None:
+            random_medeleg = rng.random_nbit(64)
+            # Constraints: clear bits 8-11 (no ecall delegation for U/VS/HS/M)
+            featmgr.medeleg = random_medeleg & ~(0xF << 8)
+        else:
+            featmgr.medeleg = self.medeleg
+
+        if self.hedeleg is None:
+            random_hedeleg = rng.random_nbit(64)
+            # Constraint: clear bits 8-11 (no ecall delegation)
+            featmgr.hedeleg = random_hedeleg & ~(0xF << 8)
+        else:
+            featmgr.hedeleg = self.hedeleg
+
+        # Randomize interrupt delegation bits: SEI, STI, SSI, MEI, MTI, MSI
+        # Only these bits can be set, all others are 0
+        if self.mideleg is None:
+            interrupt_bits = (1 << 9) | (1 << 5) | (1 << 1) | (1 << 11) | (1 << 7) | (1 << 3)
+            featmgr.mideleg = rng.random_nbit(64) & interrupt_bits
+        else:
+            featmgr.mideleg = self.mideleg
+        # Apply per-vector overrides from ;#vector_delegation directives (take precedence over base)
+        for d in self._mideleg_bit_overrides:
+            if d.delegate_to_supervisor:
+                featmgr.mideleg |= 1 << d.vector_num
+            else:
+                featmgr.mideleg &= ~(1 << d.vector_num)
 
         if featmgr.secure_mode:
             featmgr.setup_pmp = True
@@ -191,18 +244,9 @@ class FeatMgrBuilder:
             # if test env virtualized, should not be running machine mode tests
             if featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
                 featmgr.priv_mode = RV.RiscvPrivileges.SUPER
-            featmgr.deleg_excp_to = RV.RiscvPrivileges.SUPER
-        elif featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
-            featmgr.deleg_excp_to = RV.RiscvPrivileges.MACHINE
 
-        # disable WFI wait if interrupts are disabled
-        if not featmgr.interrupts_enabled:
-            log.info("Interrupts are disabled, cannot use WFI wait in Runtime loops.")
-            featmgr.disable_wfi_wait = True
-
-        if self.conf is not None:
-            self.conf.post_build(featmgr)
-            self.conf.add_hooks(featmgr)
+        for conf in self.conf:
+            conf.post_build(featmgr)
 
         return featmgr
 

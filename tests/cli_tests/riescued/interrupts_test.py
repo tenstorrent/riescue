@@ -12,37 +12,30 @@ class Interrupt_EnabledTests(BaseRiescuedTest):
     """
 
     def setUp(self):
-        self.testname = "dtest_framework/tests/interrupt_enabled_test.s"
+        self.testname = "dtest_framework/tests/test_interrupts.s"
         super().setUp()
-
-    def test_cli(self):
-        args = ["--run_iss", "--user_interrupt_table"]
-        self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
-
-    def test_cli_1(self):
-        # Test fails because --interrupts_disabled set and test expects interrupts to be enabeld
-        args = ["--run_iss", "--user_interrupt_table", "--interrupts_disabled"]
-        for failure in self.expect_toolchain_failure_generator(testname=self.testname, cli_args=args, failure_kind=ToolFailureType.TOHOST_FAIL, iterations=self.iterations):
-            self.assertEqual(failure.fail_code, 0x3)
 
     def test_cli_2(self):
         testname = "dtest_framework/tests/non_instr_tests/interrupts_M.s"
-        args = ["--run_iss"]
+        args = ["--run_iss", "--deleg_excp_to=machine"]
         self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
 
     def test_cli_3(self):
         testname = "dtest_framework/tests/non_instr_tests/interrupts_S_delegate_S.s"
-        args = ["--run_iss", "--disable_wfi_wait"]
-        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
-
-    def test_user_interrupt_table(self):
-        args = ["--run_iss", "--user_interrupt_table"]
-        testname = "dtest_framework/tests/user_interrupt_table.s"
+        args = ["--run_iss", "--deleg_excp_to=super"]
         self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
 
     def test_vectored_interrupt(self):
-        args = ["--run_iss"]
+        args = ["--run_iss", "--deleg_excp_to=machine"]
         testname = "dtest_framework/tests/test_interrupts.s"
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+    def test_custom_handler_dispatch(self):
+        """Verify per-segment custom handler dispatch: two discrete_tests on the same vector
+        each install a different handler via PROLOGUE/EPILOGUE and confirm the pointer switch
+        isolates each handler to its own segment."""
+        testname = "dtest_framework/tests/non_instr_tests/custom_handler_dispatch.s"
+        args = ["--run_iss"]
         self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
 
 

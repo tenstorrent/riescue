@@ -8,6 +8,7 @@ Macros provided for the dtest framework.
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.lib.routines import Routines
+from riescue.dtest_framework.parser import ParsedCsrAccess
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 
 
@@ -74,8 +75,6 @@ class Macros(AssemblyGenerator):
         else:
             if self.test_priv == RV.RiscvPrivileges.MACHINE:
                 get_tp = f"csrr tp, mscratch"
-            elif self.test_priv == RV.RiscvPrivileges.SUPER and self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
-                get_tp = f"csrr tp, sscratch"
             else:
                 # Syscall always returns the hart-local storage pointer in a0
                 get_tp = """
@@ -114,11 +113,12 @@ class Macros(AssemblyGenerator):
         """
         name = "OS_SETUP_CHECK_EXCP"
         macro = Macro(name=name)
-        macro.args = ["__expected_cause", "__expected_pc", "__return_pc", "__expected_tval=0", "__skip_pc_check=0"]
+        macro.args = ["__expected_cause", "__expected_pc", "__return_pc", "__expected_tval=0", "__expected_htval=0", "__skip_pc_check=0", "__far_expected_pc=0", "__far_return_pc=0"]
 
         check_excp_expected_cause = self.variable_manager.get_variable("check_excp_expected_cause")
         check_excp_expected_pc = self.variable_manager.get_variable("check_excp_expected_pc")
         check_excp_expected_tval = self.variable_manager.get_variable("check_excp_expected_tval")
+        check_excp_expected_htval = self.variable_manager.get_variable("check_excp_expected_htval")
         check_excp_return_pc = self.variable_manager.get_variable("check_excp_return_pc")
         check_excp_skip_pc_check = self.variable_manager.get_variable("check_excp_skip_pc_check")
 
@@ -127,16 +127,28 @@ class Macros(AssemblyGenerator):
             li t3, \\__expected_cause
             {check_excp_expected_cause.store(src_reg="t3")}
 
-            # Expected PC
+            # Expected PC (use la for labels; when __far_expected_pc=1 use li for equates like random_addr)
+            .if \\__far_expected_pc
+            li t3, \\__expected_pc
+            .else
             la t3, \\__expected_pc
+            .endif
             {check_excp_expected_pc.store(src_reg="t3")}
 
             # Expected TVAL
             li t3, \\__expected_tval
             {check_excp_expected_tval.store(src_reg="t3")}
 
-            # Return pc
+            # Expected HTVAL
+            li t3, \\__expected_htval
+            {check_excp_expected_htval.store(src_reg="t3")}
+
+            # Return pc (use la for labels; __far_return_pc=1 for equates)
+            .if \\__far_return_pc
+            li t3, \\__return_pc
+            .else
             la t3, \\__return_pc
+            .endif
             {check_excp_return_pc.store(src_reg="t3")}
 
             # Skip PC check
@@ -157,15 +169,20 @@ class Macros(AssemblyGenerator):
         macro.args = ["__return_pc"]
 
         check_excp_return_pc = self.variable_manager.get_variable("check_excp_return_pc")
-        check_excp_skip_pc_check = self.variable_manager.get_variable("check_excp_skip_pc_check")
+        check_excp = self.variable_manager.get_variable("check_excp")
 
+        macro.args = ["__return_pc", "__far_addr=0"]
         macro.code = f"""
             {self.get_hart_context()}
+            .if \\__far_addr
+            li t3, \\__return_pc
+            .else
             la t3, \\__return_pc
+            .endif
             {check_excp_return_pc.store(src_reg="t3")}
 
             li t3, 0
-            {check_excp_skip_pc_check.store(src_reg="t3")}
+            {check_excp.store(src_reg="t3")}
 
         """
         self.macros.append(macro)
@@ -227,7 +244,7 @@ class Macros(AssemblyGenerator):
             num_cpus=self.featmgr.num_cpus,
             end_test_label="\\__end_test_label",
             max_tries=50000,
-            disable_wfi_wait=True,  # RVTOOLS-4204
+            use_zawrs=self.featmgr.is_feature_enabled("zawrs"),
         )
         self.macros.append(macro)
 
@@ -247,7 +264,7 @@ class Macros(AssemblyGenerator):
             swap_val_reg="\\__swap_val_reg",
             work_reg="\\__work_reg",
             end_test_label="\\__end_test_label",
-            disable_wfi_wait=True,  # RVTOOLS-4204
+            use_zawrs=self.featmgr.is_feature_enabled("zawrs"),
         )
         self.macros.append(macro)
 
@@ -320,7 +337,7 @@ class Macros(AssemblyGenerator):
             swap_val_reg="\\__swap_val_reg",
             work_reg="\\__work_reg",
             end_test_label="\\__end_test_label",
-            disable_wfi_wait=True,  # RVTOOLS-4204
+            use_zawrs=self.featmgr.is_feature_enabled("zawrs"),
         )
         macro.code += "jalr ra, \\__critical_section_addr_reg"
         macro.code += Routines.place_release_lock(name="\\__test_label\\()", lock_addr_reg="\\__lock_addr_reg")
@@ -385,7 +402,7 @@ class Macros(AssemblyGenerator):
             work_reg="\\__work_reg",
             retry=False,
             end_test_label="\\__end_test_label",
-            disable_wfi_wait=True,  # RVTOOLS-4204
+            use_zawrs=self.featmgr.is_feature_enabled("zawrs"),
         )
         self.macros.append(macro)
 
@@ -407,45 +424,78 @@ class Macros(AssemblyGenerator):
             swap_val_reg="\\__swap_val_reg",
             return_val_reg="\\__return_val_reg",
             work_reg="\\__work_reg",
-            disable_wfi_wait=True,  # RVTOOLS-4204
+            use_zawrs=self.featmgr.is_feature_enabled("zawrs"),
         )
         self.macros.append(macro)
 
     def gen_interrupts_macros(self):
         self.macros.extend(self.interrupt_control_macros())
 
+    def _csr_ecall_code(self, csr_name: str, set_bit: bool, imm_value: str) -> str:
+        """Generate ecall-based CSR set/clear code and register the access in the pool."""
+        operation = "set" if set_bit else "clear"
+
+        if csr_name.startswith("m"):
+            priv_mode = "machine"
+            flag_name = "machine_csr_jump_table_flags"
+            syscall = "0xf0001005"
+        else:  # s-prefixed: ecall reaches HS-mode supervisor jump table
+            priv_mode = "supervisor"
+            flag_name = "super_csr_jump_table_flags"
+            syscall = "0xf0001006"
+
+        # Register in pool if not already present (so jump table includes this CSR)
+        existing = self.pool.get_parsed_csr_accesses()
+        if csr_name not in existing or operation not in existing[csr_name]:
+            csr_id = self.pool.get_next_csr_id()
+            label = f"csr_access_{csr_name}_{priv_mode}_key_{csr_id}_{operation}"
+            csr_access = ParsedCsrAccess(csr_name=csr_name, priv_mode=priv_mode, read_write_set_clear=operation, label=label, csr_id=csr_id, hypervisor=False)
+            self.pool.add_parsed_csr_access(csr_access)
+
+        parsed = self.pool.get_parsed_csr_access(csr_name, operation)
+
+        code = f"\nli t2, {imm_value}"
+        code += f"\nli x31, {flag_name}"
+        code += f"\nli t0, {parsed.csr_id}"
+        code += "\nsd t0, 0(x31)"
+        code += f"\nli x31, {syscall}"
+        code += "\necall"
+        return code
+
+    def _make_csr_macro(self, name: str, csr_name: str, set_bit: bool, imm_value: str) -> Macro:
+        """Create a macro that sets/clears a CSR bit, using direct access or ecall as needed.
+
+        Determines direct access eligibility from the CSR name prefix:
+        - m-prefixed CSRs: require M-mode
+        - s-prefixed CSRs: require M or S-mode (bare metal only)
+        In virtualized mode, all CSRs require ecall: m-prefixed go to the machine jump table,
+        s-prefixed go to the supervisor (HS-mode) jump table.
+        """
+        is_virtualized = self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED
+
+        if csr_name.startswith("m"):
+            can_direct_access = self.test_priv == RV.RiscvPrivileges.MACHINE
+        elif csr_name.startswith("s"):
+            can_direct_access = self.test_priv in (RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER) and not is_virtualized
+        else:
+            raise ValueError(f"Unexpected CSR name prefix: {csr_name}")
+
+        macro = Macro(name=name)
+        if can_direct_access:
+            csr_instr = "csrsi" if set_bit else "csrci"
+            macro.code = f"\n{csr_instr} {csr_name}, {imm_value}"
+        else:
+            macro.code = self._csr_ecall_code(csr_name, set_bit, imm_value)
+        return macro
+
     def interrupt_control_macros(self) -> list:
-        disable_m = Macro(name="DISABLE_MIE")
-        disable_m.code = "\ncsrci mstatus, (1<<3)"  # clear bit 3 of mstatus
-
-        enable_m = Macro(name="ENABLE_MIE")
-        enable_m.code = "\ncsrsi mstatus, (1<<3)"  # set bit 3 of mstatus
-
-        disable_s = Macro(name="DISABLE_SIE")
-        disable_s.code = "\ncsrci sstatus, (1<<1)"  # clear bit 1 of sstatus
-
-        enable_s = Macro(name="ENABLE_SIE")
-        enable_s.code = "\ncsrsi sstatus, (1<<1)"  # set bit 3 of sstatus
-
-        set_direct_m_interrupts = Macro("SET_DIRECT_INTERRUPTS")
-        set_direct_m_interrupts.code += "\ncsrci mtvec, 0x1"
-
-        set_vec_m_interrupts = Macro("SET_VECTORED_INTERRUPTS")
-        set_vec_m_interrupts.code += "\ncsrsi mtvec, 0x1"
-
-        set_direct_s_interrupts = Macro("SET_DIRECT_INTERRUPTS_S")
-        set_direct_s_interrupts.code += "\ncsrci stvec, 0x1"
-
-        set_vec_s_interrupts = Macro("SET_VECTORED_INTERRUPTS_S")
-        set_vec_s_interrupts.code += "\ncsrsi stvec, 0x1"
-
         return [
-            disable_m,
-            disable_s,
-            enable_m,
-            enable_s,
-            set_direct_m_interrupts,
-            set_vec_m_interrupts,
-            set_direct_s_interrupts,
-            set_vec_s_interrupts,
+            self._make_csr_macro("DISABLE_MIE", "mstatus", False, "(1<<3)"),
+            self._make_csr_macro("DISABLE_SIE", "sstatus", False, "(1<<1)"),
+            self._make_csr_macro("ENABLE_MIE", "mstatus", True, "(1<<3)"),
+            self._make_csr_macro("ENABLE_SIE", "sstatus", True, "(1<<1)"),
+            self._make_csr_macro("SET_DIRECT_INTERRUPTS", "mtvec", False, "0x1"),
+            self._make_csr_macro("SET_VECTORED_INTERRUPTS", "mtvec", True, "0x1"),
+            self._make_csr_macro("SET_DIRECT_INTERRUPTS_S", "stvec", False, "0x1"),
+            self._make_csr_macro("SET_VECTORED_INTERRUPTS_S", "stvec", True, "0x1"),
         ]

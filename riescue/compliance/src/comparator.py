@@ -16,11 +16,11 @@ class Comparator:
         self.whisper_state_tracker = dict()
 
     def compare_logs(self, testcase):
-        spike_logs = testcase.get_spike_logs()
-        process_spike_sim_log(spike_logs[0], spike_logs[1])
-        whisper_logs = testcase.get_whisper_logs()
-        self.process_testcase(testcase, spike_logs[1], iss="spike")
-        self.process_testcase(testcase, whisper_logs[1], iss="whisper")
+        spike_log, spike_csv_log = testcase.get_spike_logs()
+        process_spike_sim_log(spike_log, spike_csv_log)
+        whisper_log, whisper_csv_log = testcase.get_whisper_logs()
+        self.process_testcase(testcase, spike_csv_log, iss="spike")
+        self.process_testcase(testcase, whisper_csv_log, iss="whisper")
         print("WHISPER")
         print(self.whisper_state_tracker)
         print("SPIKE")

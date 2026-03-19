@@ -31,17 +31,20 @@
 #####################
 # Define random address and page_mapping entries here
 #####################
-;#random_addr(name=lin1,  type=linear32,   size=0x1000, and_mask=0xfffff000)
-;#random_addr(name=phys1, type=physical32, size=0x1000, and_mask=0xfffff000)
+;#random_addr(name=lin1,  type=linear,   size=0x1000)
+;#random_addr(name=phys1, type=physical, size=0x1000)
 ;#page_mapping(lin_name=lin1, phys_name=phys1, v=1, r=1, w=1)
 
 # Another random_data and page_mapping entry
-;#random_addr(name=lin2,  type=linear32,   size=0x1000, and_mask=0xfffff000)
-;#random_addr(name=phys2, type=physical32, size=0x1000, and_mask=0xfffff000)
+;#random_addr(name=lin2,  type=linear,   size=0x1000)
+;#random_addr(name=phys2, type=physical, size=0x1000)
 ;#page_mapping(lin_name=lin2, phys_name=&random, v=1, r=1, w=1)
 
+;#random_addr(name=my_data,  type=linear,   size=0x1000)
+;#page_mapping(lin_name=my_data, phys_name=&random, v=1, r=1, w=1)
 
-.section .text
+
+.section .code, "ax"
 
 #####################
 # test_setup: RiESCUE defined label
@@ -84,7 +87,7 @@ test01:
 test02:
     addi x0, x0, 0
     li t1, 0xfeedbeef
-    la t1, my_data  # t1 = my_data
+    li t1, my_data  # t1 = my_data
     lwu t2, 0(t1)
 
     ;#test_passed()
@@ -107,7 +110,7 @@ test_cleanup:
 # Default data section
 #####################
 .section .data
-my_data:
+;#init_memory @my_data
     .dword 0xc001c0de
     .dword 0xdeadbeee
 

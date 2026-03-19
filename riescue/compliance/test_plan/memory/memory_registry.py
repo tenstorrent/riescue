@@ -1,12 +1,21 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Any, TYPE_CHECKING
+import logging
+from typing import Any, TYPE_CHECKING, Optional
+
+from coretp.rv_enums import PmpAttribute
 
 from riescue.compliance.test_plan.types import Page, DataPage
+from riescue.dtest_framework.config.memory import Memory as MemoryMap
+from riescue.dtest_framework.config.memory import DramRange
+from riescue.compliance.config import TpCfg
+import riescue.lib.enums as RV
 
 if TYPE_CHECKING:
-    from riescue.compliance.test_plan.actions import MemoryAction, CodePageAction
+    from riescue.compliance.test_plan.actions import MemoryAction, CodePageAction, RequestPmpAction
+
+log = logging.getLogger(__name__)
 
 
 class MemoryRegistry:
@@ -20,12 +29,17 @@ class MemoryRegistry:
 
     """
 
-    def __init__(self, verbose: bool = True):
+    def __init__(self, cfg: Optional[TpCfg] = None, verbose: bool = True):
         self._data: dict[str, DataPage] = {}
         self._code: dict[str, Page] = {}
         self.verbose = verbose
 
-    def allocate_data(self, name: str, data_memory: "MemoryAction") -> None:
+        if cfg is None:
+            self.cfg = TpCfg()
+        else:
+            self.cfg = cfg
+
+    def allocate_data(self, name: str, data_memory: "MemoryAction", **kwargs: Any) -> None:
         self._data[name] = DataPage(
             name=name,
             size=data_memory.size,
@@ -36,6 +50,7 @@ class MemoryRegistry:
             num_pages=data_memory.num_pages,
             modify=data_memory.modify,
             or_mask=data_memory.or_mask,
+            **kwargs,
         )
 
     def allocate_code(self, name: str, code_page: "CodePageAction") -> None:
@@ -45,6 +60,78 @@ class MemoryRegistry:
             page_size=code_page.page_size,
             flags=code_page.flags,
         )
+
+    def request_data(self, name: str, request_memory: "MemoryAction") -> None:
+        """
+        Requests a data section at build time.
+
+        If region can not be requested or allocated, no region is allocated in memory map
+        """
+
+        # assuming pmp is only use for request right now. Future work should be arbitrary requests
+
+        if isinstance(request_memory, RequestPmpAction):
+            requested_memory = self._request_pmp_region(name, request_memory)
+        else:
+            raise ValueError(f"Unsupported memory action type: {type(request_memory)}")
+
+        if requested_memory is None:
+            log.warning(f"Failed to request memory {name} {type(request_memory)}")
+            return
+        and_mask = (1 << (requested_memory.end ^ requested_memory.start).bit_length()) - 1
+        self.allocate_data(name, request_memory, and_mask=f"0x{and_mask:x}")
+
+    def _request_pmp_region(self, name: str, request_memory: "RequestPmpAction") -> Optional[DramRange]:
+        "Checks if a PMP region can be requested. If not, attempts to split a configurable DRAM region"
+
+        # check if a region matches the attributes of the request; cast to Rv.PmpAttribute
+        requested_region = request_memory.pmp_attributes
+        if requested_region == PmpAttribute.READ:
+            rv_pma_attr = RV.PmpAttributes.R
+        elif requested_region == (PmpAttribute.READ | PmpAttribute.WRITE):
+            rv_pma_attr = RV.PmpAttributes.R_W
+        elif requested_region == (PmpAttribute.READ | PmpAttribute.EXECUTE):
+            rv_pma_attr = RV.PmpAttributes.R_X
+        elif requested_region == (PmpAttribute.READ | PmpAttribute.WRITE | PmpAttribute.EXECUTE):
+            rv_pma_attr = RV.PmpAttributes.R_W_X
+        else:
+            raise ValueError(f"Unsupported PMP attributes: {requested_region}")
+
+        memory_map = self.cfg.featmgr.memory
+        for dram_range in memory_map.dram_ranges:
+            if dram_range.permissions == rv_pma_attr:
+                return dram_range
+
+        # if no region matches the attributes, try to split a configurable region
+        new_drams: list[DramRange] = []
+        new_dram: Optional[DramRange] = None
+        found_configurable = False
+
+        for dram_range in memory_map.dram_ranges:
+            if dram_range.configurable:
+                dram0, new_dram = dram_range.split(request_memory.size // 2)  # split in half to get requested data.
+                found_configurable = True
+                new_dram.permissions = rv_pma_attr
+                memory_map.dram_ranges.append(dram0)
+                memory_map.dram_ranges.append(new_dram)
+                break
+            else:
+                new_drams.append(dram_range)
+        if found_configurable:
+            # create a new Memory object (since frozen) with the requested attributes
+            new_memory_map = MemoryMap(
+                dram_ranges=new_drams,
+                io_ranges=memory_map.io_ranges,
+                secure_ranges=memory_map.secure_ranges,
+                reserved_ranges=memory_map.reserved_ranges,
+            )
+            self.cfg.featmgr.memory = new_memory_map
+            return new_dram
+        return None
+
+    def request_successful(self, name: str) -> bool:
+        "Checks if a request was successful."
+        return name in self._data
 
     @property
     def data(self) -> list[DataPage]:

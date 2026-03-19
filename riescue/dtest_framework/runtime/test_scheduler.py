@@ -4,9 +4,13 @@
 # pyright: strict
 
 from typing import Any
+import logging
 
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 from riescue.dtest_framework.runtime.schedulers import DefaultScheduler, LinuxModeScheduler, ParallelScheduler, SimultaneousScheduler
+
+
+log = logging.getLogger(__name__)
 
 
 class TestScheduler(AssemblyGenerator):
@@ -26,6 +30,10 @@ class TestScheduler(AssemblyGenerator):
     scheduler__dispatch - load a0 with the next test's address
     scheduler__finished - called when the scheduler is finished with all tests OR when ``end_test`` is called
     scheduler__panic - trap vector for scheduler panic. Jumps to end of test immediately.
+
+    Schedulers run ``scheduler__disaptch`` assuming that ``hart_context`` is set into ``tp``.
+    - When launching a test the ``scheduler`` will need to save ``hart_context`` before jumping to the test.
+    - When the test is finished, the trap handler or  will need to restore ``hart_context`` before returning to the scheduler.
     """
 
     EOT_WAIT_FOR_OTHERS_TIMEOUT = 500000
@@ -43,6 +51,8 @@ class TestScheduler(AssemblyGenerator):
         if self.featmgr.linux_mode:
             self.scheduler = LinuxModeScheduler(dtests=dtests, **kwargs)
         elif self.mp_active:
+            if not self.featmgr.is_feature_enabled("a"):
+                log.error("Atomic operations are required for MP mode")
             if self.mp_parallel:
                 self.scheduler = ParallelScheduler(dtests=dtests, **kwargs)
             else:

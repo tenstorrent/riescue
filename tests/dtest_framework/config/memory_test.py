@@ -18,7 +18,18 @@ class DramRangeTest(unittest.TestCase):
         self.assertEqual(dram.size, 0x100)
         self.assertEqual(dram.end, 0x10FF)
         self.assertFalse(dram.secure)
-        self.assertEqual(dram.to_dict(), {"address": 0x1000, "name": "", "size": 0x100, "secure": False})
+        self.assertEqual(
+            dram.to_dict(),
+            {
+                "address": 0x1000,
+                "name": "",
+                "size": 0x100,
+                "secure": False,
+                "cacheable": False,
+                "configurable": False,
+                "permissions": "rwx",
+            },
+        )
 
     def test_from_dict_integers(self):
         """DramRange.from_dict handles integer inputs."""
@@ -57,6 +68,32 @@ class DramRangeTest(unittest.TestCase):
         """DramRange.from_dict rejects non-integer values."""
         with self.assertRaises(ValueError):
             DramRange.from_dict({"address": "not_int", "size": "0x100"})  # type: ignore # intentional type error here
+
+    def test_from_dict_cachable_true_string(self):
+        """DramRange.from_dict rejects non-integer values."""
+        with self.assertRaises(ValueError):
+            DramRange.from_dict({"address": 0x0, "size": 0, "cacheable": "true"})
+
+    def test_split_dram_ranges(self):
+        cfg: dict[str, Union[str, int, bool]] = {"address": 0x8000_0000, "size": 0x10_0000, "configurable": True}
+        mem = DramRange.from_dict(cfg)
+        dram0, dram1 = mem.split(0x1000)
+        self.assertEqual(dram0.start, 0x8000_0000)
+        self.assertEqual(dram0.size, 0x1000)
+        self.assertEqual(dram1.start, 0x8000_1000)
+        self.assertEqual(dram1.size, 0x10_0000 - 0x1000)
+
+    def test_split_dram_ranges_not_configurable(self):
+        cfg: dict[str, Union[str, int, bool]] = {"address": 0x8000_0000, "size": 0x10_0000}
+        mem = DramRange.from_dict(cfg)
+        with self.assertRaises(ValueError):
+            mem.split(0x1000)
+
+    def test_split_dram_ranges_size_too_large(self):
+        cfg: dict[str, Union[str, int, bool]] = {"address": 0x8000_0000, "size": 0x10_0000, "configurable": True}
+        mem = DramRange.from_dict(cfg)
+        with self.assertRaises(ValueError):
+            mem.split(0x100000000)
 
 
 class IoRangeTest(unittest.TestCase):
@@ -183,3 +220,15 @@ class MemoryTest(unittest.TestCase):
         mem = Memory.from_dict(cfg)
         self.assertEqual(len(mem.dram_ranges), 1, "There should only be one DRAM range since secure regions are not included in dram_ranges")
         self.assertEqual(len(mem.secure_ranges), 1, "There should only be one secure range since secure0 has secure: True")
+
+    def test_from_dict_cacheable(self):
+        """Memory.from_dict handles cacheable configuration."""
+        cfg = {"dram": {"dram0": {"address": "0x8000_0000", "size": "0x1000_0000", "cacheable": True}}}
+        mem = Memory.from_dict(cfg)
+        self.assertEqual(mem.dram_ranges[0].cacheable, True)
+
+    def test_from_dict_configurable(self):
+        """Memory.from_dict handles configurable configuration."""
+        cfg = {"dram": {"dram0": {"address": "0x8000_0000", "size": "0x1000_0000", "configurable": True}}}
+        mem = Memory.from_dict(cfg)
+        self.assertEqual(mem.dram_ranges[0].configurable, True)

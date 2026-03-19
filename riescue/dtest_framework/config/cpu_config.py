@@ -3,13 +3,17 @@
 
 from __future__ import annotations
 import json
+import logging
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import riescue.lib.enums as RV
 from riescue.lib.feature_discovery import FeatureDiscovery
 from riescue.dtest_framework.config import Memory
+from riescue.dtest_framework.config.pma_config import PmaConfig
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -19,11 +23,14 @@ class TestGeneration:
     repeat_times: Optional[int] = None
     big_endian: Optional[bool] = None
     counter_event_path: Optional[Path] = None
-    disable_wfi_wait: Optional[bool] = None
     secure_access_probability: Optional[int] = None
     secure_pt_probability: Optional[int] = None
     a_d_bit_randomization: Optional[int] = None
     pbmt_ncio_randomization: Optional[int] = None
+    fs_randomization: Optional[int] = None
+    fs_randomization_values: Optional[List[int]] = None
+    vs_randomization: Optional[int] = None
+    vs_randomization_values: Optional[List[int]] = None
 
     @classmethod
     def from_dict(cls, cfg: dict) -> TestGeneration:
@@ -55,6 +62,13 @@ class CpuConfig:
     test_gen: TestGeneration = field(default_factory=TestGeneration)
     isa: list[str] = field(default_factory=list)
     reset_pc: int = DEFAULT_RESET_PC
+    pma_config: Optional[PmaConfig] = None
+
+    # Debug mode (RISC-V Debug): from features.debug
+    debug_mode: bool = False
+    # Debug ROM region: from mmap.io.debug_rom (address and size)
+    debug_rom_address: Optional[int] = None
+    debug_rom_size: Optional[int] = None
 
     @classmethod
     def from_json(cls, path: Path, feature_overrides: Optional[str] = None) -> CpuConfig:
@@ -94,10 +108,41 @@ class CpuConfig:
         elif not isinstance(reset_pc, int):
             raise ValueError(f"Invalid reset_pc: {reset_pc}. Supported formatting types are int and hex string, e.g. 0x80000000")
 
+        # Load PMA config from mmap.pma if present
+        pma_config = None
+        if "mmap" in cfg and "pma" in cfg["mmap"]:
+            try:
+                pma_config = PmaConfig.from_dict(cfg["mmap"]["pma"])
+                log.debug(f"Loaded PMA config with {len(pma_config.regions)} regions and {len(pma_config.hints)} hints")
+            except Exception as e:
+                # Log warning but don't fail - PMA config is optional
+                log.warning(f"Failed to load PMA config from cpuconfig: {e}")
+                # Optionally re-raise if you want strict validation
+                # raise ValueError(f"Invalid PMA configuration: {e}") from e
+
+        # Debug mode (RISC-V Debug): from features (standard extension)
+        debug_mode = features.is_feature_enabled("debug")
+        # Debug ROM region: from mmap.io.debug_rom (address and size)
+        debug_rom_address = None
+        debug_rom_size = None
+        mmap_io = cfg.get("mmap", {}).get("io", {})
+        debug_rom = mmap_io.get("debug_rom", {})
+        if debug_rom:
+            raw_addr = debug_rom.get("address")
+            if raw_addr is not None:
+                debug_rom_address = int(raw_addr, 0) if isinstance(raw_addr, str) else int(raw_addr)
+            raw_size = debug_rom.get("size")
+            if raw_size is not None:
+                debug_rom_size = int(raw_size, 0) if isinstance(raw_size, str) else int(raw_size)
+
         return cls(
             memory=memory,
             features=features,
             isa=cfg.get("isa", []),
             reset_pc=reset_pc,
             test_gen=tg,
+            pma_config=pma_config,
+            debug_mode=debug_mode,
+            debug_rom_address=debug_rom_address,
+            debug_rom_size=debug_rom_size,
         )

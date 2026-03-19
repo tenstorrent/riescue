@@ -11,7 +11,7 @@ Stage: devel
 
 %labels
     DESCRIPTION Please do not change the version, ./infra/container-push will update the version number here
-    VERSION 1.30
+    VERSION 1.32
 
 %setup
     set -eux
@@ -42,6 +42,7 @@ Stage: devel
         black \
         intervaltree \
         coverage \
+        venv_pack \
         pyright[nodejs]
     python3 -m pip install --upgrade pip
 

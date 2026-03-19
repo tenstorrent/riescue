@@ -347,8 +347,6 @@ class Ctk(CliBase):
             else:
                 log.warning(f"Extension {extension} not supported in bringup mode")
 
-        if "c" in extensions and "f" in extensions:
-            valid_extensions.append("rv32cf")
         if "c" in extensions and "d" in extensions:
             valid_extensions.append("rvcd")
         if "d" in extensions and "zfh" in extensions:

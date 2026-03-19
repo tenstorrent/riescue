@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Optional, Generator
 
 from riescue.riescuec import RiescueC
+from riescue.lib.toolchain import ToolchainError, ToolFailureType
 from tests.cli_tests.riescued.base_riescued import BaseRiescuedTest
 
 
@@ -45,7 +46,7 @@ class BaseRiescueCTest(BaseRiescuedTest):
         mode: str = "bringpup",
         iterations: int = 5,
         starting_seed: int = 0,
-    ) -> Generator[RiescueC, Any, None]:
+    ) -> Generator[Path, Any, Any]:
         """
         Runs test with arguments for iteration number of times. Uses seed=iteration.
         Optionally collects the results of each test for additional checking.
@@ -68,6 +69,42 @@ class BaseRiescueCTest(BaseRiescuedTest):
                 result = RiescueC.run_cli(args=command)
                 yield result
 
+    def _expect_toolchain_failure_generator_riescuec(
+        self,
+        cli_args: list,
+        failure_kind: ToolFailureType,
+        mode: str = "bringpup",
+        iterations: int = 5,
+        starting_seed: int = 0,
+    ) -> Generator[ToolchainError, Any, Any]:
+        """
+        Runs test with arguments for iteration number of times. Uses seed=iteration.
+        Optionally collects the results of each test for additional checking.
+
+        :param testname: Name of the test to run
+        :type testname: str
+        :param cli_args: List of arguments to pass to the test
+        :type cli_args: list
+        :param iterations: Number of times to run the test
+        :type iterations: int
+        """
+
+        for i in range(iterations):
+            with self.subTest(seed=i):
+                seed = str(i + starting_seed)
+                test_dir = self.test_dir / f"seed_{seed}"
+                command = cli_args + ["--mode", mode, "--seed", seed] + ["--run_dir", str(test_dir)]
+                msg = f"test \n\t./riescuec.py {' '.join(str(c) for c in command)}"
+                print("Running " + msg)
+                with self.assertRaises(ToolchainError, msg=msg) as runtime_error:
+                    RiescueC.run_cli(args=command)
+                self.assertEqual(
+                    runtime_error.exception.kind,
+                    failure_kind,
+                    f"Expected failure kind {failure_kind} but got {runtime_error.exception.kind}. Error text: \n{runtime_error.exception.error_text}",
+                )
+                yield runtime_error.exception
+
     # helper methods
     def check_valid_elf(self, path: Path) -> None:
         """
@@ -81,3 +118,15 @@ class BaseRiescueCTest(BaseRiescuedTest):
         with path.open("rb") as f:
             magic = f.read(4)
             self.assertEqual(magic, self.ELF_MAGIC, f"invalid ELF file should have correct magic number/ Expected: {self.ELF_MAGIC}, got: {magic}")
+
+    def expect_toolchain_failure_tp(self, cli_args: list, failure_kind: ToolFailureType, iterations: int = 5, starting_seed: int = 0) -> list[ToolchainError]:
+        return [
+            i
+            for i in self._expect_toolchain_failure_generator_riescuec(
+                cli_args,
+                failure_kind,
+                mode="tp",
+                iterations=iterations,
+                starting_seed=starting_seed,
+            )
+        ]
