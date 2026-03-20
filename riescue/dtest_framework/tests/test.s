@@ -117,6 +117,11 @@
 ;#random_addr(name=my_code_page_phys, type=physical, size=0x1000, and_mask=0xfffffffffffff000)
 ;#page_mapping(lin_name=my_code_page, phys_name=&random, v=1, u=1, x=1, r=1, w=1, a=1, d=1, pagesize=['4kb'])
 
+# NAPOT 64KB page mapping
+;#random_addr(name=lin_64kb,  type=linear,   size=0x10000, and_mask=0xffffffffffff0000)
+;#random_addr(name=phys_64kb, type=physical, size=0x10000, and_mask=0xffffffffffff0000)
+;#page_mapping(lin_name=lin_64kb, phys_name=phys_64kb, v=1, r=1, w=1, a=1, d=1, pagesize=['64kb'])
+
 
 # Code section for the switch to super mode
 .section .code_super_0, "ax"
@@ -148,7 +153,6 @@
 test_setup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010001
-.if OS_DELEG_EXCP_TO_MACHINE
     # Now try to switch to machine mode
     li x31, 0xf0001001 # Switch to machine mode
     ecall
@@ -169,8 +173,6 @@ test_setup:
     # Write mstatus csr
     li x1, 0x00000000
     # csrw mstatus, x1
-
-.endif
 
     ;#test_passed()
 
@@ -377,6 +379,35 @@ excp3b_ret:
     ;#test_passed()
 
 #####################
+# test04: NAPOT 64KB page - read from different 4KB blocks
+#####################
+;#discrete_test(test=test04)
+test04:
+    .ifeq ALL_4KB_PAGES
+    # Read from 4th 4KB block (offset 0x3000)
+    li t0, lin_64kb + 0x3000
+    lwu t1, 0(t0)
+
+    # Read from 8th 4KB block (offset 0x7000)
+    li t0, lin_64kb + 0x7000
+    lwu t2, 0(t0)
+
+    # Read from last 4KB block (offset 0xF000)
+    li t0, lin_64kb + 0xF000
+    lwu t3, 0(t0)
+
+    # Read from base of the 64KB page (offset 0x0000)
+    li t0, lin_64kb
+    lwu t4, 0(t0)
+
+    # Read from 2nd 4KB block (offset 0x1000)
+    li t0, lin_64kb + 0x1000
+    lwu t5, 0(t0)
+    .endif
+
+    ;#test_passed()
+
+#####################
 # test_cleanup: RiESCUE defined label
 #             Add code below which is needed to perform any cleanup activity
 #             This label is executed exactly once _after_ running all of the
@@ -471,3 +502,19 @@ my_data1:
     ret
     jr x3   # jump to
     .dword 0xc001c0de
+
+#####################
+# Data section for NAPOT 64KB page with data at different 4KB block offsets
+#####################
+;#init_memory @lin_64kb
+    .ifeq ALL_4KB_PAGES
+    .dword 0xdead0000   # offset 0x0000
+.org 0x1000
+    .dword 0xdead1000   # offset 0x1000
+.org 0x3000
+    .dword 0xdead3000   # offset 0x3000
+.org 0x7000
+    .dword 0xdead7000   # offset 0x7000
+.org 0xF000
+    .dword 0xdeadf000   # offset 0xF000
+    .endif

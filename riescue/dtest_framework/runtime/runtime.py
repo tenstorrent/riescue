@@ -14,9 +14,10 @@ from riescue.dtest_framework.runtime.opsys import OpSys
 from riescue.dtest_framework.runtime.test_scheduler import TestScheduler
 from riescue.dtest_framework.runtime.syscalls import SysCalls
 from riescue.dtest_framework.runtime.trap_handler import TrapHandler
-from riescue.dtest_framework.runtime.hypervisor import Hypervisor
 from riescue.dtest_framework.runtime.macros import Macros
 from riescue.dtest_framework.runtime.eot import Eot
+from riescue.dtest_framework.runtime.selfcheck import Selfcheck
+from riescue.dtest_framework.runtime.test_execution_logger import TestExecutionLogger
 from riescue.dtest_framework.runtime.variable import VariableManager
 from riescue.dtest_framework.config import FeatMgr
 
@@ -29,7 +30,7 @@ class Runtime:
     Generates Test Runtime Environment code.
     Runtime code consists of Loader, TestScheduler, OpSys, Macros, and Equates.
 
-    Most code is generated for .text sections, with some exceptions for user jump tables.
+    Most code is generated for .runtime sections, with some exceptions for user jump tables.
 
     Yields name of module and a generator for each module's code. Name can be used by consumers as file name, or comment for inline code.
 
@@ -55,9 +56,13 @@ class Runtime:
         self.variable_manager.register_hart_variable("check_excp_actual_pc", -1)
         self.variable_manager.register_hart_variable("check_excp_return_pc", -1)
         self.variable_manager.register_hart_variable("check_excp_skip_pc_check", 0)
-        self.variable_manager.register_hart_variable("check_excp_expected_tval", -1)
+        self.variable_manager.register_hart_variable("check_excp_expected_tval", 0)
+        self.variable_manager.register_hart_variable("check_excp_expected_htval", 0)
         self.variable_manager.register_hart_variable("check_excp_expected_cause", 0xFF)
         self.variable_manager.register_hart_variable("check_excp_actual_cause", 0xFF)
+
+        # GPR save area for trap handler (32 registers)
+        self.variable_manager.register_hart_variable("gpr_save_area", value=0, element_count=32)
 
         self.variable_manager.register_shared_variable("excp_ignored_count", 0x0)
         self.variable_manager.register_shared_variable("machine_flags", 0x0)
@@ -68,11 +73,6 @@ class Runtime:
         self.variable_manager.register_shared_variable("super_area", 0x0)
 
         self.test_priv = self.featmgr.priv_mode  #: Privilege mode of the test
-        self.handler_priv: RV.RiscvPrivileges  #: Privilege mode of scheduler.
-        if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
-            self.handler_priv = RV.RiscvPrivileges.SUPER
-        else:
-            self.handler_priv = RV.RiscvPrivileges.MACHINE
 
         mp_active = self.featmgr.mp == RV.RiscvMPEnablement.MP_ON
         mp_parallel = self.featmgr.mp_mode == RV.RiscvMPMode.MP_PARALLEL and mp_active
@@ -85,7 +85,6 @@ class Runtime:
             featmgr=self.featmgr,
             variable_manager=self.variable_manager,
             test_priv=self.test_priv,
-            handler_priv=self.handler_priv,
             mp_active=mp_active,
             mp_parallel=mp_parallel,
             mp_simultaneous=mp_simultaneous,
@@ -104,24 +103,33 @@ class Runtime:
         # only need trap handling if not in linux mode.
         # linux mode only needs macros, loader, os, and scheduler
         if not self.featmgr.linux_mode:
-            self._modules["syscalls"] = SysCalls(ctx=ctx)
-            generate_trap_handler = True
-            if not self.featmgr.linux_mode:
-                self._modules["trap_handler"] = TrapHandler(ctx=ctx)
-                generate_trap_handler = False  # Trap handler inserted by TrapHandler
-            if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and not self.featmgr.wysiwyg:
-                self._modules["hypervisor"] = Hypervisor(generate_trap_handler=generate_trap_handler, ctx=ctx)
+            self._modules["syscalls"] = SysCalls(ctx=ctx, deleg_mode=RV.RiscvPrivileges.MACHINE)
+            self._modules["trap_handler_m"] = TrapHandler(ctx=ctx, deleg_mode=RV.RiscvPrivileges.MACHINE)
+            if RV.RiscvPrivileges.SUPER in self.featmgr.supported_priv_modes:
+                # Note, the non-hypervisor handler is the same as the virtualized handler
+                self._modules["trap_handler_s"] = TrapHandler(ctx=ctx, deleg_mode=RV.RiscvPrivileges.SUPER, deleg_virtualized=True)
+                if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and not self.featmgr.wysiwyg:
+                    self._modules["trap_handler_hs"] = TrapHandler(ctx=ctx, deleg_mode=RV.RiscvPrivileges.SUPER)
 
         self._modules["os"] = OpSys(ctx=ctx)
         self._modules["eot"] = Eot(ctx=ctx)
         self._modules["scheduler"] = TestScheduler(ctx=ctx)
+        if self.featmgr.selfcheck:
+            self._modules["selfcheck"] = Selfcheck(ctx=ctx)
+        if self.featmgr.log_test_execution:
+            self._modules["test_execution_logger"] = TestExecutionLogger(ctx=ctx)
+
+    @property
+    def modules(self) -> dict[str, AssemblyGenerator]:
+        """Public access to runtime modules (e.g. for AssemblyWriter to get OpSys csr_manager)."""
+        return self._modules
 
     def test_passed(self) -> list[str]:
         """
         Generate code for test passed.
         Used by AssemblyWriter to replace ;#test_passed() with the correct code.
         """
-        if self.test_priv != self.handler_priv:
+        if self.test_priv != RV.RiscvPrivileges.MACHINE:
             return [
                 "li x31, 0xf0000001  # Test Passed; Schedule test",
                 "ecall",
@@ -137,7 +145,7 @@ class Runtime:
         Generate code for test failed.
         Used by AssemblyWriter to replace ;#test_failed() with the correct code.
         """
-        if self.test_priv != self.handler_priv:
+        if self.test_priv != RV.RiscvPrivileges.MACHINE:
             return [
                 "li x31, 0xf0000002  # Test Failed; End test with fail",
                 "ecall",

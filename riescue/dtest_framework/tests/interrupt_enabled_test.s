@@ -17,7 +17,8 @@
 .section .code, "ax"
 
 .align 2
-USER_INTERRUPT_TABLE:
+;#vectored_interrupt(1, clear_interrupt_bit)
+clear_interrupt_bit:
     li a0, 0xbeef
     li t0, ~(1<<1)      # Write a 0 to interrupt bit
     csrw mip, t0

@@ -27,7 +27,7 @@ The `ctk` python library can also be used to generate a test kit.
 
 .. code-block:: python
 
-   from riescue import Ctk
+   from riescue.ctk import Ctk
 
    Ctk.run_cli("--isa <isa> --run_dir path/to/output_directory")
 
@@ -38,7 +38,7 @@ API
 The `Ctk` python library can also be used to generate a test kit.
 
 
-.. autoclass:: riescue.Ctk
+.. autoclass:: riescue.ctk.Ctk
    :members: configure, run, generate
    :undoc-members:
 

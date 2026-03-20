@@ -39,6 +39,14 @@ class CliAdapter(Adapter):
             featmgr.c_used = cmdline.c_used
         if cmdline.cfile is not None:
             featmgr.cfiles = cmdline.cfile
+        if cmdline.inc_path is not None:
+            featmgr.inc_path = cmdline.inc_path
+        if cmdline.selfcheck is not None:
+            featmgr.selfcheck = cmdline.selfcheck
+        if featmgr.selfcheck or featmgr.cfiles is not None:
+            featmgr.save_restore_gprs = True
+        if cmdline.compiler_include_dir is not None:
+            featmgr.compiler_include_dir = cmdline.compiler_include_dir
         if cmdline.small_bss is not None:
             featmgr.small_bss = cmdline.small_bss
         if cmdline.big_bss is not None:
@@ -54,8 +62,12 @@ class CliAdapter(Adapter):
             featmgr.addrgen_limit_indices = cmdline.addrgen_limit_indices
         if cmdline.randomize_code_location is not None:
             featmgr.randomize_code_location = cmdline.randomize_code_location
+        if cmdline.identity_map_code is not None:
+            featmgr.identity_map_code = cmdline.identity_map_code
         if cmdline.repeat_times is not None:
             featmgr.repeat_times = cmdline.repeat_times
+        if cmdline.log_test_execution is not None:
+            featmgr.log_test_execution = cmdline.log_test_execution
 
         if cmdline.fe_tb is not None:
             featmgr.fe_tb = cmdline.fe_tb
@@ -76,8 +88,6 @@ class CliAdapter(Adapter):
         if cmdline.addrgen_limit_way_predictor_multihit is not None:
             featmgr.addrgen_limit_way_predictor_multihit = cmdline.addrgen_limit_way_predictor_multihit
 
-        if cmdline.user_interrupt_table is not None:
-            featmgr.user_interrupt_table = cmdline.user_interrupt_table
         if cmdline.excp_hooks is not None:
             featmgr.excp_hooks = cmdline.excp_hooks
         if cmdline.interrupts_enabled is not None:
@@ -87,8 +97,6 @@ class CliAdapter(Adapter):
             featmgr.interrupts_enabled = False
         if cmdline.skip_instruction_for_unexpected is not None:
             featmgr.skip_instruction_for_unexpected = cmdline.skip_instruction_for_unexpected
-        if cmdline.disable_wfi_wait is not None:
-            featmgr.disable_wfi_wait = cmdline.disable_wfi_wait
 
         if cmdline.setup_pmp is not None:
             featmgr.setup_pmp = cmdline.setup_pmp
@@ -96,11 +104,6 @@ class CliAdapter(Adapter):
             featmgr.needs_pma = cmdline.needs_pma
         if cmdline.num_pmas is not None:
             featmgr.num_pmas = cmdline.num_pmas
-
-        if cmdline.setup_stateen is not None:
-            featmgr.setup_stateen = cmdline.setup_stateen
-        if cmdline.vmm_hooks is not None:
-            featmgr.vmm_hooks = cmdline.vmm_hooks
 
         if cmdline.no_random_csr_reads is not None:
             featmgr.no_random_csr_reads = cmdline.no_random_csr_reads
@@ -122,13 +125,53 @@ class CliAdapter(Adapter):
             featmgr.henvcfg = cmdline.henvcfg
         if cmdline.senvcfg is not None:
             featmgr.senvcfg = cmdline.senvcfg
+        if cmdline.mstateen is not None:
+            featmgr.mstateen = cmdline.mstateen
+        if cmdline.hstateen is not None:
+            featmgr.hstateen = cmdline.hstateen
+        if cmdline.sstateen is not None:
+            featmgr.sstateen = cmdline.sstateen
+
+        if cmdline.deleg_excp_to is not None:
+            builder.medeleg = 0 if cmdline.deleg_excp_to == "machine" else 0xFFFFFFFFFFFFF0FF
+            builder.mideleg = 0 if cmdline.deleg_excp_to == "machine" else (1 << 9) | (1 << 5) | (1 << 1) | (1 << 11) | (1 << 7) | (1 << 3)  # Enables SEI, STI, SSI and MEI, MTI, MSI
+            builder.hedeleg = 0
+            featmgr.hideleg = 0
+
         if cmdline.medeleg is not None:
-            featmgr.medeleg = cmdline.medeleg
+            if cmdline.deleg_excp_to is not None:
+                raise ValueError("Cannot use both --medeleg and --deleg_excp_to.")
+
+            # Don't allow user to override ecall delegation
+            # Ecalls are never delegated (bits 8-11 must be 0)
+            effective_medeleg = cmdline.medeleg & ~(0xF << 8)
+            if effective_medeleg != cmdline.medeleg:
+                log.warning("Overriding provided medeleg to never delegate any ecall exceptions (bits 8-11 cleared)")
+                log.warning(f"Original medeleg: {cmdline.medeleg:#x}, effective medeleg: {effective_medeleg:#x}")
+            builder.medeleg = effective_medeleg
+
         if cmdline.mideleg is not None:
-            featmgr.mideleg = cmdline.mideleg
+            if cmdline.deleg_excp_to is not None:
+                raise ValueError("Cannot use both --mideleg and --deleg_excp_to.")
+
+            builder.mideleg = cmdline.mideleg
+
         if cmdline.hedeleg is not None:
-            featmgr.hedeleg = cmdline.hedeleg
+            if cmdline.deleg_excp_to is not None:
+                raise ValueError("Cannot use both --hedeleg and --deleg_excp_to.")
+
+            # Don't allow user to override ecall delegation
+            # Ecalls are never delegated (bits 8-11 must be 0)
+            effective_hedeleg = cmdline.hedeleg & ~(0xF << 8)
+            if effective_hedeleg != cmdline.hedeleg:
+                log.warning("Overriding provided hedeleg to never delegate any ecall exceptions (bits 8-11 cleared)")
+                log.warning(f"Original hedeleg: {cmdline.hedeleg:#x}, effective hedeleg: {effective_hedeleg:#x}")
+            builder.hedeleg = effective_hedeleg
+
         if cmdline.hideleg is not None:
+            if cmdline.deleg_excp_to is not None:
+                raise ValueError("Cannot use both --hideleg and --deleg_excp_to.")
+
             featmgr.hideleg = cmdline.hideleg
 
         if cmdline.csr_init is not None:
@@ -142,6 +185,8 @@ class CliAdapter(Adapter):
         if cmdline.max_logger_file_gb is not None:
             featmgr.max_logger_file_gb = cmdline.max_logger_file_gb
         if cmdline.code_offset is not None:
+            if cmdline.code_offset & 0xF != 0:
+                raise ValueError("--code_offset must be 16 byte aligned")
             featmgr.code_offset = cmdline.code_offset
         if cmdline.max_random_csr_reads is not None:
             featmgr.max_random_csr_reads = cmdline.max_random_csr_reads
@@ -161,6 +206,20 @@ class CliAdapter(Adapter):
             featmgr.secure_pt_probability = cmdline.secure_pt_probability
         if cmdline.pbmt_ncio_randomization is not None:
             featmgr.pbmt_ncio_randomization = cmdline.pbmt_ncio_randomization
+        if cmdline.fs_randomization is not None:
+            featmgr.fs_randomization = cmdline.fs_randomization
+        if cmdline.fs_randomization_values is not None:
+            vals = [int(x.strip()) for x in cmdline.fs_randomization_values.split(",")]
+            if any(v < 0 or v > 3 for v in vals):
+                raise ValueError("--fs_randomization_values: each value must be 0-3")
+            featmgr.fs_randomization_values = vals
+        if cmdline.vs_randomization is not None:
+            featmgr.vs_randomization = cmdline.vs_randomization
+        if cmdline.vs_randomization_values is not None:
+            vals = [int(x.strip()) for x in cmdline.vs_randomization_values.split(",")]
+            if any(v < 0 or v > 3 for v in vals):
+                raise ValueError("--vs_randomization_values: each value must be 0-3")
+            featmgr.vs_randomization_values = vals
         if cmdline.num_cpus is not None:
             featmgr.num_cpus = cmdline.num_cpus
 
@@ -255,8 +314,4 @@ class CliAdapter(Adapter):
             else:
                 featmgr.io_htif_addr = int(cmdline.tohost, 0)
 
-        # Only override if it was previously set to random.
-        # This should probably be a Candidate so it's clearer it's a random choice
-        if cmdline.deleg_excp_to is not None:
-            builder.deleg_excp_to = to_candidate(RV.RiscvPrivileges[cmdline.deleg_excp_to.upper()])
         return builder

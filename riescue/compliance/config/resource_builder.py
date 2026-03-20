@@ -86,7 +86,7 @@ class ResourceBuilder(BaseBuilder):
             resource = builder.build(seed=42, toolchain=toolchain)
         """
         rng = RandNum(seed)  # create a new RandNum instance. Allows RiescueC generate() methods to be re-runnable
-        self.featmgr_builder.conf = self.conf
+
         if featmgr is not None:
             featmgr = featmgr
         else:
@@ -109,7 +109,6 @@ class ResourceBuilder(BaseBuilder):
 
         # RiescueC-specific configuration
         resource.featmgr.pbmt_ncio_randomization = 0
-        resource.featmgr.disable_wfi_wait = True  # RVTOOLS-4204
 
         # tests require that repeat times is set to 1, e.g. amoswap can only be ran a single time
         # If disable_pass is set, repeat times should be the repeat_runtime

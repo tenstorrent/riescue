@@ -6,7 +6,7 @@ from typing import Union, Optional, TYPE_CHECKING
 from coretp import Instruction
 from riescue.compliance.test_plan.actions import Action
 from riescue.compliance.test_plan.context import LoweringContext
-from coretp.step import LoadImmediateStep
+from coretp.step import LoadImmediateStep, Memory, TestStep
 from coretp import StepIR
 
 
@@ -17,9 +17,14 @@ class LiAction(Action):
     For now returns li instruction for integer registers
     """
 
-    register_fields = []
+    register_fields = ["value"]
 
-    def __init__(self, step_id: str, immediate: Union[int, str], bits: Optional[int] = None):
+    def __init__(
+        self,
+        step_id: str,
+        immediate: Union[int, str],
+        bits: Optional[int] = None,
+    ):
         super().__init__(step_id=step_id)
         self.value = immediate
         self.bits = bits
@@ -41,7 +46,7 @@ class LiAction(Action):
             self.value = ctx.random_n_width_number()
 
         if len(selected_instruction.source) != 1:
-            raise ValueError(f"Expected li to have 1 source operand, but {selected_instruction.name} has {selected_instruction.source}")
+            raise ValueError(f"Expected li to have 1 source operand, but " f"{selected_instruction.name} has " f"{selected_instruction.source}")
 
         selected_instruction.source[0].val = self.value
         return selected_instruction
@@ -51,7 +56,17 @@ class LiAction(Action):
         if TYPE_CHECKING:
             assert isinstance(step.step, LoadImmediateStep)
 
-        imm = step.step.imm or 0
+        imm_raw = step.step.imm
         bits = step.step.bits
 
+        if isinstance(imm_raw, Memory):
+            # imm is a Memory step — load its base address via the resolved memory label
+            mem_label = next((i for i in step.inputs if isinstance(i, str)), None)
+            if mem_label is None:
+                raise ValueError(f"LoadImmediateStep {step_id} references a Memory but no memory label found in inputs")
+            return cls(step_id=step_id, immediate=mem_label, bits=bits)
+        elif isinstance(imm_raw, TestStep):
+            raise ValueError(f"LoadImmediateStep {step_id} has unsupported TestStep type as imm: {type(imm_raw).__name__}")
+
+        imm = imm_raw or 0
         return cls(step_id=step_id, immediate=imm, bits=bits)

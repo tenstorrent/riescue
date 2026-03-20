@@ -26,7 +26,6 @@ class RuntimeContext(NamedTuple):
     featmgr: FeatMgr
     variable_manager: VariableManager
     test_priv: RV.RiscvPrivileges
-    handler_priv: RV.RiscvPrivileges
     mp_active: bool
     mp_parallel: bool
     mp_simultaneous: bool
@@ -63,7 +62,6 @@ class AssemblyGenerator(ABC):
         self.featmgr = ctx.featmgr
         self.variable_manager = ctx.variable_manager
         self.test_priv = ctx.test_priv
-        self.handler_priv = ctx.handler_priv
         self.mp_active = ctx.mp_active
         self.mp_parallel = ctx.mp_parallel
         self.mp_simultaneous = ctx.mp_simultaneous
@@ -73,10 +71,9 @@ class AssemblyGenerator(ABC):
         self.xlen: RV.Xlen = RV.Xlen.XLEN64
 
         self.scratch_reg: str  #: Trap handler scratch register - used to store hart-local storage pointer (tp)
-        if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
-            self.scratch_reg = "sscratch"
-        else:
-            self.scratch_reg = "mscratch"
+        # Assume machine mode
+        self.scratch_reg = "mscratch"
+        self.tvec = "mtvec"
 
         self._equates: dict[str, str] = {}  # Dictionary of key value pairs to be generated with .equ key, value
 
@@ -224,117 +221,6 @@ class AssemblyGenerator(ABC):
         code += xret_instr + "\n"
         return code
 
-    def os_check_excp(self, return_label: str, xepc: str, xret: str) -> str:
-        """
-        Generates code to check for expected exceptions.
-        Exceptions can be set to expected using the OS_SETUP_CHECK_EXCP macro.
-
-        .. note::
-
-            Assumes that expected exception cause is loaded into t1
-
-        If skip_instruction_for_unexpected is set, skips the instruction check for unexpected exceptions.
-
-        :param return_label: Label to return to after checking exceptions
-        :param xepc: CSR to read the exception PC from
-        :param xret: Instruction to return from the exception handler
-        :return: Assembly code string
-        """
-        # Hart-local variables
-        check_excp = self.variable_manager.get_variable("check_excp")
-        check_excp_expected_cause = self.variable_manager.get_variable("check_excp_expected_cause")
-        check_excp_skip_pc_check = self.variable_manager.get_variable("check_excp_skip_pc_check")
-        check_excp_expected_pc = self.variable_manager.get_variable("check_excp_expected_pc")
-        check_excp_actual_pc = self.variable_manager.get_variable("check_excp_actual_pc")
-        # label to jump to if invalid exception is encountered
-        if self.featmgr.skip_instruction_for_unexpected:
-            unexpected_exception = "count_ignored_excp"
-        else:
-            unexpected_exception = "test_failed"
-
-        code = f"""
-            # Check if check_exception is enabled
-            {check_excp.load(dest_reg="t0")}
-            bne t0, x0, do_check_excp
-
-            # restore check_excp, return to return_label
-            addi t0, t0, 1
-            {check_excp.store(src_reg="t0")}
-            j {return_label}
-
-        do_check_excp:
-            # Check for correct exception code
-            {check_excp_expected_cause.load_and_clear(dest_reg="t0"):<35}  # check_excp_expected_cause
-            bne t1, t0, {unexpected_exception}
-
-            # when skip_pc_check is set, skip the pc check
-            {check_excp_skip_pc_check.load_and_clear(dest_reg="t0"):<35}  # check_excp_skip_pc_check
-            bne t0, x0, skip_pc_check
-
-            # compare expected and actual PC values
-            {check_excp_expected_pc.load_and_clear(dest_reg="t1"):<35}  # check_excp_expected_pc
-            {check_excp_actual_pc.load_and_clear(dest_reg="t0"):<35}  # check_excp_actual_pc
-            bne t1, t0, {unexpected_exception}
-
-        skip_pc_check:
-            j {return_label}
-        """
-
-        if self.featmgr.skip_instruction_for_unexpected:
-            # generates code for skipping trap, incrementing ignored exception count, and ending test if max count is reached
-            # otherwise, skips trapped instruction and continues to test
-            code += f"""
-            count_ignored_excp:
-                # Get PC exception {xepc}
-                csrr t0, {xepc}
-                lwu t1, 0(t0)
-                # Check lower 2 bits to see if it equals 3
-                andi t1, t1, 0x3
-                li t2, 3
-                # If bottom two bits are 0b11, we need to add 4 to the PC
-                beq t1, t2, pc_plus_four
-
-            pc_plus_two:
-                # Otherwise, add 2 to the PC (compressed instruction)
-                addi t0, t0, 2
-                j jump_over_pc
-            pc_plus_four:
-                addi t0, t0, 4
-            jump_over_pc:
-                # Load to {xepc}
-                csrw {xepc}, t0
-                {self.excp_ignored_count.load_immediate("t0")}
-                li t1, 1
-                amoadd.w t1, t1, (t0)
-                li t0, {self.IGNORED_EXCP_MAX_COUNT}
-                bge t1, t0, soft_end_test
-                # Jump to new PC
-                {xret}
-
-
-            soft_end_test:
-                # Have to os_end_test_addr because we're at an elevated privilege level.
-                addi gp, zero, 0x1
-                li t0, os_end_test_addr
-                ld t1, 0(t0)
-                jr t1
-            """
-
-        # FIXME: This code is currently unreachable. Should it be included above?
-        check_excp_expected_tval = self.variable_manager.get_variable("check_excp_expected_tval")
-        if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.MACHINE:
-            tval = "mtval"
-        else:
-            tval = "stval"
-        code += f"""
-        # Optionally, check the value of mtval/stval
-            csrr t1, {tval}
-            {check_excp_expected_tval.load_and_clear(dest_reg="t0"):<35}  # check_excp_expected_tval
-            bne t1, t0, test_failed
-            j {return_label}"""
-
-        return code
-
     def csr_read_randomization(self):
         """
         This function is responsible for generating random CSR reads based on the current OS mode.
@@ -345,6 +231,12 @@ class AssemblyGenerator(ABC):
         It also uses the ``featmgr.supported_priv_modes`` to include all lower privileged CSRs that can be accessed.
 
         These CSR reads can be disabled with commandline switch ``--no_random_csr_reads``
+
+        When ``--fs_randomization`` or ``--vs_randomization`` is set, on each scheduler
+        entry the FS or VS field is set to the next value from a precomputed table
+        (round-robin over ``--fs_randomization_values`` / ``--vs_randomization_values``).
+        Deterministic and reproducible. Only when F/D or V extension is supported.
+        Values 0-3: Off, Initial, Clean, Dirty.
         """
 
         # delay initializing until it's needed
@@ -353,9 +245,65 @@ class AssemblyGenerator(ABC):
         elif self.csr_manager is None:
             self.csr_manager = CsrManagerInterface(self.rng)
 
+        # Pick status CSR from current OS privilege and env (shared by FS and VS)
+        def _status_csr() -> str:
+            if self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
+                return "mstatus"
+            if self.featmgr.priv_mode == RV.RiscvPrivileges.SUPER:
+                return "vsstatus" if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED else "sstatus"
+            return "sstatus"
+
+        fs_vs_instrs = ""
+        fp_supported = self.featmgr.is_feature_supported("f") or self.featmgr.is_feature_supported("d")
+        v_supported = self.featmgr.is_feature_supported("v")
+        # variable_manager is present when called from Scheduler (round-robin indices registered there)
+        vm = getattr(self, "variable_manager", None)
+
+        # FS: round-robin over fs_randomization_values on each dispatch (when enabled)
+        if self.featmgr.fs_randomization > 0 and fp_supported and self.featmgr.fs_randomization_values and vm is not None:
+            status_csr = _status_csr()
+            fs_var = vm.get_variable("fs_rr_index")
+            fs_size = len(self.featmgr.fs_randomization_values)
+            fs_vs_instrs += f"""# FS round-robin (--fs_randomization)
+        la t3, fs_rr_table
+        {fs_var.load(dest_reg="t4")}
+        slli t5, t4, 2
+        add t5, t3, t5
+        lw t5, 0(t5)
+        slli t5, t5, 13
+        li t3, 0x6000
+        csrrc x0, {status_csr}, t3
+        csrrs x0, {status_csr}, t5
+        addi t4, t4, 1
+        li t3, {fs_size}
+        blt t4, t3, 1f
+        mv t4, zero
+1:      {fs_var.store(src_reg="t4")}
+"""
+        # VS: round-robin over vs_randomization_values on each dispatch (when enabled)
+        if self.featmgr.vs_randomization > 0 and v_supported and self.featmgr.vs_randomization_values and vm is not None:
+            status_csr = _status_csr()
+            vs_var = vm.get_variable("vs_rr_index")
+            vs_size = len(self.featmgr.vs_randomization_values)
+            fs_vs_instrs += f"""# VS round-robin (--vs_randomization)
+        la t3, vs_rr_table
+        {vs_var.load(dest_reg="t4")}
+        slli t5, t4, 2
+        add t5, t3, t5
+        lw t5, 0(t5)
+        slli t5, t5, 9
+        li t3, 0x600
+        csrrc x0, {status_csr}, t3
+        csrrs x0, {status_csr}, t5
+        addi t4, t4, 1
+        li t3, {vs_size}
+        blt t4, t3, 2f
+        mv t4, zero
+2:      {vs_var.store(src_reg="t4")}
+"""
         # Find the current privilege mode of OS
         # Machine mode is default
-        instrs = ""
+        instrs = fs_vs_instrs
         csr_list = []
 
         available_privileges: set[RV.RiscvPrivileges] = set(self.featmgr.supported_priv_modes)  # all supported privileges by platform
@@ -365,7 +313,7 @@ class AssemblyGenerator(ABC):
             RV.RiscvPrivileges.SUPER: {RV.RiscvPrivileges.MACHINE},
             RV.RiscvPrivileges.USER: {RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER},
         }
-        available_privileges -= forbidden_by_privilege.get(self.handler_priv, set())
+        available_privileges -= forbidden_by_privilege.get(RV.RiscvPrivileges.MACHINE, set())
 
         for privilege in available_privileges:
             if privilege == RV.RiscvPrivileges.MACHINE and self.featmgr.random_machine_csr_list:
@@ -396,42 +344,65 @@ class AssemblyGenerator(ABC):
 
         return instrs
 
-    def kernel_panic(self, name: str, cause: Union[str, int] = 3) -> str:
+    def kernel_panic(self, name: str) -> str:
         """
         Code for runtime to end test early if an unexpected error occurs in runtime code.
         Named after kernel panic convention used in UNIX to catch fatal internal errors.
 
         Useful for catching errors before trap handler is setup, or during trap handling.
 
+        Assumes that panic is in the ``handler_priv`` mode. Calls ``eot__end_test`` to end the test.
+        Setting gp to 0 to fail test.
+
         :param name: Name of the kernel panic function
         :param cause: Cause of the kernel panic. Can be an equate or a value. If int is passed, it must be odd for the test to end. Even values will raise a ValueError.
         """
-        if self.xlen == RV.Xlen.XLEN64:
-            variable_size = "dword"
-            store_instruction = "sd"
-            load_instruction = "ld"
-        elif self.xlen == RV.Xlen.XLEN32:
-            variable_size = "word"
-            store_instruction = "sw"
-            load_instruction = "lw"
-        else:
-            raise ValueError(f"Unsupported xlen: {self.xlen}")
-
-        tohost_ptr = f"{name}_tohost_ptr"
-
-        if isinstance(cause, int) and cause % 2 == 0:
-            raise ValueError(f"Cause must be odd for the test to end ({cause=})")
 
         return f"""
-# pointer to tohost, so {name} can end test immediately.
-{tohost_ptr}:
-    .{variable_size} tohost
-
 {name}:
-    la t0, {tohost_ptr}
-    {load_instruction} t0, 0(t0)
-    li t1, {cause}
-    {store_instruction} t1, 0(t0)
-    wfi
-    j {name}
+    li gp, 0
+    j eot__end_test
         """
+
+    def save_gprs(self, scratch_reg: str) -> str:
+        """Save all GPRs to hart-local gpr_save_area. Assumes tp already points to hart context."""
+        gpr = self.variable_manager.get_variable("gpr_save_area")
+        lines = ["# Save GPRs"]
+
+        # Save x1 first (we'll use it as temp)
+        lines.append(gpr.store("x1", index=1))
+
+        # Get original tp from scratch, save to index 4
+        lines.append(f"csrr x1, {scratch_reg}")
+        lines.append(gpr.store("x1", index=4))
+
+        # Save x2, x3
+        lines.append(gpr.store("x2", index=2))
+        lines.append(gpr.store("x3", index=3))
+
+        # Save x5-x31
+        for i in range(5, 32):
+            lines.append(gpr.store(f"x{i}", index=i))
+
+        return "\n\t".join(lines)
+
+    def restore_gprs(self, scratch_reg: str) -> str:
+        """Restore all GPRs from hart-local gpr_save_area. Must be called right before xret or exit."""
+        gpr = self.variable_manager.get_variable("gpr_save_area")
+        lines = ["# Restore GPRs"]
+
+        # Restore x2, x3
+        lines.append(gpr.load("x2", index=2))
+        lines.append(gpr.load("x3", index=3))
+
+        # Restore x5-x31
+        for i in range(5, 32):
+            lines.append(gpr.load(f"x{i}", index=i))
+
+        # Restore tp via scratch, then restore x1
+        lines.append(gpr.load("x1", index=4))  # x1 = original tp
+        lines.append(f"csrw {scratch_reg}, x1")  # scratch = original tp
+        lines.append(gpr.load("x1", index=1))  # x1 = original ra
+        lines.append(f"csrrw tp, {scratch_reg}, tp")  # restore tp
+
+        return "\n\t".join(lines)

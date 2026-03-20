@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from coretp import Instruction, StepIR
 from coretp.isa import Label
-from coretp.step import Memory
-from coretp.rv_enums import PageSize, PageFlags, PagingMode
+from coretp.step import Memory, RequestPmpRegion
+from coretp.rv_enums import PageSize, PageFlags, PmpAttribute
 from riescue.compliance.test_plan.actions import Action, CodeMixin
+from riescue.compliance.test_plan.actions import ConditionalBlockAction
 from riescue.compliance.test_plan.context import LoweringContext
 
 
@@ -141,7 +142,6 @@ class CodePageAction(MemoryAction, CodeMixin):
     """
 
     register_fields: list[str] = []
-    defines_code: bool = True
 
     def __init__(self, code: list[Action], **kwargs):
         super().__init__(**kwargs)
@@ -179,3 +179,39 @@ class CodePageAction(MemoryAction, CodeMixin):
 
         label = Label(self.step_id)
         return label
+
+
+class RequestPmpAction(MemoryAction):
+    """
+    Request a PMP entry at generation time.
+    Use with ConditionalBlockAction to conditionally use the PMP region
+    """
+
+    register_fields = []
+
+    def __init__(self, pmp_attribute: PmpAttribute, **kwargs):
+        super().__init__(**kwargs)
+        self.pmp_attributes: PmpAttribute = pmp_attribute
+        self.expanded = False
+
+    @classmethod
+    def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "RequestPmpAction":
+        if TYPE_CHECKING:
+            assert isinstance(step.step, RequestPmpRegion)
+        if step.step.pmp_attributes is None:
+            raise ValueError("PMP attributes are required when requesting a PMP region")
+        return cls(
+            step_id=step_id,
+            pmp_attribute=step.step.pmp_attributes,
+            size=step.step.size,
+            page_size=step.step.page_size,
+            flags=step.step.flags,
+            exclude_flags=step.step.exclude_flags,
+            page_cross_en=step.step.page_cross_en,
+            or_mask=step.step.or_mask or "",
+            modify=step.step.modify,
+            **kwargs,
+        )
+
+    def repr_info(self) -> str:
+        return f"RequestPmp(pmp_attribute={self.pmp_attributes})"

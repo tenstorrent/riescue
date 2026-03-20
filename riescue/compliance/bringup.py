@@ -13,6 +13,7 @@ from riescue.compliance.src.test_generator import TestGenerator
 from riescue.compliance.config import ResourceBuilder, Resource
 from riescue.compliance.src.comparator import Comparator
 from riescue.compliance.src.instr_builder import InstrBuilder
+from riescue.compliance.lib.testcase import TestCase
 from riescue.riescued import RiescueD
 from riescue.lib.toolchain import Spike, Whisper, Toolchain
 from riescue.lib.rand import RandNum
@@ -100,7 +101,9 @@ class BringupMode(BaseMode[Resource]):
         Since :class:`Resource` gets constructed with :class:`Toolchain` + Whisper, need to make sure that tpp;cu
         """
 
-        resource_builder = ResourceBuilder(conf=self.conf)
+        resource_builder = ResourceBuilder()
+        if self.conf is not None:
+            resource_builder.conf = self.conf
         resource_builder.with_bringup_test_json(bringup_test_json)
         if cl_args is not None:
             resource_builder.with_args(cl_args)
@@ -137,26 +140,26 @@ class BringupMode(BaseMode[Resource]):
         testcase = test_generator.process_instrs(instrs, iteration=1)
 
         # Run the First pass
-        first_pass = self._rd_run_iss(Path(testcase.testname), resource.first_pass_iss, resource, toolchain)
+        first_pass_iss = resource.first_pass_iss
+        if resource.compare_iss:
+            first_pass_iss = ["whisper", "spike"]
+
+        first_pass = self._rd_run_iss(Path(testcase.testname), first_pass_iss, resource, toolchain)
 
         if resource.disable_pass:
             log.warning("Second pass is disabled, skipping second pass")
             return first_pass.generated_files.elf
 
         second_pass_testcase = test_generator.process_instrs(instrs, iteration=2)  # Parse the first pass log and generate the second pass testcase.
+
+        if resource.compare_iss:
+            return self._compare_iss(testcase, second_pass_testcase, resource, toolchain)
+
         # Run the Second pass
         last_rd = None
-        if resource.compare_iss:
-            # Comparator for invoking riescue-d framework
-            # FIXME: this isn't tested. It should be fixed or removed.
-            self.comparator = Comparator(resource)
-            for testcase in [testcase, second_pass_testcase]:
-                last_rd = self._rd_run_iss(testcase.testname, ["whisper", "spike"], resource, toolchain)
-                self.comparator.compare_logs(testcase)
-        else:
-            testfile = second_pass_testcase.testname
-            last_rd = self._rd_run_iss(testfile, resource.second_pass_iss, resource, toolchain)
-            self._clean_up(str(testfile), output_format=resource.output_format)
+        testfile = second_pass_testcase.testname
+        last_rd = self._rd_run_iss(testfile, resource.second_pass_iss, resource, toolchain)
+        self._clean_up(str(testfile), output_format=resource.output_format)
         if last_rd is None:
             raise ValueError("Didn't run a final RiescueD instance")
         return last_rd.generated_files.elf
@@ -188,6 +191,19 @@ class BringupMode(BaseMode[Resource]):
 
             rd.simulate(resource.featmgr, iss=self._get_iss(simulator, toolchain), whisper_config_json_override=whisper_config_json_override)
         return rd
+
+    def _compare_iss(self, first_pass: TestCase, second_pass: TestCase, resource: Resource, toolchain: Toolchain) -> Path:
+        """
+        Compare ISS.
+        Assumes first pass was already run, just runs a second pass
+        Runs both ISS on the testcase and compares the logs
+
+        """
+        comparator = Comparator(resource)
+        comparator.compare_logs(first_pass)
+        rd = self._rd_run_iss(second_pass.testname, ["whisper", "spike"], resource, toolchain)
+        comparator.compare_logs(second_pass)
+        return rd.generated_files.elf
 
     def _clean_up(self, output_file: str, output_format: str):
         if output_format == "binary":

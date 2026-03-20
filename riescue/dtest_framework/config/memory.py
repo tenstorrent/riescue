@@ -19,6 +19,7 @@ class BaseMem(ABC):
 
     start: int
     size: int
+    permissions: RV.PmpAttributes = RV.PmpAttributes.NONE  # ABC so this shouldn't ever be default
 
     @property
     def end(self) -> int:
@@ -102,38 +103,67 @@ class DramRange(BaseMem):
     :param start: start address
     :param size: size of the range
     :param secure: if True, the range is secure
+    :param cacheable: if True, range is cacheable.
+    :param configurable: if True, range is configurable and can be modified by Runtime
+    :param permissions: PMP attributes of the range. E.g. "rwx", "rw", "r", "none". Determins the PMP permissions of the given range.Defaults to "rwx".
     :raises ValueError: if start or size is not an integer
     :raises ValueError: if secure is not a boolean
 
     Example JSON:
+
     .. code-block:: JSON
+
         {
             "address": "0x8000_0000",
             "size": "0x8000_0000",
             "secure": true,
         }
 
-    ``address`` and ``size`` are required. Note that ``secure`` is optional. If not present, the range is not secure. E.g.
+    ``address`` and ``size`` are required. Note that ``secure``, ``cacheable``, and ``configurable`` are optional. If not present, the range is not secure, cacheable, or configurable.
+    E.g.
+
     .. code-block:: JSON
+
         {
             "address": "0x8000_0000",
             "size": "0x8000_0000",
         }
 
-    Would result in a non-secure DRAM range.
+    Would result in a non-secure, non-cacheable, and non-configurable DRAM range.
 
-    FIXME: (Documentation) What is secure? Why does it matter to users?
     """
 
     start: int = 0
     size: int = 0
     secure: bool = False
+    cacheable: bool = False
+    configurable: bool = False
     name: str = ""
+    permissions: RV.PmpAttributes = RV.PmpAttributes.R_W_X
 
     @classmethod
     def from_dict(cls, cfg: dict[str, Union[str, int, bool]], name: str = "") -> DramRange:
         start, size = cls.range_from_dict(cfg)
-        return cls(name=name, start=start, size=size, secure=cls.get_bool(cfg, "secure", False))
+
+        permissions = cfg.get("permissions", "rwx")
+        if not isinstance(permissions, str):
+            raise ValueError(f"permissions must be a string in {cfg=}")
+        pmp_attributes = RV.PmpAttributes.from_str(permissions)
+        return cls(
+            name=name,
+            start=start,
+            size=size,
+            secure=cls.get_bool(cfg, "secure", False),
+            cacheable=cls.get_bool(cfg, "cacheable", False),
+            configurable=cls.get_bool(cfg, "configurable", False),
+            permissions=pmp_attributes,
+        )
+
+    def make_secure(self) -> DramRange:
+        """
+        Create a new DramRange with bit-55 set to 1, to indicate it's secure.
+        """
+        return DramRange(self.start | 0x0080000000000000, self.size, self.secure, self.cacheable, self.configurable, permissions=self.permissions)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -141,7 +171,22 @@ class DramRange(BaseMem):
             "address": self.start,
             "size": self.size,
             "secure": self.secure,
+            "cacheable": self.cacheable,
+            "configurable": self.configurable,
+            "permissions": self.permissions.value,
         }
+
+    def split(self, size: int) -> tuple[DramRange, DramRange]:
+        """
+        split the dram range into two separate regions.
+        If size is greater than the size of the range, raise a ValueError.
+        If range isn't configurable, raise a ValueError.
+        """
+        if size > self.size:
+            raise ValueError(f"size {size} is greater than the size of the range {self.size}")
+        if not self.configurable:
+            raise ValueError(f"range {self.name} is not configurable")
+        return DramRange(self.start, size, self.secure, self.cacheable, self.configurable), DramRange(self.start + size, self.size - size, self.secure, self.cacheable, self.configurable)
 
 
 @dataclass
@@ -156,6 +201,7 @@ class IoRange(BaseMem):
     Construct with ``from_dict(cfg)`` using a Memory Map structured as (JSON format):
 
     .. code-block:: JSON
+
         {
             "address": "0x200_c000",
             "size": "0x5ff_4000",
@@ -169,11 +215,17 @@ class IoRange(BaseMem):
     size: int = 0
     test_access: bool = False
     name: str = ""
+    permissions: RV.PmpAttributes = RV.PmpAttributes.R_W
 
     @classmethod
     def from_dict(cls, cfg: Mapping[str, Union[str, int, bool]], name: str = "") -> IoRange:
         start, size = cls.range_from_dict(cfg)
-        return cls(name=name, start=start, size=size, test_access=cls.get_bool(cfg, "test_access", False))
+        cfg_permissions = cfg.get("permissions", "rw")
+        if not isinstance(cfg_permissions, str):
+            raise ValueError(f"permissions must be a string in {cfg=}")
+        permissions = RV.PmpAttributes.from_str(cfg_permissions)
+
+        return cls(name=name, start=start, size=size, test_access=cls.get_bool(cfg, "test_access", False), permissions=permissions)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -181,6 +233,7 @@ class IoRange(BaseMem):
             "address": self.start,
             "size": self.size,
             "test_access": self.test_access,
+            "permissions": self.permissions.value,
         }
 
 
@@ -202,6 +255,7 @@ class Memory:
     Construct with ``from_dict(cfg)`` using a Memory Map structured as:
 
     .. code-block:: JSON
+
         {
             "dram": {
                 "dram": { "address": "0x9000_0000", "size": "0x8000_0000", "secure": false},

@@ -6,7 +6,7 @@ from typing import Any, Optional, TYPE_CHECKING, Union
 from enum import Enum, auto
 
 from coretp import TestStep, TestEnv, InstructionCatalog, Instruction, StepIR
-from coretp.step import CsrRead, CsrWrite
+from coretp.step import CsrRead, CsrWrite, CsrDirectAccess
 from coretp.rv_enums import Category, OperandType, Extension, Xlen
 from coretp.isa.operands import Operand
 from coretp.isa import get_register
@@ -69,7 +69,10 @@ class CsrReadAction(Action):
             csr_operand.val = self.csr_name
             return selected_instruction
         else:
-            return CsrApiInstruction(csr_name=self.csr_name, src=None, direct_read_write=self.direct_read, name="csrr", api_call="read")
+            instruction_id = ctx.new_value_id()
+            print(f"csrr_instruction_id: {instruction_id}")
+            selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=None, direct_read_write=self.direct_read, name="csrr", api_call="read", instruction_id=instruction_id)
+            return selected_instruction
 
 
 class CsrOperation(Enum):
@@ -259,7 +262,8 @@ class CsrWriteAction(Action):
                 else:
                     selected_instruction = ctx.instruction_catalog.get_instruction("csrrw")
             else:
-                selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrw", api_call="write")
+                instruction_id = ctx.new_value_id()
+                selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrw", api_call="write", instruction_id=instruction_id)
         elif self.operation == CsrOperation.SET:
             if not api_access:
                 if use_imm:
@@ -267,7 +271,9 @@ class CsrWriteAction(Action):
                 else:
                     selected_instruction = ctx.instruction_catalog.get_instruction("csrrs")
             else:
-                selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrs", api_call="set")
+                instruction_id = ctx.new_value_id()
+                selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrs", api_call="set", instruction_id=instruction_id)
+                selected_instruction.instruction_id = ctx.new_value_id()
         elif self.operation == CsrOperation.CLEAR:
             if not api_access:
                 if use_imm:
@@ -275,7 +281,8 @@ class CsrWriteAction(Action):
                 else:
                     selected_instruction = ctx.instruction_catalog.get_instruction("csrrc")
             else:
-                selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrc", api_call="clear")
+                instruction_id = ctx.new_value_id()
+                selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrc", api_call="clear", instruction_id=instruction_id)
         else:
             raise ValueError(f"Invalid operation: {self.operation}")
 
@@ -307,7 +314,16 @@ class CsrWriteAction(Action):
 
 
 class CsrApiInstruction(Instruction):
-    def __init__(self, csr_name: str, src: Optional[str] = None, direct_read_write: bool = False, name: str = "csrw", api_call: str = "write"):
+    def __init__(
+        self,
+        csr_name: str,
+        src: Optional[str] = None,
+        direct_read_write: bool = False,
+        name: str = "csrw",
+        api_call: str = "write",
+        force_machine_rw: bool = False,
+        instruction_id: str = "",
+    ):
         t1_reg = get_register("t1")
         t2_reg = get_register("t2")
 
@@ -327,14 +343,17 @@ class CsrApiInstruction(Instruction):
                 Operand(type=OperandType.GPR, name="rs1", val=src_reg),
             ],
             clobbers=[t1_reg.name, t2_reg.name, "x31"],
+            instruction_id=instruction_id,
         )
         self.csr_name = csr_name
         self.direct_read_write = direct_read_write
         self.api_call = api_call
+        self.force_machine_rw = force_machine_rw
 
     def format(self):
         direct_read_write_str = "true" if self.direct_read_write else "false"
-        return f";#csr_rw({self.csr_name}, {self.api_call}, {direct_read_write_str})"
+        force_machine_rw_str = "true" if self.force_machine_rw else "false"
+        return f";#csr_rw({self.csr_name}, {self.api_call}, {direct_read_write_str}, {force_machine_rw_str})"
 
 
 class MvT2Action(ArithmeticAction):
@@ -406,3 +425,226 @@ class MvT2Instruction(Instruction):
             formatter="mv t2, {rs1}",
             clobbers=[t1_reg.name, t2_reg.name, "x31"],
         )
+
+
+class CsrDirectAccessAction(Action):
+    """
+    Handles CsrDirectAccess step for direct CSR instruction access.
+
+    Supports both immediate and register-based CSR operations:
+    - csrrw, csrrs, csrrc (register-based)
+    - csrrwi, csrrsi, csrrci (immediate-based)
+
+    When csr_name is None, a CSR will be randomly selected based on the
+    current privilege mode and operation type.
+    """
+
+    register_fields = ["src"]
+
+    def __init__(
+        self,
+        op: str,
+        csr_name: Optional[str] = None,
+        src_value: Optional[int] = None,
+        src: Optional[str] = None,
+        target_is_x0: bool = False,
+        **kwargs,
+    ):
+        """
+        Initialize CsrDirectAccessAction.
+
+        :param op: CSR operation name (csrrw, csrrs, csrrc, csrrwi, csrrsi, csrrci)
+        :param csr_name: CSR name (None = randomize)
+        :param src_value: Integer value for src1 (used for immediate or LI)
+        :param src: Step ID dependency for src1
+        :param target_is_x0: Destination is x0 (discard result)
+        """
+        super().__init__(**kwargs)
+        self.op = op
+        self.csr_name = csr_name
+        self.src_value = src_value
+        self.src = src
+        self.target_is_x0 = target_is_x0
+        self.constraints = {}
+        self.expanded = False
+
+    def repr_info(self) -> str:
+        return f"'{self.op}', csr='{self.csr_name}'"
+
+    @classmethod
+    def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "Action":
+        if TYPE_CHECKING:
+            assert isinstance(step.step, CsrDirectAccess)
+
+        src_value = None
+        src = None
+
+        # Handle src1: can be int or step dependency
+        if isinstance(step.step.src1, int):
+            src_value = step.step.src1
+        elif step.step.src1 is not None:
+            # It's a step dependency - resolve from inputs
+            if len(step.inputs) >= 1:
+                src = str(step.inputs[0])
+        else:
+            src = "zero"
+
+        return cls(
+            step_id=step_id,
+            op=step.step.op,
+            csr_name=step.step.csr_name,
+            src_value=src_value,
+            src=src,
+            target_is_x0=step.step.target_is_x0,
+            **kwargs,
+        )
+
+    def _is_immediate_op(self) -> bool:
+        """Check if this is an immediate CSR operation."""
+        return self.op in ["csrrwi", "csrrsi", "csrrci"]
+
+    def _randomize_csr(self, ctx: LoweringContext) -> str:
+        """Select a random CSR valid for current privilege mode and operation."""
+        priv = ctx.env.priv.name.lower()
+
+        FILTERED_CSRS = ["mip", "mie", "sip", "sie", "satp"]  # Do not create new interrupts
+
+        # Map privilege to Accessibility filter
+        accessibility_map = {
+            "m": "Machine",
+            "s": "Supervisor",
+            "u": "User",
+        }
+        accessibility = accessibility_map.get(priv, "Machine")
+
+        is_read_only_op = self.op in ["csrrs", "csrrc", "csrrsi", "csrrci"] and self.src is None and (self.src_value == 0 or self.src_value is None)
+
+        names_to_csrs = []
+
+        if accessibility == "User":
+            csr_configs_exclude_machine = ctx.get_csr_manager().lookup_csrs(
+                match={"software-write": "W", "ISS_Support": "Yes"},
+                exclude={"Accessibility": "Machine"},
+            )
+
+            non_machine_csrs = list(csr_configs_exclude_machine.keys())
+
+            csr_configs_exclude_super = ctx.get_csr_manager().lookup_csrs(
+                match={"software-write": "W", "ISS_Support": "Yes"},
+                exclude={"Accessibility": "Supervisor"},
+            )
+
+            non_super_csrs = list(csr_configs_exclude_super.keys())
+
+            names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs]
+
+        else:
+            csr_configs = ctx.get_csr_manager().lookup_csrs(
+                match={"Accessibility": accessibility, "software-write": "W", "ISS_Support": "Yes"},
+            )
+            if not csr_configs:
+                # Fallback: try without ISS_Support filter
+                csr_configs = ctx.get_csr_manager().lookup_csrs(
+                    match={"Accessibility": accessibility, "software-write": "W"},
+                )
+            names_to_csrs += list(csr_configs.keys())
+
+        if is_read_only_op:
+            if accessibility == "User":
+                csr_configs_exclude_machine = ctx.get_csr_manager().lookup_csrs(
+                    match={"software-read": "R", "ISS_Support": "Yes"},
+                    exclude={"Accessibility": "Machine"},
+                )
+
+                non_machine_csrs = list(csr_configs_exclude_machine.keys())
+
+                csr_configs_exclude_super = ctx.get_csr_manager().lookup_csrs(
+                    match={"software-read": "R", "ISS_Support": "Yes"},
+                    exclude={"Accessibility": "Supervisor"},
+                )
+
+                non_super_csrs = list(csr_configs_exclude_super.keys())
+
+                names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs]
+
+            else:
+                csr_configs = ctx.get_csr_manager().lookup_csrs(
+                    match={"Accessibility": accessibility, "software-read": "R", "ISS_Support": "Yes"},
+                )
+                if not csr_configs:
+                    # Fallback: try without ISS_Support filter
+                    csr_configs = ctx.get_csr_manager().lookup_csrs(
+                        match={"Accessibility": accessibility, "software-read": "R"},
+                    )
+                names_to_csrs += list(csr_configs.keys())
+        names_to_csrs = [name for name in names_to_csrs if name not in FILTERED_CSRS]
+        csr_name = ctx.rng.choice(names_to_csrs)
+        return csr_name
+
+    def expand(self, ctx: LoweringContext) -> Optional[list["Action"]]:
+        """
+        Expand action if needed:
+        - Randomize CSR if csr_name is None
+        - Create LI action if src_value is provided and op is not immediate
+        """
+        if self.expanded:
+            return None
+
+        self.expanded = True
+
+        # Randomize CSR if not specified
+        if self.csr_name is None:
+            self.csr_name = self._randomize_csr(ctx)
+
+        # If we have an integer value and it's not an immediate operation,
+        # we need to load it into a register first
+        if self.src_value is not None and not self._is_immediate_op():
+            li_id = ctx.new_value_id()
+            load_immediate = LiAction(step_id=li_id, immediate=self.src_value)
+            self.src = li_id
+            self.src_value = None  # Clear since we're using src now
+            return [load_immediate, self]
+
+        return [self]
+
+    def pick_instruction(self, ctx: LoweringContext) -> Instruction:
+        """
+        Select appropriate CSR instruction based on operation type.
+        """
+        is_imm_op = self._is_immediate_op()
+
+        # Map op to instruction name
+        # For immediate ops, the op name is already the instruction name
+        # For register ops, the op name is already the instruction name
+        selected_instruction = ctx.instruction_catalog.get_instruction(self.op)
+
+        # Set CSR operand
+        csr_operand = selected_instruction.csr_operand()
+        if csr_operand is None:
+            raise ValueError(f"No CSR operand available for CsrDirectAccess action, " f"with instruction {selected_instruction}")
+        csr_operand.val = self.csr_name
+
+        # Set source operand (rs1 for register ops, immediate for immediate ops)
+        if is_imm_op:
+            immediate_operand = selected_instruction.immediate_operand()
+            if immediate_operand is not None:
+                # Use src_value for immediate, default to 0
+                immediate_operand.val = self.src_value if self.src_value is not None else 0
+        else:
+            rs1 = selected_instruction.get_source("rs1")
+            if rs1 is None:
+                raise ValueError(f"Expected rs1 operand for CSR instruction {selected_instruction}")
+            # If we have a src (step dependency), use it
+            # Otherwise use x0 (src_value=0 or src_value=None means x0)
+            if self.src is not None:
+                rs1.val = self.src
+            else:
+                rs1.val = "zero"
+
+        # Set destination operand if target_is_x0
+        if self.target_is_x0:
+            rd = selected_instruction.destination
+            if rd is not None:
+                rd.val = "zero"
+
+        return selected_instruction

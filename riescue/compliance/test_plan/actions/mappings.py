@@ -10,8 +10,11 @@ from coretp.step import (
     Arithmetic,
     CsrRead,
     CsrWrite,
+    CsrDirectAccess,
     CodePage,
     Call,
+    ConditionalBlock,
+    RequestPmpRegion,
     AssertEqual,
     AssertNotEqual,
     AssertException,
@@ -19,6 +22,8 @@ from coretp.step import (
     MemAccess,
     System,
     Comment,
+    Directive,
+    SetWaitTimeout,
 )
 from coretp.step.memory import ReadLeafPTE, WriteLeafPTE, ReadPTE, WritePTE
 
@@ -30,6 +35,7 @@ from riescue.compliance.test_plan.actions import (
     MemoryAction,
     CsrReadAction,
     CsrWriteAction,
+    CsrDirectAccessAction,
     ReadLeafPteAction,
     WriteLeafPteAction,
     ReadPteAction,
@@ -44,6 +50,10 @@ from riescue.compliance.test_plan.actions import (
     MemAccessAction,
     SystemAction,
     CommentAction,
+    DirectiveAction,
+    ConditionalBlockAction,
+    RequestPmpAction,
+    SetWaitTimeoutAction,
 )
 
 
@@ -54,6 +64,7 @@ DEFAULT_MAPPINGS: list[tuple[type[TestStep], type[Action]]] = [
     (Memory, MemoryAction),
     (CsrRead, CsrReadAction),
     (CsrWrite, CsrWriteAction),
+    (CsrDirectAccess, CsrDirectAccessAction),
     (ReadLeafPTE, ReadLeafPteAction),
     (CodePage, CodePageAction),
     (Call, CallAction),
@@ -68,4 +79,8 @@ DEFAULT_MAPPINGS: list[tuple[type[TestStep], type[Action]]] = [
     (WriteLeafPTE, WriteLeafPteAction),
     (System, SystemAction),
     (Comment, CommentAction),
+    (Directive, DirectiveAction),
+    (ConditionalBlock, ConditionalBlockAction),
+    (RequestPmpRegion, RequestPmpAction),
+    (SetWaitTimeout, SetWaitTimeoutAction),
 ]

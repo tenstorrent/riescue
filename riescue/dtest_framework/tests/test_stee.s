@@ -149,7 +149,6 @@
 test_setup:
     # Put your common initialization code here, e.g. initialize csr here if needed
     li x1, 0xc0010001
-.if OS_DELEG_EXCP_TO_MACHINE
     # Now try to switch to machine mode
     li x31, 0xf0001001 # Switch to machine mode
     ecall
@@ -170,8 +169,6 @@ test_setup:
     # Write mstatus csr
     li x1, 0x00000000
     # csrw mstatus, x1
-
-.endif
 
     ;#test_passed()
 

@@ -3,7 +3,9 @@
 
 
 import unittest
+from pathlib import Path
 
+from riescue.lib.toolchain import ToolchainError, ToolFailureType
 from riescue.riescuec import RiescueC
 
 
@@ -72,6 +74,16 @@ class Rv32I(unittest.TestCase):
     def test_15(self):
         args = "--json compliance/tests/rv_i/rv32i_compute_register_register.json --max_instrs 5000 --rpt_cnt 5 --seed 0"
         RiescueC.run_cli(args=args.split())
+
+    def test_conf(self):
+        "checks that conf gets passed through correctly; should raise max instruction limit exception"
+        loop_conf = Path(__file__).parents[1] / "riescued/data/loop_conf.py"
+        args = "--json compliance/tests/rv_i/rv32i.json --max_instrs 5000 --first_pass_iss whisper --rpt_cnt 5 --seed 0 --whisper_max_instr 2500 --conf " + str(loop_conf)
+
+        with self.assertRaises(ToolchainError) as toolchain_error:
+            RiescueC.run_cli(args=args.split())
+
+        self.assertEqual(toolchain_error.exception.kind, ToolFailureType.MAX_INSTRUCTION_LIMIT, "Expected max instruction limit exception, got %s" % toolchain_error.exception.kind)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@
 ;#test.summary    This test verifies that mscratch CSR is properly initialized with the value provided through command line
 ;#test.summary    test01: Verify mscratch CSR value matches the expected value from command line
 
-.section .text
+.section .code, "ax"
 
 #####################
 # test01: Verify mscratch CSR value from command line

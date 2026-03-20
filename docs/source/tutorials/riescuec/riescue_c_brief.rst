@@ -31,7 +31,7 @@ RiescueC operates in two distinct modes, each designed for different verificatio
 
 .. code-block:: bash
 
-   riescuec --mode test_plan --test_plan zicond
+   riescuec --mode tp --test_plan zicond
 
 **Purpose**: Generate tests from ``coretp`` test plans through self-checking architectural scenarios.
 

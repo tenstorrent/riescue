@@ -29,10 +29,11 @@ class AddrGen:
     :param limit_way_predictor_multihit: Whether to limit the number of addresses with the same way predictor multihit
     """
 
-    def __init__(self, rng: RandNum, mem: Memory, limit_indices: bool = False, limit_way_predictor_multihit: bool = False):
+    def __init__(self, rng: RandNum, mem: Memory, limit_indices: bool = False, limit_way_predictor_multihit: bool = False, pma_regions=None):
         self._mem = mem
         self._linear_addr_space = AddressSpace(rng, RV.AddressType.LINEAR)
         self._physical_addr_space = AddressSpace(rng, RV.AddressType.PHYSICAL)
+        self._pma_regions = pma_regions  # PmaRegion object for checking PMA regions
 
         self.limit_indices = limit_indices
         self.limit_way_predictor_multihit = limit_way_predictor_multihit
@@ -103,6 +104,18 @@ class AddrGen:
 
         if address is None:
             raise AddrGenError(f"Failed to generate address, {address=}")
+
+        # Check if address falls within a PMA region and log it
+        if self._pma_regions and constraint.type == RV.AddressType.PHYSICAL:
+            pma_region = self._pma_regions.find_region_for_address(address)
+            if pma_region:
+                log.debug(
+                    f"Generated address 0x{address:x} falls within PMA region '{pma_region.pma_name}' "
+                    f"(0x{pma_region.pma_address:x}-0x{pma_region.get_end_address():x}), "
+                    f"attributes: type={pma_region.pma_memory_type}, "
+                    f"cacheability={pma_region.pma_cacheability}, "
+                    f"rwx={'r' if pma_region.pma_read else '-'}{'w' if pma_region.pma_write else '-'}{'x' if pma_region.pma_execute else '-'}"
+                )
 
         log.debug(f"Generated address: {address:x}")
         return address

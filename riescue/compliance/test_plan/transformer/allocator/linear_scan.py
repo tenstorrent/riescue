@@ -28,6 +28,51 @@ class StackEntry(NamedTuple):
     name: str
 
 
+def _is_literal_register(val: str) -> bool:
+    """True if val is a literal GPR name (e.g. x0, a7), not a value_id (e.g. r0)."""
+    if not val or len(val) < 2:
+        return False
+    if val.startswith("r") and val[1:].isdigit():
+        return False
+    if val[0] in ("x", "f", "v") and len(val) > 1 and val[1:].isdigit():
+        return True
+    abi = {
+        "zero",
+        "ra",
+        "sp",
+        "gp",
+        "tp",
+        "t0",
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t6",
+        "s0",
+        "s1",
+        "s2",
+        "s3",
+        "s4",
+        "s5",
+        "s6",
+        "s7",
+        "s8",
+        "s9",
+        "s10",
+        "s11",
+        "a0",
+        "a1",
+        "a2",
+        "a3",
+        "a4",
+        "a5",
+        "a6",
+        "a7",
+    }
+    return val in abi
+
+
 class VariableRecord(NamedTuple):
     """
     Record of a virtual register / variable's life in the program
@@ -99,6 +144,8 @@ class LinearScan:
             for src in instr.source:
                 if src.is_register() and isinstance(src.val, str):
                     name = src.val
+                    if _is_literal_register(name):
+                        continue
                     if name not in live_intervals:
                         # Case: used before defined
                         live_intervals[name] = Interval(i, i, name, src.type)
@@ -242,6 +289,9 @@ class LinearScan:
             for src in instr.source:
                 spilled = False
                 if src.is_register() and isinstance(src.val, str):
+                    if _is_literal_register(src.val):
+                        src.val = get_register(src.val)
+                        continue
                     records = register_map[src.val]
                     if isinstance(records.slot, Register):
                         src.val = records.slot

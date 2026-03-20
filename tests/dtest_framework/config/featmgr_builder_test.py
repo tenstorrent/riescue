@@ -269,7 +269,6 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
 
         self.assertEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED)
         self.assertEqual(featmgr.priv_mode, RiscvPrivileges.SUPER)
-        self.assertEqual(featmgr.deleg_excp_to, RiscvPrivileges.SUPER)
 
     def test_eot_args(self):
         "Test that --eot_fail_value and --eot_pass_value work"
@@ -326,14 +325,18 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         self.builder = self.builder.with_args(args)
         featmgr = self.builder.build(rng=self.rng)
 
-        self.assertEqual(featmgr.deleg_excp_to, RV.RiscvPrivileges.SUPER)
+        self.assertEqual(featmgr.medeleg, 0xFFFFFFFFFFFFF0FF)
+        self.assertEqual(featmgr.mideleg, (1 << 9) | (1 << 5) | (1 << 1) | (1 << 11) | (1 << 7) | (1 << 3))
+        self.assertEqual(featmgr.hedeleg, 0)
 
     def test_deleg_excp_to_machine(self):
         "Check that --delege_excep_to machine works"
         args = self.parse_args(["--deleg_excp_to", "machine"])
         self.builder = self.builder.with_args(args)
         featmgr = self.builder.build(rng=self.rng)
-        self.assertEqual(featmgr.deleg_excp_to, RV.RiscvPrivileges.MACHINE)
+        self.assertEqual(featmgr.medeleg, 0)
+        self.assertEqual(featmgr.mideleg, 0)
+        self.assertEqual(featmgr.hedeleg, 0)
 
     def test_supported_priv_modes(self):
         "Check that supported_priv_modes get set correctly from the command line"
@@ -461,7 +464,6 @@ class TestFeatMgrBuilderVirtualization(FeatMgrBuilderBase):
         self.assertEqual(featmgr.csr_init, ["mstatus=0x8000000A00046800"])
         self.assertEqual(featmgr.priv_mode, RiscvPrivileges.SUPER)
         self.assertEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED)
-        self.assertEqual(featmgr.deleg_excp_to, RiscvPrivileges.SUPER, "Currently only support HS mode when virtualized is enabled ")
 
 
 class TestConfWithBuilder(FeatMgrBuilderBase):
@@ -474,7 +476,7 @@ class TestConfWithBuilder(FeatMgrBuilderBase):
         Test that Conf class passed as an instantiated class works correctly and that the pre_build method is called.
         This should take priority over the test header, and arguments
         """
-        self.builder.conf = CandidateConf()
+        self.builder.conf = [CandidateConf()]
         self.builder.with_test_header(ParsedTestHeader(priv="super"))
         args = self.parse_args(["--test_priv_mode", "user"])
         self.builder.with_args(args)
@@ -487,7 +489,7 @@ class TestConfWithBuilder(FeatMgrBuilderBase):
         Test that Conf class passed as an instantiated class works correctly and that the post_build method is called.
         This should take priority over the test header, and arguments
         """
-        self.builder.conf = PrivConfig()
+        self.builder.conf = [PrivConfig()]
         self.builder.with_test_header(ParsedTestHeader(priv="machine"))
         args = self.parse_args(["--test_priv_mode", "user"])
         self.builder.with_args(args)

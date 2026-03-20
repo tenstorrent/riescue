@@ -4,10 +4,16 @@
 from dataclasses import dataclass
 from collections import defaultdict
 
+from typing import Optional, TYPE_CHECKING
+
 from coretp import TestEnv, InstructionCatalog
 from coretp.isa import Register
 from riescue.lib.rand import RandNum
 from riescue.compliance.test_plan.memory import MemoryRegistry
+from riescue.dtest_framework.config import FeatMgr
+
+if TYPE_CHECKING:
+    from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
 
 
 class _IDTracker:
@@ -62,11 +68,21 @@ class LoweringContext:
     mem_reg: MemoryRegistry
     env: TestEnv
     instruction_catalog: InstructionCatalog
+    featmgr: FeatMgr
 
     def __post_init__(self):
         self.id_tracker = _IDTracker()
         self.global_function_clobbers: dict[str, list[Register]] = {}  # maps function name to list of clobbered registers
         self._built = False
+        self._csr_manager: Optional["CsrManagerInterface"] = None
+
+    def get_csr_manager(self) -> "CsrManagerInterface":
+        """Get or lazily initialize the CSR manager."""
+        if self._csr_manager is None:
+            from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
+
+            self._csr_manager = CsrManagerInterface(self.rng)
+        return self._csr_manager
 
     def new_label(self) -> str:
         return self.id_tracker.new_label()

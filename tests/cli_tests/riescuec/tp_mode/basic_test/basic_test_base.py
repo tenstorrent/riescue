@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import re
+import json
+import tempfile
 from typing import Any, Optional, NamedTuple, TYPE_CHECKING
 from pathlib import Path
 
@@ -13,6 +15,7 @@ from riescue.lib.toolchain.exceptions import ToolFailureType
 from coretp import TestEnvCfg, TestScenario, TestPlan
 from coretp.step import TestStep, Arithmetic
 from tests.compliance.test_plan.base_test_plan import BaseTestPlan
+from riescue.compliance.config import TpCfg
 
 
 class Label(NamedTuple):
@@ -137,7 +140,7 @@ class BasicTestBase(BaseTestPlan):
 
     def create_generator(self, isa: str, rng: Optional[RandNum] = None):
         rng = rng or RandNum(seed=10)
-        generator = TestPlanGenerator(isa, rng)
+        generator = TestPlanGenerator(TpCfg(isa=isa), rng)
         return generator
 
     def generator_from_steps(
@@ -265,7 +268,7 @@ class BasicTestBase(BaseTestPlan):
         """
         Checks that source registers are defined before use within a routine.
         """
-        defined_registers = {"x0", "zero"}  # x0 is always defined
+        defined_registers = {"x0", "zero", "t2"}  # x0 is always defined. t2 is automatically defined in CSr accesses
 
         for instr in routine.instructions:
             if instr.name.startswith("."):
@@ -312,17 +315,25 @@ class BasicTestBase(BaseTestPlan):
         self.assert_registers_in_order(routine)
         self.assert_no_unused_li(routine)
 
-    def run_test(self, test_name: str, steps: list[Any], isa: str = "rv32i", env: Optional[TestEnvCfg] = None):
+    def run_test(self, test_name: str, steps: list[Any], isa: str = "rv32i", env: Optional[TestEnvCfg] = None, mem_map: Optional[dict[str, Any]] = None):
         """
         Compiles and runs test on ISS. Currently uses defualt TestEnvCfg. calls RiescueD directly, doesn't use RiescueC
         """
         self.disable_logging()
         env = env or TestEnvCfg()
         test_scenario = TestScenario.from_steps(name=test_name, description="Test scenario", env=env, steps=steps)
-        return self.run_test_from_scenario(test_scenario, isa=isa, env=env)
+        return self.run_test_from_scenario(test_scenario, isa=isa, env=env, mem_map=mem_map)
 
-    def run_test_from_scenario(self, test_scenario: TestScenario, isa: str = "rv32i", env: Optional[TestEnvCfg] = None, should_fail: bool = False):
+    def run_test_from_scenario(
+        self,
+        test_scenario: TestScenario,
+        isa: str = "rv32i",
+        env: Optional[TestEnvCfg] = None,
+        should_fail: bool = False,
+        mem_map: Optional[dict[str, Any]] = None,
+    ):
         self.disable_logging()
+        mem_map = mem_map or {}
 
         for i in range(self.iterations):
             rng = RandNum(seed=i)
@@ -338,9 +349,17 @@ class BasicTestBase(BaseTestPlan):
                 for failure in self.expect_toolchain_failure_generator(testname=str(test_file), cli_args=["--run_iss"], failure_kind=ToolFailureType.TOHOST_FAIL, iterations=1, starting_seed=i):
                     self.assertEqual(failure.fail_code, 0x03, "Expected TOHOST_FAIL failure 0x3")
             else:
-                self.run_riescued(
-                    str(test_file),
-                    cli_args=["--run_iss"],
-                    iterations=1,
-                    starting_seed=i,
-                )
+                with tempfile.NamedTemporaryFile(mode="w") as f:
+                    cli_args = ["--run_iss"]
+                    if mem_map:
+                        f.write(json.dumps(mem_map))
+                        f.flush()
+                        f.seek(0)
+                        cli_args += ["--cpuconfig", str(f.name)]
+
+                    self.run_riescued(
+                        str(test_file),
+                        cli_args=cli_args,
+                        iterations=1,
+                        starting_seed=i,
+                    )

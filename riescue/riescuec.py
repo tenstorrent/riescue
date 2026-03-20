@@ -59,12 +59,6 @@ class RiescueC(CliBase):
             default=Path("."),
             help="Run directory where the test will be run",
         )
-        parser.add_argument(
-            "--conf",
-            type=Path,
-            default=None,
-            help="Path to conf.py file for additional config and hooks.",
-        )
         parser.add_argument("--seed", type=int, help="Seed for the test")
         BringupMode.add_arguments(parser)
         TpMode.add_arguments(parser)
@@ -96,11 +90,6 @@ class RiescueC(CliBase):
             seed = initial_random_seed()
         run_dir = cl_args.run_dir
 
-        if cl_args.conf is not None:
-            conf = Conf.load_conf_from_path(cl_args.conf)
-        else:
-            conf = None
-
         toolchain = experimental_toolchain_from_args(cl_args)
 
         if mode == ComplianceMode.BRINGUP:
@@ -114,7 +103,6 @@ class RiescueC(CliBase):
                 run_dir=run_dir,
                 args=cl_args,
                 toolchain=toolchain,
-                conf=conf,
             )
         elif mode == ComplianceMode.TEST_PLAN:
             logger_file = Path("riescuec_tp.testlog")
@@ -124,7 +112,6 @@ class RiescueC(CliBase):
                 seed=seed,
                 run_dir=run_dir,
                 toolchain=toolchain,
-                conf=conf,
             )
         raise ValueError(f"Invalid mode: {mode}")
 

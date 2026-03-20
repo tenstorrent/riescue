@@ -42,6 +42,7 @@ test1:
 
     # Trigger SSI
     li t0, (1<<1)
+    csrc mideleg, t0
     csrs mie, t0
     csrs mip, t0
 

@@ -1023,7 +1023,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "sub-fields": {
                "SD": {
                     "fields-name": "SD",
@@ -1604,8 +1604,8 @@
           "Sub Category": "I_Ext",
           "address": "F15",
           "size": 64.0,
+          "software-type": "Read-Only",
           "software-read": "R",
-          "software-write": "W",
           "Accessibility": "Machine",
           "ISS_Support": "Yes",
           "sub-fields": {
@@ -3611,7 +3611,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Supervisor",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "sub-fields": {
                "SD": {
                     "fields-name": "SD",
@@ -5220,7 +5220,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "sub-fields": {
                "DATA": {
                     "fields-name": "DATA",
@@ -5239,7 +5239,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "sub-fields": {
                "MCONTEXT": {
                     "fields-name": "MCONTEXT",
@@ -6614,6 +6614,7 @@
           "software-read": "R",
           "software-write": "W",
           "ISS_Support": "Yes",
+          "Accessibility": "Machine",
           "sub-fields": {
                "mtinst": {
                     "fields-name": "mtinst",

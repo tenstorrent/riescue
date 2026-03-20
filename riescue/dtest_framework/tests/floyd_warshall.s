@@ -37,10 +37,6 @@
 ;#random_addr(name=phys1, type=physical, size=0x1000, and_mask=0xfffffffffffff000)
 ;#page_mapping(lin_name=lin1, phys_name=phys1, v=1, r=1, w=1, a=1, d=1, pagesize=['4kb', '2mb', '1gb', '512gb', '256tb', 'any'])
 
-;#random_addr(name=lin1_io,  type=linear,   size=0x1000, and_mask=0xfffffffffffff000)
-;#random_addr(name=phys1_io, type=physical, io=1, size=0x1000, and_mask=0xfffffffffffff000)
-;#page_mapping(lin_name=lin1_io, phys_name=phys1_io, v=1, r=1, w=1, a=1, d=1, pagesize=['4kb', '2mb', '1gb', '512gb', '256tb', 'any'])
-
 # Another random_data and page_mapping entry
 ;#random_addr(name=lin2,  type=linear,   size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys2, type=physical, size=0x1000, and_mask=0xfffffffffffff000)
@@ -237,12 +233,12 @@ test02:
 
 # Function to perform Floyd-Warshall algorithm
 floyd_warshall:
-    addi sp, sp, -20
-    sw ra, 0(sp)
-    sw s0, 4(sp)
-    sw s1, 8(sp)
-    sw s2, 12(sp)
-    sw s3, 16(sp)
+    addi sp, sp, -24
+    sd ra, 0(sp)
+    sw s0, 8(sp)
+    sw s1, 12(sp)
+    sw s2, 16(sp)
+    sw s3, 20(sp)
 
     li s0, 6 # Number of vertices
     li s1, 4 # Number of bytes per entry in distances matrix
@@ -316,12 +312,12 @@ floyd_inner_loop_end:
     addi t3, t3, 1
     j floyd_outer_loop
 floyd_exit:
-    lwu ra, 0(sp)
-    lwu s0, 4(sp)
-    lwu s1, 8(sp)
-    lwu s2, 12(sp)
-    lwu s3, 16(sp)
-    addi sp, sp, 20
+    ld ra, 0(sp)
+    lwu s0, 8(sp)
+    lwu s1, 12(sp)
+    lwu s2, 16(sp)
+    lwu s3, 20(sp)
+    addi sp, sp, 24
     jr ra
 
 #####################
