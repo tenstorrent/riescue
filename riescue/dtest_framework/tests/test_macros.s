@@ -41,6 +41,28 @@ test01_ret:
     # If macro setup correctly, we pass
     ;#test_passed()
 
+
+#####################
+# test02: OS_SKIP_CHECK_EXCP macro
+#####################
+;#discrete_test(test=test02)
+test02:
+    # setup an ilegal instruction check by jumping to word 0
+    OS_SKIP_CHECK_EXCP test02_ret
+
+# illegal isntruction, shouldn't load the data
+test02_trigger:
+    .word 0x00000000
+    # Should not reach here - exception handler intercepts
+    li t0, 0xAAAAAAAA
+    ;#test_failed()
+
+test02_ret:
+    # Exception handler restored us here
+    # If macro setup correctly, we pass
+    ;#test_passed()
+
+
 #####################
 # test_cleanup: Common cleanup
 #####################

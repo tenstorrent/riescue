@@ -22,31 +22,13 @@ class ParallelScheduler(Scheduler):
 
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        self.mhartid_offset = self.variable_manager.get_variable("mhartid").offset
-
-    def scheduler_init(self) -> str:
-        "No additional scheduler init code is needed by default"
-        return ""
 
     def scheduler_routines(self) -> str:
         """
         Additional scheduler code that is called by the scheduler
         """
         code = ""
-        code += "\n# Scheduler functions\n"
-        code += "os_parallel_get_next_exclusive_test:"
-        code += self.place_get_next_exclusive_test(
-            name="opgnet",
-            fallback_routine_label="eot__skip_lock_release",  # Don't need to release lock if done with tests
-            test_locks_label="test_mutexes",
-            top_seed_label="scheduler__seeds",
-            remaining_balance_array_label="num_runs",
-            array_length=len(self.dtests),
-            seed_offset_scale=8,
-            test_labels_offset_scale=8,
-            num_test_labels_ignore=1,
-        )
-        code += "\tret"
+        code += self.get_next_test()
 
         return code
 
@@ -61,28 +43,62 @@ class ParallelScheduler(Scheduler):
             code += "scheduler__csr_read_randomization:\n"
             code += self.csr_read_randomization() + "\n"
 
-        code += "la t0, scheduler__setup\n"
+        # Generates main scheduler logic.
+        # Assumes t1 has the previous number of runs left.
+        # TODO for linux + parallel, just dont decrement num runs, write it, check it etc
+        # TODO for linux + simultaneous, need to randomize next test pointers in a thread safe way and also don't decrement num runs
 
+        # FIXME Does this need to call place_retrieve_hartid so many times?
+
+        retrieve_selected_test_label_offset = self.place_retrieve_memory_indexed_address(
+            index_array_name="selected_test_label_offset", target_array_name="os_test_sequence", index_element_size=8, hartid_reg=self.hartid_reg, work_reg_1="a0", dest_reg="t0"
+        )
+        # How parallel dispatch works:
+        # 1. Hart enters dispatch, releases any previously-held mutex
+        # 2. calls scheduler__next_test to get next test label
+        #   Probes its section of num_runs to find a test with count > 0
+        #   Tries to acquire that test's mutex
+        #   If acquired, decrements num_runs, stores offsets into selected_*_offset arrays
+        #   If not acquired (another hart holds it), picks a different test
+        # 3. Scheduler loads the selected test label from os_test_sequence into t1
+
+        code += f"csrr {self.hartid_reg}, mhartid\n"
         code += f"""
-        {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
-        li t2, 8 # While the harts are allowed to run test_setup at the same time, they also each must.
-        mul t2, {self.hartid_reg}, t2
-        add t0, t0, t2
+                # Check if we are storing nonzero in held_locks for this hart, we hold it to this point for readability sake.
+                la a0, held_locks
+                {Routines.place_offset_address_by_scaled_hartid(address_reg='a0', dest_reg='a0', hartid_reg=self.hartid_reg, work_reg='t1', scale=8)}
+                ld t1, (a0)
+                beqz t1, scheduler__continue_scheduling # If nonzero, we are holding a lock, so continue scheduling
 
-        ld t1, 0(t0)
-        sd x0, 0(t0)
-        mv t0, x0
-        bnez t1, scheduler__start_next_test
-        """
 
-        code += self.scheduler()
+            scheduler__release_lock:
+                amoswap.d.rl x0, x0, (t1)
+                sd zero, 0(a0) # clear the held_lock variable, so eot doesn't release it.
 
-        code += """
-        # Get the pointer to the next test label and jump / sret to it
-        scheduler__start_next_test:
+            # This is a big routine so we call it instead of inlining it.
+            scheduler__continue_scheduling:
+                call scheduler__next_test
+                mv t2, a0 # Lock address we have not released, need to store it so we can release it later.
+
+                # Retrieve test labels offset
+                retrieve_test_label_offset:
+                {retrieve_selected_test_label_offset}
+
+                # Turn back into an offset now that our check is done
+                la a0, os_test_sequence
+                sub t0, t0, a0 # t0 = offset from os_test_sequence
+                la a0, held_locks
+                {Routines.place_offset_address_by_scaled_hartid(address_reg='a0', dest_reg='a0', hartid_reg=self.hartid_reg, work_reg='t1', scale=8)}
+            scheduler__update_lock_status:
+                # Store the lock address we have not released
+                sd t2, 0(a0)
+
+        # t1 = os_test_sequence + ((--num_runs) * 8])
+        # or os_test_sequence[--num_runs]
+        scheduler__load_test_addr:
             la t1, os_test_sequence
-            add t0, t0, t1    # t0 = current os_test_sequence pointer
-            ld t1, 0(t0)      # t1 = [os_test_sequence] (actual test label)
+            add t0, t0, t1
+            ld t1, 0(t0)
         """
 
         return code
@@ -98,104 +114,7 @@ class ParallelScheduler(Scheduler):
         # Scheduler local variables
         scheduler__seed:
             .dword {self.rng.get_seed()}
-        scheduler__setup:
         """
-
-        for hart in range(self.featmgr.num_cpus):
-            code += f".dword 1 # Hart {hart} scheduler setup\n"
-
-        code += self.parallel_scheduler_variables()
-
-        return code
-
-    def execute_test(self) -> str:
-        """
-        Logic responsible for executing a test.
-
-        FIXME: real execute test logic should be common to base scheduler.
-        If this is needed, it should be in scheduler dispatch or in base scheduler.
-        """
-        code = ""
-
-        if self.test_priv == RV.RiscvPrivileges.MACHINE:
-            code += f"""
-            # Schedule next test, t1 has the test_label
-            # priv_mode: {self.test_priv}
-
-            # Need barrier here so tests don't read num_runs after hart 0 updated it
-            jr t1   # jump to t1
-            """
-        else:
-            # For user mode use sret to jump to test
-            code += self.switch_test_privilege(
-                from_priv=RV.RiscvPrivileges.SUPER,
-                to_priv=self.test_priv,
-                jump_register="t1",
-            )
-        return code
-
-    def scheduler(self) -> str:
-        """
-        Generates main scheduler logic.
-        Assumes t1 has the previous number of runs left.
-
-        Single hart: Multiples number of runs by 8 to return the os_test_sequence offset
-
-        Parallel mode: Uses os_parallel_get_next_exclusive_test to get a random offset into the os_test_sequence array
-        """
-        # TODO for linux + parallel, just dont decrement num runs, write it, check it etc
-        # TODO for linux + simultaneous, need to randomize next test pointers in a thread safe way and also don't decrement num runs
-
-        scheduler = "scheduler:\n"
-        retrieve_selected_test_label_offset = self.place_retrieve_memory_indexed_address(
-            index_array_name="selected_test_label_offset", target_array_name="os_test_sequence", index_element_size=8, hartid_reg=self.hartid_reg, work_reg_1="a0", dest_reg="t0"
-        )
-        scheduler = f"""
-        # How parallel mp mode works:
-        # 1) Hart has an array of counters for the test labels
-        # 2) Hart randomly picks a test label from that list where the counter is not zero
-        # 3) Hart tries to get the mutex for that test label
-        # 4) If it gets the mutex, it decrements the counter and eventually runs the test
-        # 5) If it doesn't get the mutex, it goes back to step 2
-        # 6) If it runs the test, it releases the mutex next time after scheduler is entered
-        # 7) If no tests to run end hart attempts to end program successfully.
-        #
-        # Here in scheduler we release the old test lock, obtain and activate the next test we have reserved.
-        #
-            # Get hartid
-            {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
-
-            # Check if we are storing nonzero in held_locks for this hart, we hold it to this point for readability sake.
-            la a0, held_locks
-            {Routines.place_offset_address_by_scaled_hartid(address_reg='a0', dest_reg='a0', hartid_reg=self.hartid_reg, work_reg='t1', scale=8)}
-            ld t1, 0(a0) # Load the lock address
-            beqz t1, continue_scheduling # If nonzero, we are holding a lock, so continue scheduling
-            {Routines.place_release_lock(name="scheduler", lock_addr_reg='t1')}
-
-            continue_scheduling:
-                la a0, os_parallel_get_next_exclusive_test # This is a big routine so we call it instead of inlining it.
-                jalr ra, a0
-                mv t2, a0 # Lock address we have not released, need to store it so we can release it later.
-
-                # Retrieve test labels offset
-                retrieve_test_label_offset:
-                {retrieve_selected_test_label_offset}
-                # Turn back into an offset now that our check is done
-                la a0, os_test_sequence
-                sub t0, t0, a0 # t0 = offset from os_test_sequence
-
-                # Get hartid
-                {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
-
-                la a0, held_locks
-                {Routines.place_offset_address_by_scaled_hartid(address_reg='a0', dest_reg='a0', hartid_reg=self.hartid_reg, work_reg='t1', scale=8)}
-                update_lock_status:
-                sd t2, 0(a0) # Store the lock address we have not released
-
-        """
-        return scheduler
-
-    def parallel_scheduler_variables(self) -> str:
         num_harts = self.featmgr.num_cpus
         harts_to_tests: dict[int, list[str]] = {}
 
@@ -218,78 +137,145 @@ class ParallelScheduler(Scheduler):
 
         # NOTE: other code is written assuming each hart has a count for each test, so for those tests
         #       a hart doesn't do, we set the count to 0.
+        code += """
 
-        routine = """
+        # remaining tests to run per hart.
         num_runs:
-            # Need a count per hart per test
         """
         for hart in range(self.featmgr.num_cpus):
-            routine += "hart_" + str(hart) + "_num_runs:\n"
+            code += "hart_" + str(hart) + "_num_runs:\n"
             for test in self.dtests:
-                routine += f"hart_{str(hart)}_{test}:\n"
+                code += f"hart_{str(hart)}_{test}:\n"
                 if test in harts_to_tests[hart]:
-                    routine += ".dword " + hex(self.featmgr.repeat_times) + "\n"
+                    code += ".dword " + hex(self.featmgr.repeat_times) + "\n"
                 else:
-                    routine += ".dword 0x0\n"
+                    code += ".dword 0x0\n"
 
-        routine += """
-        .align 8
-        pad_mtx:
-        .dword 0x0
+        code += self._fs_vs_rr_tables_section()
+        code += """
+        # One lock per test.
+        # A hart must hold the mutex before running that test.
+        # Prevents two harts from running the same test concurrently.
+        .align 3
         test_mutexes:
-            # One mutex per test label
         """
         for test in self.dtests:
-            # routine += ".align 8\n"
-            routine += "" + test + "_mutex:\n"
-            routine += ".dword 0x0\n"
+            code += "" + test + "_mutex:\n"
+            code += ".dword 0x0\n"
 
-        routine += """
+        code += """\n
         # These are now just a list of the available test label names to go with positions in num_runs under each harts section
+        # Array of test label addresses: [test1_addr, test2_addr, ...]
         os_test_sequence:
-            test_setup_addr:
-                .dword test_setup
         """
         for test in self.dtests:
-            routine += "" + test + "_addr:\n"
-            routine += ".dword " + test + "\n"
+            code += "" + test + "_addr:\n"
+            code += ".dword " + test + "\n"
+        code += ".dword test_cleanup\n"
 
-        routine += """
+        code += """\n
+        # Array of seeds: [seed1, seed2, ...]
+        # unused
         scheduler__seeds:
         """
         for hart in range(self.featmgr.num_cpus):
-            routine += "hart_" + str(hart) + "_seed:\n"
-            routine += ".dword " + hex(self.rng.random_nbit(64)) + "\n"
+            code += "hart_" + str(hart) + "_seed:\n"
+            code += ".dword " + hex(self.rng.random_nbit(64)) + "\n"
 
-        routine += """
-        held_locks: # Holds the address of the test lock the hart holds so it knows what it can / should release."
+        code += """\n
+        # Tracks which mutex each hart currently holds so it can release it on next scheduler entry
+        held_locks:
         """
         for hart in range(self.featmgr.num_cpus):
-            routine += "hart_" + str(hart) + "_held_lock:\n"
-            routine += ".dword 0x0\n"
+            code += "hart_" + str(hart) + "_held_lock:\n"
+            code += ".dword 0x0\n"
 
-        routine += """
+        code += """\n
+        # per-hart storage for the num runs offset
         selected_num_runs_offset:
         """
         for hart in range(self.featmgr.num_cpus):
-            routine += "hart_" + str(hart) + "_selected_num_runs_offset:\n"
-            routine += ".dword 0x0\n"
+            code += "hart_" + str(hart) + "_selected_num_runs_offset:\n"
+            code += ".dword 0x0\n"
 
-        routine += """
+        code += """\n
+        # per-hart storage for the mutex offset
         selected_mutex_offset:
         """
         for hart in range(self.featmgr.num_cpus):
-            routine += "hart_" + str(hart) + "_selected_mutex_offset:\n"
-            routine += ".dword 0x0\n"
+            code += "hart_" + str(hart) + "_selected_mutex_offset:\n"
+            code += ".dword 0x0\n"
 
-        routine += """
+        code += """
+        # per-hart storage for the test label offset
         selected_test_label_offset:
         """
         for hart in range(self.featmgr.num_cpus):
-            routine += "hart_" + str(hart) + "_selected_test_label_offset:\n"
-            routine += ".dword 0x0\n"
+            code += "hart_" + str(hart) + "_selected_test_label_offset:\n"
+            code += ".dword 0x0\n"
 
-        return routine
+        return code
+
+    def execute_test(self) -> str:
+        """
+        Logic responsible for executing a test.
+        Executes test loaded into t1
+        """
+        code = ""
+
+        if self.test_priv == RV.RiscvPrivileges.MACHINE:
+            code += "jr t1\n"
+        else:
+            # For user mode use sret to jump to test
+            code += self.switch_test_privilege(
+                from_priv=RV.RiscvPrivileges.SUPER,
+                to_priv=self.test_priv,
+                jump_register="t1",
+            )
+        return code
+
+    def scheduler_finished(self) -> str:
+        """
+        Parallel scheduler doesn't account for test_cleanup, so this needs to run it.
+
+        Since trap handler jumps to scheduler__dispatch, after running test_cleanup, it will jump to scheduler__dispatch again.
+        So this needs a global flag to check if test_cleanup has been ran. Assumes hartid is in s1.
+
+        This has a runtime penalty of running dispatch again (iterating through array and checking all num_runs are 0)
+
+        FIXME: Use the hartid from the hart-local context instead.
+        """
+
+        code = """
+    # check if scheduler__cleanup_was_ran flag has been set for this hart
+    la t0, scheduler__test_cleanup_ran
+    slli t1, s1, 3
+    add t0, t0, t1
+    ld t1, 0(t0)
+    bnez t1, scheduler__cleanup_was_ran
+
+    # if not set, set it and run test_cleanup
+    li t1, 1
+    sd t1, 0(t0)
+
+    ld t1, (scheduler__test_cleanup_ptr)
+    j scheduler__execute_test
+
+
+
+
+scheduler__cleanup_was_ran:
+    li gp, 1
+    j eot__end_test
+
+    .align 3
+    scheduler__test_cleanup_ran:
+    """
+        for hart in range(self.featmgr.num_cpus):
+            code += f"test_cleanup_hart_{hart}_ran:\n"
+            code += ".dword 0x0\n"
+
+        return code
 
     def place_retrieve_memory_indexed_address(
         self,
@@ -312,204 +298,159 @@ class ParallelScheduler(Scheduler):
             add {dest_reg}, {work_reg_1}, {dest_reg} # Offset to the correct element
         """
 
-    def place_get_next_exclusive_test(
-        self,
-        name: str,
-        fallback_routine_label: str,
-        test_locks_label: str,
-        top_seed_label: str,
-        remaining_balance_array_label: str,
-        array_length: int,
-        seed_offset_scale: int,
-        test_labels_offset_scale: int,
-        num_test_labels_ignore: int,
-        seed_addr_reg: str = "a1",
-        test_labels_offset_scale_reg: str = "s5",
-        seed_offset_scale_reg: str = "s4",
-        array_length_reg: str = "s6",
-        num_ignore_reg: str = "s7",
-        remaining_balance_addr_reg: str = "s8",
-        work_reg_1: str = "s9",
-        work_reg_2: str = "a2",
-    ) -> str:
-        """Generate assembly for getting next exclusive test in parallel MP mode.
+    def get_next_test(self) -> str:
+        """
+        Get the next test to run. Loads the next test's address into a0
+
+        Assumes ``s1`` contains the hartid.
+
+        iterates through hart_n_num_runs array and finds first non-zero entry.
+        If none found, jumps to eot__end_test
+
+        Searches the num_runs array for a test with non-zero runs remaining, attempts atomic lock acquisition, and decrements the run counter.
+        Jumps to scheduler__finished when no tests remain
+
+        FIXME: Shouldn't use mul here. Use shift if possible. (Or just don't use the hartid at all?)
+        FIXME: Document the calling convention of this routine, since it's meant to be returned. Alternatively, don't call it? Just inline in?
+
 
         :param name: Name prefix for generated labels
-        :param fallback_routine_label: Label to jump to when no tests available
-        :param test_locks_label: Label of test mutex array
-        :param top_seed_label: Label of seed array for randomization
-        :param remaining_balance_array_label: Label of test count array
         :param array_length: Number of test elements
-        :param seed_offset_scale: Scale factor for seed array indexing
-        :param test_labels_offset_scale: Scale factor for test label indexing
         :param num_test_labels_ignore: Number of test labels to skip
         """
 
-        semi_random_nonzero_offset = self.place_get_offset_for_semirandom_nonzero_in_array(
-            name=name + "_get_new_lock_wish",
-            seed_addr_reg=seed_addr_reg,
-            seed_offset_scale_reg=seed_offset_scale_reg,
-            remaining_balance_addr_reg=remaining_balance_addr_reg,
-            array_length_reg=array_length_reg,
-            test_labels_offset_scale_reg=test_labels_offset_scale_reg,
-            num_ignore_reg=num_ignore_reg,
-            fallback_label=fallback_routine_label,
-            work_reg_1=work_reg_1,
-            work_reg_2=work_reg_2,
+        # this should be swapped for hart-local storage instead
+        seed_offset_scale = 8  # size of each seed in the seeds array
+        test_labels_offset_scale = 8  # size of each test label
+
+        # these are up here because they are too long to inline with black settings
+        retrieve_memory_indexed_address = self.place_retrieve_memory_indexed_address(
+            index_array_name="selected_num_runs_offset", target_array_name="num_runs", index_element_size=8, hartid_reg=self.hartid_reg, work_reg_1="s9", dest_reg="t1"
         )
         retrieve_selected_mutex_offset = self.place_retrieve_memory_indexed_address(
-            index_array_name="selected_mutex_offset", target_array_name="test_mutexes", index_element_size=8, hartid_reg=self.hartid_reg, work_reg_1=work_reg_1, dest_reg="a0"
+            index_array_name="selected_mutex_offset", target_array_name="test_mutexes", index_element_size=8, hartid_reg=self.hartid_reg, work_reg_1="s9", dest_reg="a0"
         )
         retrieve_selected_num_runs_offset = self.place_retrieve_memory_indexed_address(
-            index_array_name="selected_num_runs_offset", target_array_name="num_runs", index_element_size=8, hartid_reg=self.hartid_reg, work_reg_1=work_reg_1, dest_reg="t1"
+            index_array_name="selected_num_runs_offset", target_array_name="num_runs", index_element_size=8, hartid_reg=self.hartid_reg, work_reg_1="s9", dest_reg="t1"
         )
+
         return f"""
+        scheduler__next_test:
             # load address for seeds array, the rng routine offsets to the correct hart's element
-            la {seed_addr_reg}, {top_seed_label}
+            # Unused. No runtime randomization is done here.
+            # la a1, scheduler__seeds
 
             # load constants
-            li {test_labels_offset_scale_reg}, {test_labels_offset_scale}
-            li {seed_offset_scale_reg}, {seed_offset_scale}
-            li {array_length_reg}, {array_length}
-            li {num_ignore_reg}, {num_test_labels_ignore}
+            li s5, {test_labels_offset_scale}
+            li s4, {seed_offset_scale}
+            li s6, {len(self.dtests)}
 
-            # get hartid
-            {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
-
-            # load address for remaining balance array and offset to the first element for this hart
-            la {remaining_balance_addr_reg}, {remaining_balance_array_label}
-            mul {work_reg_1}, {array_length_reg}, {self.hartid_reg} # Number of elements in each sub array is the number of test labels.
-            mul {work_reg_1}, {work_reg_1}, {test_labels_offset_scale_reg} # Size of the elements is the same as for the test labels.
-            add {remaining_balance_addr_reg}, {remaining_balance_addr_reg}, {work_reg_1} # Offset to the first element for this hart.
+            # load address for remaining num_runs array and offset to the first element for this hart
+            la s8, num_runs
+            mul s9, s6, {self.hartid_reg} # Number of elements in each sub array is the number of test labels.
+            mul s9, s9, s5 # Size of the elements is the same as for the test labels.
+            add s8, s8, s9 # Offset to the first element for this hart.
 
             # Changes a0 to have new lock address, a2 will have the address of the resource being protected by the lock.
             # load address for test locks array
-            la a2, {test_locks_label}
-            {name}_get_new_lock_wish:
-                # load constants
-                li {test_labels_offset_scale_reg}, {test_labels_offset_scale}
-                li {seed_offset_scale_reg}, {seed_offset_scale}
-                li {array_length_reg}, {array_length}
-                li {num_ignore_reg}, {num_test_labels_ignore}
-                {semi_random_nonzero_offset}
+            la a2, test_mutexes
 
-                # Retrieve lock address
-                retrieve_lock_address:
-                # Get hartid
-                {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
-                {retrieve_selected_mutex_offset}
+        scheduler__next_test__get_new_lock_wish:
+            # load constants
+            li s5, {test_labels_offset_scale}
+            li s4, {seed_offset_scale}
+            li s6, {len(self.dtests)}
 
-            {name}_try_lock:
-                li t0, 1        # Initialize swap value.
-                ld           t1, (a0)     # Check if lock is held.
-                bnez         t1,  {name}_get_new_lock_wish # Retry if held.
-                amoswap.d.aq t1, t0, (a0) # Attempt to acquire lock.
-                bnez         t1,  {name}_get_new_lock_wish # Retry if held.
+        scheduler__next_test__reset_offset:
+            mv t0, s6 # Counter to detect cycle
+            mv t3, s6 # Upper bound for the loop
+            mv a2, zero # Additional offset
 
-                # Critical section technically continues well past here through the execution of the test.
-                # Retrieve the remaining balance address for this hart and particular test
-                retrieve_remaining_balance_address:
-                # Get hartid
-                {Routines.place_retrieve_hartid(dest_reg=self.hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
-                {retrieve_selected_num_runs_offset}
+        # this entire routine is confusing and ineffecient.
+        # This iterates through the num_runs array ( while t0>0), so there's no way we would ever reach the end of the array.
+        # The work_reg_2 isn't necessary. this can be done with a single work_reg_1.
 
-                ld t0, (t1)
-                beqz t0, test_failed # shouldnt be zero here
-                addi t0, t0, -1
+        # The end result of it is that s9 = first nonzero value in num_runs.
+        # if there are none (end of array length), goto scheduler__finished.
+        scheduler__next_test__find_first_nonzero_in_num_runs:
+            addi t0, t0, -1 # Decrement num attempts
+            mv s9, a2 # Copy additional offset
 
-                decrement_num_runs:
+            # remu is useless since a2 starts at 0 and this loop only runs until t0>0
+            remu s9, s9, t3 # Wrap around if we go past the end of the array
+            slli s9, s9, 3 # Scale by 8 for dword sized elements
+
+            # Work reg 1 holds relative offset, in bytes, from the start of this hart's section
+            add t2, s9, s8 # Calculate address of element in num_runs
+            ld t1, (t2)
+            blt zero, t1, scheduler__next_test__success
+
+            # Update additional offset
+            addi a2, a2, 1
+            blt zero, t0, scheduler__next_test__find_first_nonzero_in_num_runs
+
+        scheduler__next_test__no_tests_left:
+            j scheduler__finished
+
+            # FIXME: this stores the values to an array for per-hart storage. This effectively stores an offset, then immediately loads it, then loads again from that offset.
+            # this could just be a single load?
+            # or at least re-use the stored value in the next loop?
+
+        scheduler__next_test__success:
+            # Return relative offset
+            # work_reg_1, a3 = test_offset
+            mv a3, s9 # work_reg_1 = test_offset
+
+        # Store mutex offset
+        scheduler__next_test__store_mutex_offset:
+            la t0, selected_mutex_offset
+            slli t1, {self.hartid_reg}, 3 # 8 bytes per entry
+            add t0, t0, t1 # Offset to the hart's entry
+            sd s9, (t0) # Store the offset to the mutex for this hart
+
+        # Store test label offset; selected_num_runs_offset[hartid] = (hartid * num_tests * 8) + test_offset
+        scheduler__next_test__store_test_label_offset:
+            la t0, selected_test_label_offset
+            add t0, t0, t1 # Offset to the hart's entry
+            sd s9, (t0) # Store the offset to the test label for this hart
+
+        # Store num runs offset
+        scheduler__next_test__store_num_runs_offset:
+            la t0, selected_num_runs_offset
+            add t0, t0, t1 # Offset to the hart's entry
+            mul a3, s6, t1 # Number of elements in each sub array is the number of test labels, scale that by hartid times element data size.
+            add s9, s9, a3 # Offset to the selected element for this hart and test in num_runs.
+            sd s9, (t0) # Store the offset to the num runs for this hart
+
+            # Check if this num runs entry is actually zero.
+            {retrieve_memory_indexed_address}
+            ld t0, (t1)
+            beqz t0, test_failed # shouldnt be zero here
+
+
+            # Retrieve lock address
+            retrieve_lock_address:
+            {retrieve_selected_mutex_offset}
+
+        scheduler__next_test__try_lock:
+            li t0, 1        # Initialize swap value.
+            ld           t1, (a0)     # Check if lock is held.
+            bnez         t1,  scheduler__next_test__get_new_lock_wish # Retry if held.
+            amoswap.d.aq t1, t0, (a0) # Attempt to acquire lock.
+            bnez         t1,  scheduler__next_test__get_new_lock_wish # Retry if held.
+
+            # Critical section technically continues well past here through the execution of the test.
+            # Retrieve the remaining number of runs address for this hart and particular test
+        scheduler__next_test__retrieve_remaining_num_runs_address:
+            {retrieve_selected_num_runs_offset}
+
+            ld t0, (t1)
+            beqz t0, test_failed # shouldnt be zero here
+            addi t0, t0, -1
+
+            decrement_num_runs:
                 sd t0, (t1)
-
                 # No release here because we do not want to have to run the critical routine immediately without considering OS mechanisms.
 
-            """
-
-    def place_get_offset_for_semirandom_nonzero_in_array(
-        self,
-        name: str,
-        seed_addr_reg: str,
-        seed_offset_scale_reg: str,
-        remaining_balance_addr_reg: str,
-        array_length_reg: str,
-        test_labels_offset_scale_reg: str,
-        num_ignore_reg: str,
-        fallback_label: str,
-        work_reg_1: str,
-        work_reg_2: str,
-    ) -> str:
-        hartid_reg = "s1"
-        retrieve_memory_indexed_address = self.place_retrieve_memory_indexed_address(
-            index_array_name="selected_num_runs_offset", target_array_name="num_runs", index_element_size=8, hartid_reg=hartid_reg, work_reg_1=work_reg_1, dest_reg="t1"
-        )
-        return f"""
-            reset_offset:
-            li a0, 0x0
-            # save current a0 into s3
-            mv s3, a0
-
-            mv t0, {array_length_reg} # Counter to detect cycle
-            mv t3, {array_length_reg} # Upper bound for the loop
-            mv {work_reg_2}, zero # Additional offset
-            {name}_find_first_nonzero_in_remaining_balance_array:
-                addi t0, t0, -1 # Decrement num attempts
-                mv {work_reg_1}, {work_reg_2} # Copy additional offset
-                add {work_reg_1}, {work_reg_1}, s3 # relative offset from RNG
-                remu {work_reg_1}, {work_reg_1}, t3 # Wrap around if we go past the end of the array
-                slli {work_reg_1}, {work_reg_1}, 3 # Scale by 8 for dword sized elements
-                # Work reg 1 holds relative offset, in bytes, from the start of this hart's section
-                add t2, {work_reg_1}, {remaining_balance_addr_reg} # Calculate address of element in remaining_balance_array
-
-                ld t1, (t2)
-                blt zero, t1, {name}_success
-
-                # Update additional offset
-                addi {work_reg_2}, {work_reg_2}, 1
-
-                blt zero, t0, {name}_find_first_nonzero_in_remaining_balance_array
-
-            {name}_no_tests_left:
-                li gp, 0x{self.featmgr.eot_pass_value:x} # Tests done
-                la a0, {fallback_label}
-                # save ra in s3 in case we need to return to this routine, s3 is okay because the offset isn't useful
-                mv s3, ra
-                jalr ra, a0
-                # restore ra from s3
-                mv ra, s3
-
-            {name}_success:
-                # Return relative offset
-                mv a3, {work_reg_1} # Return relative offset, no consideration for test_setup or hart*tests offset
-
-                # Store mutex offset
-                store_mutex_offset:
-                    # Get hartid
-                    {Routines.place_retrieve_hartid(dest_reg=hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
-                    la t0, selected_mutex_offset
-                    slli t1, {hartid_reg}, 3 # 8 bytes per entry
-                    add t0, t0, t1 # Offset to the hart's entry
-                    sd a3, (t0) # Store the offset to the mutex for this hart
-
-                # Store test label offset
-                store_test_label_offset:
-                    la t0, selected_test_label_offset
-                    add t0, t0, t1 # Offset to the hart's entry
-                    addi {work_reg_1}, a3, 8 # Ignore test_setup
-                    sd {work_reg_1}, (t0) # Store the offset to the test label for this hart
-
-                # Store num runs offset
-                store_num_runs_offset:
-                    la t0, selected_num_runs_offset
-                    add t0, t0, t1 # Offset to the hart's entry
-                    mul {work_reg_1}, {array_length_reg}, t1 # Number of elements in each sub array is the number of test labels, scale that by hartid times element data size.
-                    add {work_reg_1}, {work_reg_1}, a3 # Offset to the selected element for this hart and test in num_runs.
-                    sd {work_reg_1}, (t0) # Store the offset to the num runs for this hart
-
-                    # get hartid
-                    {Routines.place_retrieve_hartid(dest_reg=hartid_reg, priv_mode=self.handler_priv, mhartid_offset=self.mhartid_offset)}
-
-                    # Check if this num runs entry is actually zero.
-                    {retrieve_memory_indexed_address}
-                    ld t0, (t1)
-                    beqz t0, test_failed # shouldnt be zero here
-
+            ret
             """

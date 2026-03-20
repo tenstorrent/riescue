@@ -6,7 +6,8 @@ from __future__ import annotations
 import logging
 import re
 import copy
-from typing import Optional, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Optional, TYPE_CHECKING, Union
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.lib.pma import PmaRegion
@@ -20,9 +21,15 @@ from riescue.dtest_framework.parser import (
     ParsedPageMapping,
     ParsedPageMap,
     ParsedVectoredInterrupt,
+    ParsedCustomHandler,
+    ParsedVectorDelegation,
     ParsedCsrAccess,
     ParsedReadPte,
     ParsedWritePte,
+    ParsedPmaHint,
+    ParsedTriggerConfig,
+    ParsedTriggerDisable,
+    ParsedTriggerEnable,
 )
 from riescue.dtest_framework.config.memory import Memory
 from riescue.lib.address import Address
@@ -32,6 +39,14 @@ from riescue.dtest_framework.lib.page_map import PageMap, Page
 
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class SectionInfo:
+    """Holds both the virtual memory address (VMA) and load/physical memory address (LMA) for a section."""
+
+    vma: int
+    lma: int
 
 
 class Pool:
@@ -57,12 +72,29 @@ class Pool:
         self.parsed_page_maps: dict[str, ParsedPageMap] = dict()
         self.parsed_test_header: Optional[ParsedTestHeader] = None
         self.parsed_discrete_tests: dict[str, str] = dict()
+        # ;#discrete_debug_test: list of body lines until next ;# or .section (only one per test file)
+        self.parsed_discrete_debug_test: Optional[list[str]] = None
         self.parsed_init_mem_addrs: list[str] = []
         self.parsed_vectored_interrupts: list[ParsedVectoredInterrupt] = []
+        self.parsed_custom_handlers: list[ParsedCustomHandler] = []
+        self.parsed_vector_delegations: list[ParsedVectorDelegation] = []
+        # Interrupt handler pointers: equate_name → default_label.
+        # TrapHandler registers an entry here during generate() for each vector that has a
+        # custom per-segment handler.  OpSys reads this in generate()/generate_equates() to
+        # emit a writable .dword in .os_data and a pair of VA/PA equates so that PROLOGUE/
+        # EPILOGUE macros and the vector jump stubs can reach them via li (no PC-relative la).
+        self._interrupt_handler_pointers: dict[str, str] = {}
         self.parsed_csr_accesses: dict[str, dict[str, ParsedCsrAccess]] = {}
         self.parsed_read_ptes: dict[tuple[str, str, int], ParsedReadPte] = {}
         self.parsed_write_ptes: dict[tuple[str, str, int], ParsedWritePte] = {}
         self.parsed_sections: list[str] = []
+        self.init_aplic_interrupts = False
+        self.ext_aplic_interrupts = dict[int, dict[str, Optional[Union[int, str]]]()]()
+        self.max_aplic_irq: int = 1023
+        self.parsed_pma_hints: dict[str, ParsedPmaHint] = dict()
+        self.parsed_trigger_configs: list[ParsedTriggerConfig] = []
+        self.parsed_trigger_disable: list[ParsedTriggerDisable] = []
+        self.parsed_trigger_enable: list[ParsedTriggerEnable] = []
 
         # Structures to hold processed data
         self.discrete_tests: dict[str, DiscreteTest] = dict()
@@ -70,7 +102,7 @@ class Pool:
         self.random_addrs: dict[str, "Address"] = dict()
         self.page_mappings: dict[str, ParsedPageMapping] = dict()
         self.page_maps: dict[str, "PageMap"] = dict()
-        self.sections: dict[str, int] = dict()
+        self.sections: dict[str, SectionInfo] = dict()
         self.pma_regions: PmaRegion = PmaRegion()
         self.pmp_regions: PmpRegion = PmpRegion()
 
@@ -156,6 +188,19 @@ class Pool:
     def get_parsed_page_mapping(self, key1: str, key2: str) -> ParsedPageMapping:
         return self.parsed_page_mappings[key1, key2]
 
+    def resolve_canonical_lin_name(self, lin_name: str, map_name: str) -> str:
+        """If lin_name is an alias in map_name, return the canonical (non-alias) lin_name
+        that shares the same phys_name. Otherwise return lin_name unchanged."""
+        if not self.parsed_page_mapping_exists(lin_name, map_name):
+            return lin_name
+        ppm = self.get_parsed_page_mapping(lin_name, map_name)
+        if not ppm.alias:
+            return lin_name
+        for (other_lin, other_map), other_ppm in self.parsed_page_mappings.items():
+            if other_map == map_name and other_ppm.phys_name == ppm.phys_name and not other_ppm.alias:
+                return other_lin
+        return lin_name
+
     def add_parsed_page_map(self, parsed_page_map: ParsedPageMap) -> None:
         self.parsed_page_maps[parsed_page_map.name] = parsed_page_map
 
@@ -182,6 +227,15 @@ class Pool:
     def get_parsed_discrete_test(self, key: str) -> str:
         return self.parsed_discrete_tests[key]
 
+    # discrete_debug_test: single body_lines when ;#discrete_debug_test() is used (only one per test file)
+    def set_parsed_discrete_debug_test(self, body_lines: list[str]) -> None:
+        if self.parsed_discrete_debug_test is not None:
+            raise ValueError("multiple ;#discrete_debug_test() not allowed; only one per test file")
+        self.parsed_discrete_debug_test = body_lines
+
+    def get_parsed_discrete_debug_test(self) -> Optional[list[str]]:
+        return self.parsed_discrete_debug_test
+
     # init_mem_addrs setters and getters
     def add_parsed_init_mem_addr(self, val: str) -> None:
         self.parsed_init_mem_addrs.append(val)
@@ -194,6 +248,12 @@ class Pool:
 
     def add_parsed_vectored_interrupt(self, parsed_vectored_interrupt: ParsedVectoredInterrupt) -> None:
         self.parsed_vectored_interrupts.append(parsed_vectored_interrupt)
+
+    def add_parsed_custom_handler(self, parsed_custom_handler: ParsedCustomHandler) -> None:
+        self.parsed_custom_handlers.append(parsed_custom_handler)
+
+    def add_parsed_vector_delegation(self, parsed_vector_delegation: ParsedVectorDelegation) -> None:
+        self.parsed_vector_delegations.append(parsed_vector_delegation)
 
     def add_parsed_csr_access(self, parsed_csr_access: ParsedCsrAccess) -> None:
         csr_name = parsed_csr_access.csr_name
@@ -209,6 +269,13 @@ class Pool:
 
     def get_parsed_csr_access(self, csr: str, read_write_set_clear: str) -> ParsedCsrAccess:
         return self.parsed_csr_accesses[csr][read_write_set_clear]
+
+    def get_next_csr_id(self) -> int:
+        max_id = 0
+        for csr_group in self.parsed_csr_accesses.values():
+            for csr in csr_group.values():
+                max_id = max(max_id, csr.csr_id)
+        return max_id + 1
 
     def add_parsed_read_pte(self, parsed_read_pte: ParsedReadPte) -> None:
         lin_name = parsed_read_pte.lin_name
@@ -240,6 +307,40 @@ class Pool:
     def get_parsed_write_pte(self, lin_name: str, paging_mode: str, level: int) -> ParsedWritePte:
         return self.parsed_write_ptes[(lin_name, paging_mode, level)]
 
+    # parsed_pma_hint setters and getters
+    def add_parsed_pma_hint(self, parsed_pma_hint: ParsedPmaHint) -> None:
+        """Add parsed PMA hint to pool"""
+        if parsed_pma_hint.name in self.parsed_pma_hints:
+            log.warning(f"PMA hint {parsed_pma_hint.name} already exists, overwriting")
+        self.parsed_pma_hints[parsed_pma_hint.name] = parsed_pma_hint
+
+    def get_parsed_pma_hints(self) -> dict[str, ParsedPmaHint]:
+        """Get all parsed PMA hints"""
+        return self.parsed_pma_hints
+
+    def get_parsed_pma_hint(self, name: str) -> ParsedPmaHint:
+        """Get parsed PMA hint by name"""
+        return self.parsed_pma_hints[name]
+
+    # parsed_trigger_config / disable / enable
+    def add_parsed_trigger_config(self, cfg: ParsedTriggerConfig) -> None:
+        self.parsed_trigger_configs.append(cfg)
+
+    def add_parsed_trigger_disable(self, cfg: ParsedTriggerDisable) -> None:
+        self.parsed_trigger_disable.append(cfg)
+
+    def add_parsed_trigger_enable(self, cfg: ParsedTriggerEnable) -> None:
+        self.parsed_trigger_enable.append(cfg)
+
+    def get_parsed_trigger_configs(self) -> list[ParsedTriggerConfig]:
+        return self.parsed_trigger_configs
+
+    def get_parsed_trigger_disable(self) -> list[ParsedTriggerDisable]:
+        return self.parsed_trigger_disable
+
+    def get_parsed_trigger_enable(self) -> list[ParsedTriggerEnable]:
+        return self.parsed_trigger_enable
+
     # random structures
     # random_data setters and getters
     def add_random_datum(self, key: str, val: int) -> None:
@@ -268,8 +369,23 @@ class Pool:
                     # Make sure if pma_size is not specified, we default to same as random_addr size
                     if parsed_addr.pma_info.pma_size == 0:
                         parsed_addr.pma_info.pma_size = parsed_addr.size
-                    parsed_addr.pma_info.pma_address = addr.address
-                    self.pma_regions.add_entry(parsed_addr.pma_info)
+
+                    # Update the PMA region address if it was pre-allocated
+                    # (If it's already in pool, it means it was pre-allocated and added)
+                    if parsed_addr.pma_info.pma_address == 0:
+                        # Set the address
+                        parsed_addr.pma_info.pma_address = addr.address
+                        # Only add to pool if not already added (pre-allocated regions are already added)
+                        # Check if this region is already in the pool by checking if address matches
+                        existing_region = self.pma_regions.find_region_for_address(addr.address)
+                        if existing_region is None or existing_region.pma_address != addr.address:
+                            # Not found or different region, add it
+                            self.pma_regions.add_entry(parsed_addr.pma_info)
+                    else:
+                        # Address already set (from pre-allocation), just update if needed
+                        if parsed_addr.pma_info.pma_address != addr.address:
+                            log.warning(f"PMA region for {addr_name} has address 0x{parsed_addr.pma_info.pma_address:x}, " f"but generated address is 0x{addr.address:x}. Updating PMA region address.")
+                            parsed_addr.pma_info.pma_address = addr.address
 
     def get_random_addrs(self) -> dict[str, "Address"]:
         return self.random_addrs
@@ -343,10 +459,10 @@ class Pool:
         return map_inst.pages
 
     # Processed sections
-    def get_sections(self) -> dict[str, int]:
+    def get_sections(self) -> dict[str, SectionInfo]:
         return self.sections
 
-    def get_section(self, section_name: str) -> int:
+    def get_section(self, section_name: str) -> SectionInfo:
         return self.sections[section_name]
 
     def add_section(self, section_name: str, address: Optional[int] = None) -> None:
@@ -354,13 +470,14 @@ class Pool:
         # if section_name is a linear address => we need to find the physical address
         #                       physical addr => we can directly add address
         #                       number => then that's the physical address
-        # TODO: Since we don't have paging enabled yet, we need to use linear addresses
-        #       and also need to make lin_addr = phys_addr for paging_disable case
         if address is not None:
-            self.sections[section_name] = address
+            # Explicit address provided (e.g. pagetable sections) — VMA == LMA
+            self.sections[section_name] = SectionInfo(vma=address, lma=address)
             return
 
         alias_skip = False
+        lin_address: Optional[int] = None
+        phys_address: Optional[int] = None
         if section_name.startswith("0x"):
             page_name = f"__auto_lin_{section_name}"
             map_name = "map_os"
@@ -368,32 +485,30 @@ class Pool:
             if match:
                 map_name = match.group(1)
             map_os_page = self.get_page(page_name=page_name, map_name=map_name)
+            lin_address = map_os_page.lin_addr
             phys_address = map_os_page.phys_addr
         else:
             rand_addr_inst = self.get_random_addr(addr_name=section_name)
             if rand_addr_inst.type == RV.AddressType.PHYSICAL:
-                # TODO: The following commented codes need to swapped out once we fix
-                # the address generation for paging disable case. We always need to use
-                # physical addresses
-                # address = rand_addr_inst.address
+                lin_address = rand_addr_inst.address
                 phys_address = rand_addr_inst.address
             elif rand_addr_inst.type == RV.AddressType.LINEAR:
-                # map_os_page = self.get_page(page_name=section_name, map_name='map_os')
-                # address = map_os_page.phys_addr
                 map_os_page = self.get_page(page_name=section_name, map_name="map_os")
                 if map_os_page.alias:
                     # We want to skip this entry into linker script
                     alias_skip = True
+                lin_address = map_os_page.lin_addr
                 phys_address = map_os_page.phys_addr
             else:
-                raise ValueError(f"Unupported type {rand_addr_inst.type} in {self.add_section.__name__}")
+                raise ValueError(f"Unsupported type {rand_addr_inst.type} in {self.add_section.__name__}")
 
         if alias_skip:
             log.info(f"Skipping section {section_name} as it is an alias")
             return
 
         if phys_address is not None:
-            self.sections[section_name] = phys_address
+            assert lin_address is not None
+            self.sections[section_name] = SectionInfo(vma=lin_address, lma=phys_address)
 
     # discrete_test setters and getters
     def add_discrete_test(self, discrete_test: DiscreteTest) -> None:
@@ -409,6 +524,21 @@ class Pool:
 
     def get_parsed_sections(self) -> list[str]:
         return self.parsed_sections
+
+    # interrupt handler pointer setters and getters
+    def add_interrupt_handler_pointer(self, equate_name: str, default_label: str) -> None:
+        """Register a per-vector handler pointer for OpSys to emit in .os_data.
+
+        Only the first registration for a given equate_name is kept; subsequent calls
+        for the same vector (e.g. from multiple custom handlers on the same vector) are
+        no-ops since all share the same pointer slot.
+        """
+        if equate_name not in self._interrupt_handler_pointers:
+            self._interrupt_handler_pointers[equate_name] = default_label
+
+    def get_interrupt_handler_pointers(self) -> dict[str, str]:
+        """Return mapping of equate_name → default_label for all registered handler pointers."""
+        return self._interrupt_handler_pointers
 
     def add_raw_parsed_page_mapping(self, ppm: ParsedPageMapping) -> None:
         self.raw_parsed_page_mappings.append(ppm)

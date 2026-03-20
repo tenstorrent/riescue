@@ -38,7 +38,7 @@ class Whisper(Tool):
         args = whisper_args + [
             "--traceptw",
             "--loglabel",
-            f"--maxinst={whisper_max_instr}",
+            f"--maxinst={whisper_max_instr}:f",  # must include :f suffix for max instructions to cause a failure
         ]
         if whisper_memory_size:
             args += ["--memorysize", whisper_memory_size]
@@ -79,30 +79,30 @@ class Whisper(Tool):
             whisper_startpc=args.whisper_startpc,
         )
 
-    def process_dumpmem_arg(self, elf_file: Path) -> str:
+    def process_dumpmem_arg(self, elf_file: Path, dumpmem_arg: str) -> str:
         """
         Replaces occurrences of @symbol in the input string with their values from nm output of the ELF file.
         Also performs basic arithmetic operations using eval.
 
         Args:
         elf_file (str or Path): Path to the ELF file.
+        dumpmem_arg (str): The dumpmem argument string to process.
 
         Returns:
         str: String with all @variables replaced with their nm values (hex strings).
         """
+
         # 1. Collect all @xxx variables in the string
-        if self.dumpmem_arg is None:
-            raise ValueError("dumpmem_arg is None, cannot process")
-        varnames = set(re.findall(r"@([A-Za-z0-9_]+)", self.dumpmem_arg))
+        varnames = set(re.findall(r"@([A-Za-z0-9_]+)", dumpmem_arg))
         if not varnames:
-            return self.dumpmem_arg
+            return dumpmem_arg
 
         # 2. Run nm and collect their values
         try:
             nm_out = subprocess.check_output(["nm", str(elf_file)], encoding="utf-8")
         except subprocess.CalledProcessError as e:
             print(f"Error running nm: {e}")
-            return self.dumpmem_arg
+            return dumpmem_arg
 
         # Build symbol name -> value dict
         symvals = {}
@@ -119,7 +119,7 @@ class Whisper(Tool):
             var = match.group(1)
             return symvals.get(var, var)
 
-        result = re.sub(r"@([A-Za-z0-9_]+)", repl, self.dumpmem_arg)
+        result = re.sub(r"@([A-Za-z0-9_]+)", repl, dumpmem_arg)
 
         # process any arithmetic operations in the string
         terms = result.split(":")
@@ -143,7 +143,7 @@ class Whisper(Tool):
             extra_args = []
 
         if self.dumpmem_arg:
-            extra_args.extend(["--dumpmem", self.process_dumpmem_arg(elf_file)])
+            extra_args.extend(["--dumpmem", self.process_dumpmem_arg(elf_file, self.dumpmem_arg)])
 
         extra_args.extend([str(elf_file)])
         self.log_file = output_file

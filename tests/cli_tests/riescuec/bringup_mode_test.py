@@ -6,7 +6,7 @@ import tempfile
 import json
 from pathlib import Path
 
-from riescue import RiescueC
+from riescue.riescuec import RiescueC
 from riescue.compliance import BringupMode
 from riescue.compliance.config import ResourceBuilder
 from riescue.lib.toolchain import Toolchain

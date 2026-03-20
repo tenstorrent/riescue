@@ -188,14 +188,20 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     test_generation_args.add_argument(
         "--code_offset",
         default=None,
-        help="Specify code offset where the test code should start. Default: Randomized 0-140h",
+        help="Specify code offset where the test code should start. Must be 16-byte aligned. Default: Randomized 0-140h",
         type=int,
     )
     test_generation_args.add_argument(
         "--randomize_code_location",
         action="store_true",
         default=None,
-        help="Randomize the code location in the test. Default: follows .text section",
+        help="Randomize the code location in the test. Default: follows .runtime section",
+    )
+    test_generation_args.add_argument(
+        "--identity_map_code",
+        action="store_true",
+        default=None,
+        help="Identity map all contiguously allocated code sections. Forces VA == PA for these sections.",
     )
     test_generation_args.add_argument(
         "--repeat_times",
@@ -204,10 +210,29 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Number of times each discrete test should be run",
         type=int,
     )
+    test_generation_args.add_argument(
+        "--selfcheck",
+        action="store_true",
+        default=None,
+        help="Enable selfchecking at the end of each discrete test by compiling in golden data from a run of the test in Whisper",
+    )
+    test_generation_args.add_argument(
+        "--compiler-include-dir",
+        type=Path,
+        default=None,
+        help="Directory to add to compiler include search path. Passed through to the compiler with -I.",
+    )
+    test_generation_args.add_argument(
+        "--log_test_execution",
+        action="store_true",
+        default=None,
+        help="Enable runtime logging of test execution",
+    )
 
     new_args = parser.add_argument_group("New Arguments", "Arguments that are not yet fully enabled in FeatMgr")
     new_args.add_argument("--private_maps", action="store_true", default=None, help="Setup isolated page map address spaces")
     new_args.add_argument("--cfile", type=Path, action="append", default=None, help="Use runtime c-files that must be specified with this arg. Can be specified multiple times")
+    new_args.add_argument("--inc_path", type=Path, action="append", default=None, help="Add this include path for c compiler. Can be specified multiple times")
 
     new_args.add_argument(
         "--enable_machine_paging",
@@ -281,7 +306,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "-deleg_excp_to",
         default=None,
         choices=["machine", "super"],
-        help="Specify privilege where exceptions are handled. Default: machine or super (random)",
+        help="\n".join(
+            [
+                "Specify privilege where all traps are handled. Can not be specified with any of --medeleg --mideleg --hedeleg --hideleg.",
+                '"machine" specifies all traps should be handled in machine mode.',
+                '"super" delegates all exceptions except ecalls to (hypervisor) supervisor mode.',
+            ]
+        ),
         type=str,
     )
     trap_handler_args.add_argument(
@@ -304,12 +335,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Specify the page where the handler will return control after using ecall function 0xf0010003",
         type=str,
-    )
-    trap_handler_args.add_argument(
-        "--user_interrupt_table",
-        action="store_true",
-        default=None,
-        help="Overrides jump to default interrupt table with user symbol 'USER_INTERRUPT_TABLE'",
     )
     trap_handler_args.add_argument(
         "--excp_hooks",
@@ -344,13 +369,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Ambigious name - this should be something like 'ignore unexpected exceptions'.",
     )
-    trap_handler_args.add_argument(
-        "--disable_wfi_wait",
-        "-disable_wfi_wait",
-        action="store_true",
-        default=None,
-        help="[Required for MP spike runs] Disable wfi wait in sync loops.",
-    )
 
     pma_pmp_args = parser.add_argument_group("PMA/PMP", "Arguments for PMA/PMP tests")
     pma_pmp_args.add_argument(
@@ -370,21 +388,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Number of PMACFG registers implemented. Default is 16. Changing this number requires an update in the whisper_config.json",
         type=int,
-    )
-
-    hypervisor_args = parser.add_argument_group("Hypervisor", "Arguments for hypervisor tests")
-    hypervisor_args.add_argument(
-        "--vmm_hooks",
-        "-vmm_hooks",
-        action="store_true",
-        default=None,
-        help="Insert vmm hooks in the virtualized mode. RiescueD will call vmm_handler_pre: and vmm_handler_post: functions before launching the guest and after exiting from guest respectively",
-    )
-    hypervisor_args.add_argument(
-        "--setup_stateen",
-        action="store_true",
-        default=None,
-        help="Ask riescued to setup stateen registers as per smstateen extension",
     )
 
     csr_init_args = parser.add_argument_group("CSR Initialization", "")
@@ -485,6 +488,24 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Override senvcfg value to write in loader. Default 0x0.",
         type=lambda x: int(x, 16),
     )
+    csr_init_args.add_argument(
+        "--mstateen",
+        default=None,
+        help="Override mstateen0 value to write in loader. Default is -1 (all bits set).",
+        type=lambda x: int(x, 0),
+    )
+    csr_init_args.add_argument(
+        "--hstateen",
+        default=None,
+        help="Override hstateen0 value to write in loader. Default is -1 (all bits set).",
+        type=lambda x: int(x, 0),
+    )
+    csr_init_args.add_argument(
+        "--sstateen",
+        default=None,
+        help="Override sstateen0 value to write in loader. Default is -1 (all bits set).",
+        type=lambda x: int(x, 0),
+    )
 
     test_probability_args = parser.add_argument_group("Test Probability", "Arguments that affect test probability")
     test_probability_args.add_argument(
@@ -511,4 +532,26 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Probability of randomizing PBMT NC vs IO bits in page table entries (0-100)",
         type=int,
+    )
+    test_probability_args.add_argument(
+        "--fs_randomization",
+        default=None,
+        help="Probability of randomizing mstatus/sstatus/vsstatus FS field (0-100). Only when F/D extension is supported.",
+        type=int,
+    )
+    test_probability_args.add_argument(
+        "--fs_randomization_values",
+        default=None,
+        help="Comma-separated list of FS values to randomize (0-3). 0=Off, 1=Initial, 2=Clean, 3=Dirty. Default: 2. E.g. 1,2 for Initial and Clean.",
+    )
+    test_probability_args.add_argument(
+        "--vs_randomization",
+        default=None,
+        help="Probability of randomizing mstatus/sstatus/vsstatus VS field (0-100). Only when V extension is supported.",
+        type=int,
+    )
+    test_probability_args.add_argument(
+        "--vs_randomization_values",
+        default=None,
+        help="Comma-separated list of VS values to randomize (0-3). 0=Off, 1=Initial, 2=Clean, 3=Dirty. Default: 2.",
     )

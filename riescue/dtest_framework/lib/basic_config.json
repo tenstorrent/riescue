@@ -59,7 +59,6 @@
         "zjpm": {"supported": true, "enabled": false, "randomize": 0},
         "svpbmt": {"supported": true, "enabled": false, "randomize": 0},
         "svadu": {"supported": true, "enabled": false, "randomize": 0},
-        "sstateen": {"supported": true, "enabled": false, "randomize": 0},
         "sstc": {"supported": true, "enabled": false, "randomize": 0},
         "zicsr": {"supported": true, "enabled": true, "randomize": 100},
         "zicntr": {"supported": true, "enabled": true, "randomize": 100},
@@ -86,7 +85,6 @@
         "sstvecd": {"supported": true, "enabled": true, "randomize": 100},
         "sstvala": {"supported": true, "enabled": true, "randomize": 100},
         "sscounterenw": {"supported": true, "enabled": true, "randomize": 100},
-        "ssstateen": {"supported": true, "enabled": true, "randomize": 100},
         "shcounterenw": {"supported": true, "enabled": true, "randomize": 100},
         "shvstvala": {"supported": true, "enabled": true, "randomize": 100},
         "shtvala": {"supported": true, "enabled": true, "randomize": 100},
@@ -110,6 +108,10 @@
         "secure_access_probability": 30,
         "secure_pt_probability": 0,
         "a_d_bit_randomization": 0,
-        "pbmt_ncio_randomization": 0
+        "pbmt_ncio_randomization": 0,
+        "fs_randomization": 0,
+        "fs_randomization_values": [2],
+        "vs_randomization": 0,
+        "vs_randomization_values": [2]
     }
 }

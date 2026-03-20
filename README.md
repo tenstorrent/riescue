@@ -176,8 +176,8 @@ The list of supported features can be found below. RiescueC is aiming to support
 | Ziccrse        | x         |                   | Main memory RsrvEventual support |
 | Ziccamoa       | x         |                   | Main memory atomic support |
 | Zicclsm        | x         |                   | Misaligned loads/stores support |
-| Za64rs         | x         |                   | 64-byte reservation sets |
-| Zihintpause    | x         |                   | Pause hint |
+| Za64rs         | x         | TP                | 64-byte reservation sets |
+| Zihintpause    | x         | TP                | Pause hint |
 | Zic64b         | x         | TP                | 64-byte cache blocks |
 | Zicbom         | x         | TP                | Cache-block management instructions |
 | Zicbop         | x         | TP                | Cache-block prefetch instructions |
@@ -193,13 +193,13 @@ The list of supported features can be found below. RiescueC is aiming to support
 | Zcmop          | x         | TP                  | Compressed may-be-operations |
 | Zcb            | x         | Bringup           | Additional compressed instructions |
 | Zfa            | x         | Bringup           | Additional floating-point instructions |
-| Zawrs          | x         |                   | Wait-on-reservation-set instructions |
+| Zawrs          | x         | TP                | Wait-on-reservation-set instructions |
 | Supm           | x         |                   | Pointer masking |
 | Zifencei       | x         | TP                | Instruction-Fetch Fence |
 | Ss1p13         | x         |                   | Supervisor architecture version 1.13 |
 | Svbare         | x         | All                | Bare mode virtual-memory translation |
 | Sv39           | x         | TP                | Page-based 39-bit virtual-memory system |
-| Svade          | x         |                   | Page-fault exceptions on A/D bits |
+| Svade          | x         | TP                | Page-fault exceptions on A/D bits |
 | Ssccptr        | x         |                   | Main memory page-table read support |
 | Sstvecd        | x         |                   | stvec Direct mode support |
 | Sstvala        | x         |                   | stval faulting address/instruction |
@@ -213,7 +213,7 @@ The list of supported features can be found below. RiescueC is aiming to support
 | Ssu64xl        | x         | TP                | UXLEN=64 support |
 | Sha            | x         |                   | Augmented hypervisor extension |
 | H              | x         | All           | Hypervisor extension |
-| Ssstateen      | x         |                   | Supervisor-mode state-enable extension |
+| Ssstateen      | x         | TP                | Supervisor-mode state-enable extension |
 | Shcounterenw   | x         |                   | Hypervisor writable counter enables |
 | Shvstvala      | x         |                   | vstval faulting address/instruction |
 | Shtvala        | x         |                   | htval faulting guest physical address |

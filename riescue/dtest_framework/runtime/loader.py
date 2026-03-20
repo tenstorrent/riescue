@@ -31,6 +31,7 @@ class Loader(AssemblyGenerator):
         Otherwise, mtvec gets trap handler.
 
     Jumps to runtime privilege mode (``handler_priv``), and hands control to scheduler when finished.
+    Point ``tp`` to Hart Context before handing control to scheduler.
 
     Interface:
 
@@ -45,7 +46,6 @@ class Loader(AssemblyGenerator):
         self.paging_mode = self.featmgr.paging_mode
         self.counters = Counters(rng=self.rng)
 
-        self.trap_entry_label = self.featmgr.trap_handler_label  #: Trap entry label. Defaults to trap_entry Value ``*tvec`` is loaded with
         self.scheduler_start_label = self.scheduler_init_label  #: Scheduler start label. This is where the loader jumps to when finished.
 
         if self.featmgr.bringup_pagetables:
@@ -77,7 +77,7 @@ class Loader(AssemblyGenerator):
             return self.wysiwyg_loader()
 
         code = f"""
-.section .text
+.section .runtime, "ax"
 .globl _start
 .option norvc
 
@@ -103,7 +103,7 @@ loader__panic:
     def linux_loader(self) -> str:
         "Returns the loader used for linux mode"
         return f"""
-.section .text
+.section .runtime, "ax"
 .global _start
 _start:
 call main
@@ -111,6 +111,7 @@ li a7, 93 # SYS_exit
 li a0, 0  # exit code
 
 main:
+    {self.hart_context_loader()}
     call {self.scheduler_init_label}
     ret
 """
@@ -124,7 +125,7 @@ main:
         """
 
         code = f"""
-.section .text
+.section .code, "ax"
 .globl _start
 .option norvc
 
@@ -157,14 +158,6 @@ loader__done:
         code += self.set_misa_bits()
         code += self.set_mstatus()
 
-        if not self.featmgr.disable_wfi_wait:
-            # RVTOOLS-4204 for mcounteren force enable
-            code += """
-        loader__enable_mcounteren:
-            li t0, 0x2
-            csrw mcounteren, t0
-        """
-
         if self.featmgr.feature.is_supported("f") or self.featmgr.feature.is_supported("d"):
             code += self.init_fp_registers()
         if self.featmgr.feature.is_supported("v"):
@@ -177,43 +170,33 @@ loader__done:
             code += self.setup_pmp()
         if self.featmgr.secure_mode:
             code += self.setup_secure_mode()
+        if self.featmgr.selfcheck:
+            code += """
+            jal selfcheck__decide_save_or_check
+            """
+        if self.featmgr.log_test_execution:
+            code += """
+            jal test_execution_log_init
+            """
+
+        # Setup stateen CSRs
+        code += self.setup_stateen()
 
         # Handle menvcfg
         if self.test_priv != RV.RiscvPrivileges.MACHINE:
             code += self.setup_menvcfg()
 
-        # Switch to handler privilege mode
-        if self.handler_priv != RV.RiscvPrivileges.MACHINE:
+        if self.featmgr.is_feature_enabled("s"):
             code += self.setup_trap_delegation()
-            code += self.setup_tvec()
-
-            if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
-                code += "\nloader__switch_to_vs:\n"
-                code += "csrw satp, x0\n"
-                code += "csrw vsatp, x0\n"  # Clear satp registers before switching to VS mode
-                # Switch to HS mode
-                code += self.switch_test_privilege(
-                    from_priv=RV.RiscvPrivileges.MACHINE,
-                    to_priv=RV.RiscvPrivileges.SUPER,
-                    jump_label="enter_hypervisor",
-                    switch_to_vs=True,
-                )
-            else:
-                # Clear satp before switching to supervisor mode
-                code += "\nloader__switch_to_super:\n"
-                code += "csrw satp, x0\n"
-                code += self.switch_test_privilege(
-                    from_priv=RV.RiscvPrivileges.MACHINE,
-                    to_priv=self.handler_priv,
-                    jump_label="loader__post_switch_to_handler",
-                )
-            code += "\nloader__post_switch_to_handler:\n"
-        else:
-            # If we are in machine mode, we need to setup mtvec to point to the trap handler
-            code += self.setup_tvec()
+        code += self.setup_tvec()
+        if self.pool.init_aplic_interrupts:
+            code += self.setup_aplic_interrupts()
+        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
+            code += self.setup_hypervisor()
+        code += self.featmgr.call_hook(RV.HookPoint.M_LOADER)
 
         # Handle senvcfg
-        if self.featmgr.senvcfg != 0:
+        if self.featmgr.is_feature_enabled("s") and self.featmgr.senvcfg != 0:
             code += f"""
                 load__setup_senvcfg:
                     li t0, {self.featmgr.senvcfg}
@@ -282,9 +265,8 @@ loader__set_misa_bits:
         if self.featmgr.interrupts_enabled:
             mstatus_value |= 1 << 3  # Enable interrupts
             code += "\n# Interrupts enabled"
-            if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
-                mstatus_value |= 1 << 1  # Enable supervisor
-                code += "\n# Supervisor interrupts enabled"
+            mstatus_value |= 1 << 1  # Enable supervisor
+            code += "\n# Supervisor interrupts enabled"
 
         code += f"""
 loader__set_mstatus:
@@ -309,6 +291,7 @@ loader__set_mstatus:
             # Set MATP.SWID=1, so we can access secure pages from supervisor
             ori x1, x1, 0x1
             csrs	0x7c7, x1  #set swid bit in matp
+            csrr	t0, 0x7c7  #read matp to verify
             """
         return code
 
@@ -345,18 +328,8 @@ loader__set_mstatus:
             li x1, 0x{satp_val:x}
             csrw satp, x1"""
 
-        # enable paging in machine mode using mstatus.MPRV (bit 17)
-        # note: If y≠M, xRET also sets MPRV=0
-        # When MPRV=1, load and store memory addresses are translated and protected, and endianness is applied, as though the current privilege mode were set to MPP.
-        # Need to also set MPP to S
-        # This gets reset when mRET is executed
-        if self.test_priv == RV.RiscvPrivileges.MACHINE:
-            enable_paging_code += """
-                li t0, ((1 << 17) | (1 << 11))    # Set MPRV=1 and MPP=01 (supervisor)
-                csrrs x0, mstatus, t0
-                li t0, (1<<12) # Clear mstatus[12]
-                csrrc x0, mstatus, t0
-            """
+        # MPRV is set in the scheduler's execute_test, not here, because the scheduler
+        # runs in M-mode with bare addressing and needs MPRV=0 for data access.
         return enable_paging_code + "\n"
 
     def hart_context_loader(self) -> str:
@@ -373,12 +346,12 @@ loader__set_mstatus:
         FIXME: If it's possilbe to get the scheduler and the exception handler to run in the same privilege mode that would be great :)
         It would mean that we only need one scratch register for all Runtime code
         """
-        scratch_regs = [self.scratch_reg]
+        scratch_regs = ["mscratch"]
+        if self.featmgr.is_feature_enabled("s"):
+            scratch_regs.append("sscratch")
         if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
             scratch_regs.append("vsscratch")
 
-        if self.test_priv == RV.RiscvPrivileges.SUPER:
-            scratch_regs.append("sscratch")
         return "\n" + self.variable_manager.initialize(scratch_regs=scratch_regs) + "\n"
 
     def setup_pmp(self) -> str:
@@ -425,17 +398,138 @@ loader__set_mstatus:
             pma_addr += 1
         return code
 
+    def setup_hypervisor(self):
+        """
+        Setup hypervisor CSRs
+        """
+        hedelg_val = self.featmgr.hedeleg
+        hidelg_val = self.featmgr.hideleg
+        henvcfg_val = self.featmgr.henvcfg
+
+        # Handle pbmt randomization
+        if self.featmgr.pbmt_ncio:
+            henvcfg_val |= 1 << 62
+
+        # Handle svadu randomization
+        if self.featmgr.svadu:
+            henvcfg_val |= 1 << 61
+
+        code = f"""
+            setup_vmm:
+                nop
+            setup_hedeleg:
+                # Make sure that we are handling VS/VU ECALL in VS mode OS
+                # i.e. setup hedeleg[8] = 1
+                # csrr t0, hedeleg
+                # li t1, 0x100
+                # or t0, t0, t1
+                li t0, {hedelg_val}
+                csrw hedeleg, t0
+
+            setup_hideleg:
+                # Setup hideleg as well
+                li t0, {hidelg_val}
+                csrw hideleg, t0
+
+            setup_henvcfg:
+                # Setup henvcfg
+                li t0, {henvcfg_val}
+                csrw henvcfg, t0
+        """
+
+        # if smstateen extension is enabled, then we need to setup hstateen0 to allow senvcfg writes
+        if self.featmgr.is_feature_enabled("smstateen") or self.featmgr.is_feature_enabled("ssstateen"):
+            code += f"""
+                hypervisor_setup_hstateen:
+                li t0, {self.featmgr.hstateen}
+                csrw hstateen0, t0
+            """
+
+        # Setup tvec to point to the trap handler for hypervisor
+        code += """
+           la t0, trap_handler_hs__trap_handler
+           csrw stvec, t0
+        """
+
+        # Setup hgatp if g-stage translation is enabled
+        if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
+            os_map = self.pool.get_page_map("map_hyp")
+            os_sptbr = os_map.sptbr
+
+            vmid_val = self.rng.random_in_range(0, 2**14)
+            os_paging_mode = self.featmgr.paging_g_mode
+            os_mode_val = 0
+            if os_paging_mode == RV.RiscvPagingModes.SV39:
+                os_mode_val = 0x8
+            elif os_paging_mode == RV.RiscvPagingModes.SV48:
+                os_mode_val = 0x9
+            elif os_paging_mode == RV.RiscvPagingModes.SV57:
+                os_mode_val = 0xA
+            else:
+                raise ValueError(f"OS does not support paging mode {os_paging_mode} yet")
+
+            # Set sptbr, vmid and mode field values in the hgatp csr
+            hgatp_val = os_sptbr >> 12
+            hgatp_val |= common.set_bits(original_value=hgatp_val, bit_hi=63, bit_lo=60, value=os_mode_val)
+            hgatp_val |= common.set_bits(original_value=hgatp_val, bit_hi=57, bit_lo=54, value=vmid_val)
+
+            code += f"""
+                    # Setup hgatp, it has following structure
+                    # [63:60] - MODE, [59:58] - 0, [57:44] - VMID, [43:0] - sptbr
+                    li t0, {hgatp_val}
+                    csrw hgatp, t0
+            """
+
+        # Also write vssatp if g-stage translation is enabled
+        if self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE:
+            os_map = self.pool.get_page_map("map_os")
+            os_sptbr = os_map.sptbr
+
+            vmid_val = self.rng.random_in_range(0, 2**14)
+            os_paging_mode = self.featmgr.paging_mode
+            os_mode_val = 0
+            if os_paging_mode == RV.RiscvPagingModes.SV39:
+                os_mode_val = 0x8
+            elif os_paging_mode == RV.RiscvPagingModes.SV48:
+                os_mode_val = 0x9
+            elif os_paging_mode == RV.RiscvPagingModes.SV57:
+                os_mode_val = 0xA
+            else:
+                raise ValueError(f"OS does not support paging mode {os_paging_mode} yet")
+
+            # Set sptbr, vmid and mode field values in the vssatp csr
+            vssatp_val = os_sptbr >> 12
+            vssatp_val |= common.set_bits(original_value=vssatp_val, bit_hi=63, bit_lo=60, value=os_mode_val)
+            vssatp_val |= common.set_bits(original_value=vssatp_val, bit_hi=57, bit_lo=54, value=vmid_val)
+
+            code += f"""
+                    # Setup vssatp, it has following structure
+                    # [63:60] - MODE, [59:58] - 0, [57:44] - VMID, [43:0] - sptbr
+                    li t0, {vssatp_val}
+                    csrw vsatp, t0
+            """
+
+        code += """
+                # # Make sure we point to the trap handler for VS/VU ECALL
+                # # i.e. setup vstvec = excp_entry
+                # la t0, excp_entry
+                # csrw vstvec, t0
+
+                # Set vsstatus.sum=1, fs and vs
+                csrr t0, vsstatus
+                li t1, 0x42200 #sum fs vs
+                or t0, t0, t1
+                csrw vsstatus, t0
+
+        """
+
+        return code
+
     def setup_trap_delegation(self) -> str:
         """
         Generate code to setup exception and interrupt delegation.
         """
-        medeleg_val = 0
-        if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
-            # delegate all exceptions to supervisor
-            medeleg_val = 0xFFFFFFFFFFFFFFFF
-
-        if self.featmgr.medeleg != 0xFFFFFFFFFFFFFFFF:
-            medeleg_val = self.featmgr.medeleg
+        medeleg_val = self.featmgr.medeleg
         code = f"""
 loader__setup_medeleg:
     li t0, 0x{medeleg_val:x}
@@ -443,9 +537,7 @@ loader__setup_medeleg:
 
 loader__setup_mideleg:"""
 
-        mideleg_val = 0
-        if self.featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
-            mideleg_val = (1 << 9) | (1 << 5) | (1 << 1) | (1 << 11) | (1 << 7) | (1 << 3)  # Enables SEI, STI, SSI and MEI, MTI, MSI
+        mideleg_val = self.featmgr.mideleg
         code += f"""
     li t0, 0x{mideleg_val:x}
     csrw mideleg, t0
@@ -459,9 +551,7 @@ loader__setup_mideleg:"""
         """
 
         code = "\nloader__setup_menvcfg:"
-        menvcfg_val = 1 << 63  # Enable stce by default
-        if self.featmgr.disable_wfi_wait:
-            menvcfg_val = 0  # FIXME: temporarily enable stce at all times to deal with stimecmp. RVTOOLS-4204
+        menvcfg_val = 0
         if self.featmgr.pbmt_ncio:
             menvcfg_val |= 1 << 62  # Enable svpbmt when randomization kicks in for pbmp NCIO
         if self.featmgr.svadu:
@@ -476,44 +566,212 @@ loader__setup_mideleg:"""
                     """
         return code
 
-    def setup_tvec(self) -> str:
+    def setup_aplic_interrupts(self) -> str:
         """
-        Generate code to setup mtvec and/or stvec.
-
-        If handler privilege is super, set stvec. mtvec still points to loader panic
-        If handler privilege is machine, set mtvec.
-
-        If running the code in VS mode, will be delegating exceptions to virtual supervior .
-        Need to point vstvec to trap handler, and mtvec / stvec to loader panic
+        Include C code to setup default interrupt handling
         """
-        code = "\nloader__setup_tvec:\n"
 
-        if self.featmgr.user_interrupt_table:
-            log.error("Using user_interrupt_table is deprecated. Use ;#vectored_interrupt(index, label) in source code instead.")
-            code += "li t0, user_interrupt_table_addr\n"
-            code += "ld t0, 0(t0)\n"
-        else:
-            code += f"la t0, {self.trap_entry_label}\n"
-        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
-            # delegating exceptions to VS; runtime and test should be staying in this mode
-            # M and HS modes shouldn't be getting any exceptions
-            code += "csrw vstvec, t0\n"
-        elif self.handler_priv == RV.RiscvPrivileges.SUPER:
-            code += "csrw stvec, t0\n"
-        else:
-            code += "csrw mtvec, t0\n"
+        code = f"""\n__setup_aplic_interrupts:
+            # .word 0x74446073 # csrrsi x0, mnstatus, 0x8
+            # IMSIC init
+
+            li t0, MAPLIC_MMR_BASE_ADDR + 0x1bc0
+            li t1, 0x40000
+            sw t1, 0(t0)
+
+            li t0, MAPLIC_MMR_BASE_ADDR + 0x1bc4
+            li t1, 0x601000
+            sw t1, 0(t0)
+
+            li t0, MAPLIC_MMR_BASE_ADDR + 0x1bc8
+            li t1, 0x44000
+            sw t1, 0(t0)
+
+            li t0, MAPLIC_MMR_BASE_ADDR + 0x1bcc
+            li t1, 0x600000
+            sw t1, 0(t0)
+
+            # Enable eidelivery
+            li t0, 0x70
+            csrw miselect, t0
+            csrw siselect, t0
+            li t0, 1
+            csrw mireg, t0
+            csrw sireg, t0
+
+            # Set threshold to 0
+            li t0, 0x72
+            csrw miselect, t0
+            csrw siselect, t0
+            li t0, 0
+            csrw mireg, t0
+            csrw sireg, t0
+
+            # Enable all interrupts - eie 0xc0 to 0xff = -1
+            li      t0, 0xc0
+            li      t1, -1
+            li      t2, {0xc0 + ((self.pool.max_aplic_irq + 1) >> 4)}
+__enable_all_interrupts:
+            csrw    miselect, t0
+            csrw    mireg, t1
+            csrw    siselect, t0
+            csrw    sireg, t1
+            add     t0, t0, 2
+            bne     t0, t2, __enable_all_interrupts
+        """
+
+        code += f"""
+            # APLIC config
+            # DomainCfg: IE = 1, DM = 1(MSI)
+            li      t1, 0x80000104
+            la      t0, MAPLIC_MMR_BASE_ADDR + 0
+            sw      t1, 0(t0)
+            la      t0, SAPLIC_MMR_BASE_ADDR + 0
+            sw      t1, 0(t0)
+
+            # Enable all APLIC input sources
+            li      t1, 0x4     # SM EDGE1
+            la      t2, MAPLIC_MMR_BASE_ADDR + 4
+            la      t3, SAPLIC_MMR_BASE_ADDR + 4
+            la      t0, MAPLIC_MMR_BASE_ADDR + {(self.pool.max_aplic_irq + 1) * 4}
+__enable_aplic_interrupt_source:
+            sw      t1, 0(t2)
+            sw      t1, 0(t3)
+            add     t2, t2, 4
+            add     t3, t3, 4
+            bne     t2, t0, __enable_aplic_interrupt_source
+
+            # Route them as corresponding MSI to HART 0
+            li      t1, 1
+            la      t2, MAPLIC_MMR_BASE_ADDR + 0x3004
+            la      t3, SAPLIC_MMR_BASE_ADDR + 0x3004
+            li      t0, {self.pool.max_aplic_irq + 1}
+__enable_aplic_interrupt_target:
+            sw      t1, 0(t2)
+            sw      t1, 0(t3)
+            add     t2, t2, 4
+            add     t3, t3, 4
+            add     t1, t1, 1
+            bne     t1, t0, __enable_aplic_interrupt_target
+
+            # Enable all interrupts
+            li      t0, 8
+            csrs    mstatus, t0
+            li      t0, 0xa00
+            csrs    mie, t0
+        """
+
+        for intr_num in self.pool.ext_aplic_interrupts:
+            intr = self.pool.ext_aplic_interrupts[intr_num]
+            eiid = intr["eiid"]
+            isr_func = intr["isr"]
+            mode = "m"
+            if intr["mode"] is not None:
+                mode = intr["mode"]
+
+            if isr_func is not None:
+                if eiid is None:
+                    log.warning("No eiid specified for interrupt {intr_num}. Mapping to {intr_num}")
+                    eiid = intr_num
+                code += "\n"
+                code += f"""
+                    li a0, {eiid}
+                    la a1, {isr_func}
+                    jal __set_aplic_isr
+                """
+
+            state = intr["state"]
+            if state is not None:
+                code += "\n"
+                code += f"""
+                    li a0, {intr_num}
+                    la a1, {state}
+                    jal __set_{mode}aplic_eie
+                """
+
+            source_mode = intr["source_mode"]
+            if source_mode is not None:
+                code += "\n"
+                code += f"""
+                    li a0, {intr_num}
+                    la a1, {source_mode}
+                    jal __set_{mode}aplic_sourcecfg_sm
+                """
+
+            hart = intr["hart"]
+            if hart is not None:
+                code += "\n"
+                code += f"""
+                    li a0, {intr_num}
+                    la a1, {hart}
+                    jal __set_{mode}aplic_target_hartindex
+                """
+
+            if eiid is not None:
+                code += "\n"
+                code += f"""
+                    li a0, {intr_num}
+                    la a1, {eiid}
+                    jal __set_{mode}aplic_target_eiid
+                    """
+
         return code
 
-    def setup_mstateen(self) -> str:
+    def setup_tvec(self) -> str:
         """
-        Generate code to setup mstateen.
-        If smstateen is requested, need to setup mstateen0 to allow hstateen writes from hypervisor
+        Generate code to setup mtvec and stvec.
 
+        We always program both mtvec and stvec to the respective trap handlers.
+
+        If running the code in VS mode, will be delegating exceptions to virtual supervior .
+        Need to point vstvec to supervisor trap handler
         """
+
+        code = ""
+        if self.featmgr.c_used:
+            code += "la sp, __c__stack_addr\n"
+            code += "ld sp, 0(sp)\n"
+
+        code += "\nloader__setup_tvec:\n"
+        code += "la t0, trap_handler_m__trap_entry\n"
+        code += "csrw mtvec, t0\n"
+        if self.featmgr.is_feature_enabled("s"):
+            if RV.RiscvPrivileges.SUPER in self.featmgr.supported_priv_modes:
+                if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
+                    stvec = "trap_handler_hs__trap_entry"
+                else:
+                    stvec = "trap_handler_s__trap_entry"
+                code += f"la t0, {stvec}\n"
+                code += "csrw stvec, t0\n"
+                if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
+                    code += "la t0, trap_handler_s__trap_entry\n"
+                    code += "csrw vstvec, t0\n"
+
+        return code
+
+    def setup_stateen(self) -> str:
+        """
+        Generate code to setup stateen CSRs.
+        Sets xstateen0 CSRs to configured values (default: -1 = all bits set).
+        This allows access to all optional state (FP, Vector, etc.).
+        """
+        smstateen = self.featmgr.feature.is_enabled("smstateen")
+        ssstateen = self.featmgr.feature.is_enabled("ssstateen")
+
+        if not smstateen and not ssstateen:
+            # No stateen CSRs to setup
+            return ""
+
         code = """
-loader__setup_mstateen:
-    li t0, 1<<63 | 1<<62
-    csrw mstateen0, t0"""
+loader__setup_stateen:
+"""
+        if smstateen:
+            code += f"    li t0, {self.featmgr.mstateen}\n"
+            code += "    csrw mstateen0, t0\n"
+
+        if smstateen or ssstateen:
+            code += f"    li t0, {self.featmgr.sstateen}\n"
+            code += "    csrw sstateen0, t0\n"
 
         return code
 
@@ -586,13 +844,20 @@ loader__setup_mstateen:
             raise RuntimeError("FP extensions are not supported but init_fp_registers is called")
         code = ["# Initialize FP and Vector registers if supported", "loader__init_fp_registers:"]
 
+        if self.featmgr.feature.is_supported("d"):
+            fmv = "fmv.d.x"
+            load = "fld"
+        else:
+            fmv = "fmv.w.x"
+            load = "flw"
+
         if not use_fmv:
             code.append(self.zero_data.load_immediate("t0"))
         for i in range(32):
             if use_fmv:
-                code.append(f"fmv.d.x   f{i}, x0")
+                code.append(f"{fmv}  f{i}, x0")
             else:
-                code.append(f"fld   f{i}, 0(t0)")
+                code.append(f"{load}   f{i}, 0(t0)")
         return "\n" + "\n".join(code) + "\n"
 
     def init_vector_registers(self):

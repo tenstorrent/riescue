@@ -119,6 +119,40 @@ class CliAdapterTest(unittest.TestCase):
         self.assertEqual(result.secure_pt_probability, 25)
         self.assertEqual(result.pbmt_ncio_randomization, 30)
 
+    def test_fs_vs_randomization_arguments_set_correctly(self):
+        """Test FS/VS randomization and value-list arguments are set when provided"""
+        args = self.parser.parse_args(
+            args=[
+                "--fs_randomization",
+                "40",
+                "--fs_randomization_values",
+                "1, 2",
+                "--vs_randomization",
+                "60",
+                "--vs_randomization_values",
+                "2, 3",
+            ]
+        )
+        result = self.adapter.apply(self.builder, args).featmgr
+        self.assertEqual(result.fs_randomization, 40)
+        self.assertEqual(result.fs_randomization_values, [1, 2])
+        self.assertEqual(result.vs_randomization, 60)
+        self.assertEqual(result.vs_randomization_values, [2, 3])
+
+    def test_fs_randomization_values_invalid_raises(self):
+        """Test --fs_randomization_values with value outside 0-3 raises ValueError"""
+        args = self.parser.parse_args(args=["--fs_randomization_values", "1, 4"])
+        with self.assertRaises(ValueError) as ctx:
+            self.adapter.apply(self.builder, args)
+        self.assertIn("0-3", str(ctx.exception))
+
+    def test_vs_randomization_values_invalid_raises(self):
+        """Test --vs_randomization_values with value outside 0-3 raises ValueError"""
+        args = self.parser.parse_args(args=["--vs_randomization_values", "0, -1"])
+        with self.assertRaises(ValueError) as ctx:
+            self.adapter.apply(self.builder, args)
+        self.assertIn("0-3", str(ctx.exception))
+
     def test_store_true_flags_set_correctly(self):
         """Test store_true flags are properly transferred"""
         args = self.parser.parse_args(args=["--tohost_nonzero_terminate", "--single_assembly_file", "--force_alignment", "--c_used", "--big_endian"])
@@ -138,12 +172,11 @@ class CliAdapterTest(unittest.TestCase):
 
     def test_complex_virtualization_setup(self):
         """Test complex virtualization environment setup"""
-        args = self.parser.parse_args(args=["--test_env", "virtualized", "--test_priv_mode", "super", "--test_paging_g_mode", "sv39", "--vmm_hooks"])
+        args = self.parser.parse_args(args=["--test_env", "virtualized", "--test_priv_mode", "super", "--test_paging_g_mode", "sv39"])
         result = self.adapter.apply(self.builder, args)
         self.assertEqual([e for e in result.env], [RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED])
         self.assertEqual([p for p in result.priv_mode], [RV.RiscvPrivileges.SUPER])
         self.assertEqual([p for p in result.paging_g_mode], [RV.RiscvPagingModes.SV39])
-        self.assertTrue(result.featmgr.vmm_hooks)
 
     def test_multiprocessor_complex_setup(self):
         """Test complex multiprocessor configuration"""
@@ -164,13 +197,11 @@ class CliAdapterTest(unittest.TestCase):
 
     def test_interrupt_and_exception_handling(self):
         """Test interrupt and exception handling configuration"""
-        args = self.parser.parse_args(args=["--user_interrupt_table", "--excp_hooks", "--interrupts_enabled", "--skip_instruction_for_unexpected", "--disable_wfi_wait"])
+        args = self.parser.parse_args(args=["--excp_hooks", "--interrupts_enabled", "--skip_instruction_for_unexpected"])
         result = self.adapter.apply(self.builder, args).featmgr
-        self.assertTrue(result.user_interrupt_table)
         self.assertTrue(result.excp_hooks)
         self.assertTrue(result.interrupts_enabled)
         self.assertTrue(result.skip_instruction_for_unexpected)
-        self.assertTrue(result.disable_wfi_wait)
 
     def test_address_generation_flags(self):
         """Test address generation related flags"""
@@ -192,16 +223,14 @@ class CliAdapterTest(unittest.TestCase):
         """Test deleg_excp_to argument"""
         args = self.parser.parse_args(args=["--deleg_excp_to", "super"])
         result = self.adapter.apply(self.builder, args)
-        self.assertEqual(result.deleg_excp_to, RV.RiscvPrivileges.SUPER)
+        self.assertEqual(result.medeleg, 0xFFFFFFFFFFFFF0FF)
+        self.assertEqual(result.mideleg, (1 << 9) | (1 << 5) | (1 << 1) | (1 << 11) | (1 << 7) | (1 << 3))
+        self.assertEqual(result.hedeleg, 0)
 
     def test_deleg_excp_to_machine(self):
         "Check that --delege_excep_to machine works"
         args = self.parser.parse_args(args=["--deleg_excp_to", "machine"])
         result = self.adapter.apply(self.builder, args)
-        self.assertEqual(result.deleg_excp_to, RV.RiscvPrivileges.MACHINE)
-
-    def test_deleg_excp_to_any(self):
-        "Check that leaving deleg_excp_to unset works"
-        args = self.parser.parse_args(args=[])
-        result = self.adapter.apply(self.builder, args)
-        self.assertEqual(result.deleg_excp_to, [RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER])
+        self.assertEqual(result.medeleg, 0)
+        self.assertEqual(result.mideleg, 0)
+        self.assertEqual(result.hedeleg, 0)

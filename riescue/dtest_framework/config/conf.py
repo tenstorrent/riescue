@@ -6,7 +6,7 @@
 from __future__ import annotations
 import importlib.util
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Any
 
 
 if TYPE_CHECKING:
@@ -91,6 +91,14 @@ class Conf:
         Call with :py:meth:`riescue.FeatMgr.register_hook`
 
         :param featmgr: Built FeatMgr
+        """
+        pass
+
+    def get_mapping(self) -> Optional[list[Any]]:
+        """
+        Returns a custom mapping of TestStep to Action.
+
+        Only called at TP configuration
         """
         pass
 

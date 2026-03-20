@@ -88,6 +88,7 @@ set_map_0:
     csrw satp, x1
     sfence.vma
     li a0, 0x10000
+    sw zero, 0(a0)
     li sp, 0x16000
     jal c_func_0
     beq a0, x0, passed_0
@@ -105,6 +106,7 @@ set_map_1:
     sfence.vma
     li a0, 0x10000
     li sp, 0x16000
+    sw zero, 0(a0)
     jal c_func_1
     beq a0, x0, passed_1
     ;#test_failed()
@@ -114,6 +116,6 @@ passed_1:
 test_cleanup:
     ;#test_passed()
 
-.section .data
+.data
 my_data:
     .long 0

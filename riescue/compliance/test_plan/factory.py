@@ -41,8 +41,9 @@ class TestPlanFactory:
         """
         if scenario.env.min_num_harts > 1:
             return None
-        return DiscreteTest(
+        main_discrete_test = DiscreteTest(
             name=scenario.name,
             actions=[self.action_registry.get_action(step) for step in scenario.steps],
             env=scenario.env,
         )
+        return main_discrete_test

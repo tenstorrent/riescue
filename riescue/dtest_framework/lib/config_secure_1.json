@@ -1,4 +1,5 @@
 {
+  "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zicntr_zihpm_zvqdot_zjpm_svpbmt_svadu_sstc_ssu64xl_ssnpm_smmpm_smnpm_svnapot",
   "reset_pc": "0x8000_0000",
   "mmap": {
     "dram" : {

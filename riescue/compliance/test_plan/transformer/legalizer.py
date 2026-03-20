@@ -57,6 +57,9 @@ class Legalizer:
 
             # Check if we need to handle a preceding label
             if i > 0 and isinstance(instructions[i - 1], Label) and len(li_instructions) > 1:
+                prev_instr = instructions[i - 1]
+                if isinstance(prev_instr, Label) and "fault_label" not in prev_instr.label_name():
+                    continue
 
                 # The previous instruction (label) is the last item in our output
                 preceding_label = instructions_with_li[-1]  # Get (don't remove yet)
@@ -75,6 +78,50 @@ class Legalizer:
 
         return instructions_with_li
 
+    def _is_literal_register(self, val: str) -> bool:
+        """True if val is a literal GPR name (e.g. x0, a7), not a value_id (e.g. r0, r1)."""
+        if not val or len(val) < 2:
+            return False
+        if val.startswith("r") and val[1:].isdigit():
+            return False
+        if val[0] in ("x", "f", "v") and len(val) > 1 and val[1:].isdigit():
+            return True
+        abi = {
+            "zero",
+            "ra",
+            "sp",
+            "gp",
+            "tp",
+            "t0",
+            "t1",
+            "t2",
+            "t3",
+            "t4",
+            "t5",
+            "t6",
+            "s0",
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+            "s5",
+            "s6",
+            "s7",
+            "s8",
+            "s9",
+            "s10",
+            "s11",
+            "a0",
+            "a1",
+            "a2",
+            "a3",
+            "a4",
+            "a5",
+            "a6",
+            "a7",
+        }
+        return val in abi
+
     def _resolve_li_immediates(self, instruction: Instruction, ctx: LoweringContext, resolved_ids: set[str]) -> list[Instruction]:
         """
         Checks if load instructions are needed for a given instruction.
@@ -83,6 +130,8 @@ class Legalizer:
         new_instructions: list[Instruction] = []
         for src in instruction.source:
             if src.is_register() and isinstance(src.val, str) and src.val not in resolved_ids:
+                if self._is_literal_register(src.val):
+                    continue
                 li_instruction = self._load_immediate(ctx)
                 li_dest = li_instruction.destination
                 if li_dest is None:

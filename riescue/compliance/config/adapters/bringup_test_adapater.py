@@ -4,6 +4,7 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
+from riescue.lib.enums import Xlen, RiscvBaseArch
 
 from .base import BaseAdapter
 
@@ -22,6 +23,12 @@ class BringupTestAdapter(BaseAdapter):
         bringup_test = BringupTest.from_json(self.find_config(src))
         resource = builder.resource
         resource.arch = bringup_test.arch
+
+        if bringup_test.arch == RiscvBaseArch.ARCH_RV64I:
+            resource.xlen = Xlen.XLEN64
+        elif bringup_test.arch == RiscvBaseArch.ARCH_RV32I:
+            resource.xlen = Xlen.XLEN32
+
         # validate extensions
         for extension in bringup_test.include_extensions:
             if resource.check_extension(extension):
@@ -33,8 +40,9 @@ class BringupTestAdapter(BaseAdapter):
         resource.exclude_groups += bringup_test.exclude_groups
         resource.exclude_instrs += bringup_test.exclude_instrs
 
-        # legacy behavior was to only use BringupTest.iss if --first_pass_iss=""
-        # this isn't documented anywhere, so going to use iss here if passed in explicitly
+        # legacy behavior was to only use BringupTest.iss if
+        # --first_pass_iss="". This isn't documented anywhere,
+        # so going to use iss here if passed in explicitly
         if bringup_test.iss:
             resource.first_pass_iss = bringup_test.iss
             resource.second_pass_iss = bringup_test.iss

@@ -5,10 +5,15 @@ Generates test scheduler assembly code for coordinating test execution.
 Manages test sequencing, randomization, and synchronization across single or multiple harts.
 Supports barriers, mutexes, and both sequential and parallel execution modes.
 
-Scheduler privilege mode depends on the Test's privilege mode.
-- If test's privilege mode is MACHINE, scheduler runs in MACHINE mode
-- If test's privilege mode is SUPER, scheduler runs in SUPER mode
-- If test's privilege mode is USER, scheduler runs in MACHINE mode
+Scheduler Privilege Mode
+------------------------
+
+The scheduler always runs in Machine mode (M-mode). This ensures consistent
+behavior regardless of the test's privilege mode and allows the scheduler to:
+
+- Set up trap handlers for any privilege mode
+- Switch test execution to the target privilege mode (M, S, U, or VU) via ``mret``
+- Handle test completion and dispatch the next test
 
 
 API
@@ -52,6 +57,22 @@ _______________________
 Final routine of the scheduler. This is called at the end of the test and runs the ``test_cleanup`` routine and returns to the ``EOT``
 
 
+Hart Context
+-------------
+
+The scheduler assumes that the Hart Context is set into the ``tp`` register before ``scheduler__init`` and ``scheduler_dispatch``.
+Schedulers can use :doc:`Variables <variables>` registered in the Hart Context for scheduling.
+This helps to avoid referencing the hartid and calculating offsets for hart-local variables.
+
+When executing the test, ``scheduler__execute_test`` will need to save the Hart Context before jumping to the test.
+
+Whent the test has finished correctly, ``scheduler__finished`` should not stash the Hart Context so that the EOT can make use of it.
+
+This flow is described in the diagram below:
+
+.. image:: /common/images/hart_context.png
+
+
 Scheduler Modes:
 ----------------
 
@@ -88,6 +109,11 @@ ___________________________
 ``LinuxScheduler``
 ____________________
 Linux is a special mode that is used to schedule tests for repeat_times number of times, with runtime randomization.
+
+
+
+
+
 
 
 

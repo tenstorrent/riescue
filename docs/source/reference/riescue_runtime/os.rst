@@ -11,9 +11,7 @@ Configuration
 - ``linux_mode``: Enable Linux OS mode
 - ``num_cpus``: Number of harts (enables multiprocessor variables)
 - ``xlen``: Register width (32 or 64 bits)
-- ``user_interrupt_table``: Enable user-defined interrupt table
 - ``excp_hooks``: Enable pre/post exception handler hooks
-- ``vmm_hooks``: Enable VMM handler hooks
 - ``wysiwyg``: Minimal OS with only tohost/fromhost
 - ``fe_tb``: Frontend testbench mode
 - ``eot_pass_value``: Value to write to tohost on test pass

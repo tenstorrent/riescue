@@ -199,19 +199,17 @@ class TestGenerator:
         header = self._write_header()
 
         body: list[str] = []
+        body.append(".section .code\n")
 
         # Keep the first pass as a dummy pass for WYSIWYG mode to extract the
         # state for self checking code
         if self.resource_db.wysiwyg:
-            body.append(".section .text\n")
-
             # Add 0xc001c0de at the beginning for first pass to end the test
             if iteration == 1:
                 body.append("""\tli x31,0xc001c0de""")
                 # body.append("lui x31, 0xc001c")
                 # body.append("addi x31, x31, 0x0de")
         else:
-            body.append('.section .code, "ax"\n')
             body.append("test_setup:")
             body.append(";#test_passed()")
 
@@ -324,7 +322,12 @@ class TestGenerator:
             log = Path(testcase.log)
             if not log.exists():
                 log = self.resource_db.run_dir / testcase.log
-            if self.resource_db.first_pass_iss == "spike":
+            if self.resource_db.compare_iss:
+                spike_log, spike_csv_log = testcase.get_spike_logs()
+                whisper_log, whisper_csv_log = testcase.get_whisper_logs()
+                process_spike_sim_log(spike_log, spike_csv_log)
+                process_whisper_sim_log(whisper_log, whisper_csv_log)
+            elif self.resource_db.first_pass_iss == "spike":
                 process_spike_sim_log(log.resolve(), csv_log.resolve())
             elif self.resource_db.first_pass_iss == "whisper":
                 process_whisper_sim_log(log.resolve(), csv_log.resolve())

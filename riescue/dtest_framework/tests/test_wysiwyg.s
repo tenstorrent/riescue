@@ -51,7 +51,7 @@
 ;#page_mapping(lin_addr=0x6000, phys_name=&random, v=1, r=1, w=1)
 
 
-.section .text
+.section .code, "ax"
 
 #####################
 # test_setup: RiESCUE defined label
