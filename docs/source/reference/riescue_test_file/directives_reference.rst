@@ -89,13 +89,14 @@ NOTE: This directive is only valid if deleg_excp_to is set to machine
 
 .. code-block:: asm
 
-    ;#csr_rw(<csr_name>, <action>, <direct_access>)
+    ;#csr_rw(<csr_name>, <action>, <direct_access>, <force_machine_rw>)
 
 **Parameters:**
 
 - ``csr_name`` (required) - CSR name to access
 - ``action`` (required) - Action to perform: ``read``, ``write``, ``set``, ``clear``
 - ``direct_access`` (required) - Direct access to CSR: ``true``, ``false``
+- ``force_machine_rw`` (required) - Force machine mode access to CSR: ``true``, ``false``
 
 **Examples:**
 

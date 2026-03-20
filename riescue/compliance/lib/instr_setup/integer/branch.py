@@ -11,23 +11,54 @@ class JumpSetup(InstrSetup):
         super().__init__(resource_db)
 
     def pre_setup(self, instr):
-        if instr.name == "jal":
-            self.write_pre(f"{instr.label} : {instr.name} x1,jump_{instr.label}_passed")
-        if instr.name == "jalr":
-            addr_reg = self.get_random_reg(instr.reg_manager)
-            dest_reg = instr.dests[0].name
-            self.write_pre(f"la {addr_reg},jump_{instr.label}_passed")
-            self.write_pre(f"{instr.label} : {instr.name} {dest_reg},0({addr_reg})")
-        self._pre_setup_instrs += self.add_padding(instr, self.resource_db.pad_size, ["add", "sub", "addi"])
+        jump_backwards = self._rng.choice([True, False])
 
-        if self.resource_db.wysiwyg:
-            self.write_pre("\tli x31, 0xbaadc0de")
-        else:
-            self.write_pre(";#test_failed()")
+        if jump_backwards:
+            self.write_pre(f"\tj {instr.label}")
 
-        self.write_pre(f"jump_{instr.label}_passed :")
-        if self.resource_db.combine_compliance_tests or self.resource_db.wysiwyg:
+            self.write_pre(f"jump_{instr.label}_passed :")
+            if self.resource_db.combine_compliance_tests or self.resource_db.wysiwyg:
+                self.write_pre("\tnop")
+
+            self._pre_setup_instrs += self.add_padding(instr, self.resource_db.pad_size, ["add", "sub", "addi"])
+
+            self.write_pre(f"\tj jump_{instr.label}_post")
+
+            self.write_pre(f"{instr.label} :")
+            if instr.name == "jal":
+                self.write_pre(f"\t{instr.name} x1,jump_{instr.label}_passed")
+            elif instr.name == "jalr":
+                addr_reg = self.get_random_reg(instr.reg_manager)
+                dest_reg = instr.dests[0].name
+                self.write_pre(f"\tla {addr_reg},jump_{instr.label}_passed")
+                self.write_pre(f"\t{instr.name} {dest_reg},0({addr_reg})")
+
+            if self.resource_db.wysiwyg:
+                self.write_pre("\tli x31, 0xbaadc0de")
+            else:
+                self.write_pre(";#test_failed()")
+
+            self.write_pre(f"jump_{instr.label}_post :")
             self.write_pre("\tnop")
+
+        else:
+            if instr.name == "jal":
+                self.write_pre(f"{instr.label} : {instr.name} x1,jump_{instr.label}_passed")
+            elif instr.name == "jalr":
+                addr_reg = self.get_random_reg(instr.reg_manager)
+                dest_reg = instr.dests[0].name
+                self.write_pre(f"la {addr_reg},jump_{instr.label}_passed")
+                self.write_pre(f"{instr.label} : {instr.name} {dest_reg},0({addr_reg})")
+            self._pre_setup_instrs += self.add_padding(instr, self.resource_db.pad_size, ["add", "sub", "addi"])
+
+            if self.resource_db.wysiwyg:
+                self.write_pre("\tli x31, 0xbaadc0de")
+            else:
+                self.write_pre(";#test_failed()")
+
+            self.write_pre(f"jump_{instr.label}_passed :")
+            if self.resource_db.combine_compliance_tests or self.resource_db.wysiwyg:
+                self.write_pre("\tnop")
 
     def post_setup(self, modified_arch_state, instr):
         if self.j_pass_ok():
@@ -115,30 +146,71 @@ class BranchSetup(InstrSetup):
         self.write_pre(f"\tli {rs1.name},{hex(rs1.value)}")
         self.write_pre(f"\tli {rs2.name},{hex(rs2.value)}")
 
-        target_label = ""
         self.conclusion_label = f"jump_{instr.label}_cct_passed"
-        if instr.config.branch_outcome == "taken":
-            target_label = f"jump_{instr.label}_passed"
-        else:
-            target_label = f"jump_{instr.label}_failed"
 
         pad_size = self._rng.randint(0, 256)
-        self.write_pre(f"{instr.label} : {instr.name} {rs1.name},{rs2.name},{target_label}")
-        self._pre_setup_instrs += self.add_padding(instr, pad_size, ["add", "sub", "addi"])
 
-        if instr.config.branch_outcome == "taken":
-            if self.resource_db.wysiwyg:
-                self.write_pre("\tli x31, 0xbaadc0de")
+        branch_backwards = self._rng.choice([True, False])
+
+        if branch_backwards:
+            self.write_pre(f"\tj {instr.label}")
+
+            if instr.config.branch_outcome == "taken":
+                self.write_pre(f"jump_{instr.label}_passed :")
             else:
-                self.write_pre(";#test_failed()")
-        else:
-            if self.j_pass_ok():
-                self.write_pre(";#test_passed()")
-            elif self.resource_db.combine_compliance_tests:
-                self.write_pre(f"\tj {self.conclusion_label}")
+                self.write_pre(f"jump_{instr.label}_failed :")
+            self.write_pre("\tnop")
 
-        self.write_pre(f"{target_label}:")
-        self.write_pre("\tnop")
+            self._pre_setup_instrs += self.add_padding(instr, pad_size, ["add", "sub", "addi"])
+
+            if instr.config.branch_outcome == "taken":
+                self.write_pre(f"\tj jump_{instr.label}_post")
+
+            self.write_pre(f"{instr.label} :")
+            if instr.config.branch_outcome == "taken":
+                self.write_pre(f"\t{instr.name} {rs1.name},{rs2.name},jump_{instr.label}_passed")
+            else:
+                self.write_pre(f"\t{instr.name} {rs1.name},{rs2.name},jump_{instr.label}_failed")
+
+            if instr.config.branch_outcome == "taken":
+                if self.resource_db.wysiwyg:
+                    self.write_pre("\tli x31, 0xbaadc0de")
+                else:
+                    self.write_pre(";#test_failed()")
+
+                self.write_pre(f"jump_{instr.label}_post :")
+                self.write_pre("\tnop")
+            else:
+                if self.j_pass_ok():
+                    self.write_pre(";#test_passed()")
+                elif self.resource_db.combine_compliance_tests:
+                    self.write_pre(f"\tj {self.conclusion_label}")
+
+        else:
+            if instr.config.branch_outcome == "taken":
+                self.write_pre(f"{instr.label} : {instr.name} {rs1.name},{rs2.name},jump_{instr.label}_passed")
+            else:
+                self.write_pre(f"{instr.label} : {instr.name} {rs1.name},{rs2.name},jump_{instr.label}_failed")
+
+            self._pre_setup_instrs += self.add_padding(instr, pad_size, ["add", "sub", "addi"])
+
+            if instr.config.branch_outcome == "taken":
+                if self.resource_db.wysiwyg:
+                    self.write_pre("\tli x31, 0xbaadc0de")
+                else:
+                    self.write_pre(";#test_failed()")
+            else:
+                if self.j_pass_ok():
+                    self.write_pre(";#test_passed()")
+                elif self.resource_db.combine_compliance_tests:
+                    self.write_pre(f"\tj {self.conclusion_label}")
+
+            if instr.config.branch_outcome == "taken":
+                self.write_pre(f"jump_{instr.label}_passed :")
+            else:
+                self.write_pre(f"jump_{instr.label}_failed :")
+            self.write_pre("\tnop")
+
         if self.resource_db.combine_compliance_tests:
             self.pass_one_pre_appendix += f"{self.conclusion_label} :\n"
             self.pass_one_pre_appendix += "\tnop\n"

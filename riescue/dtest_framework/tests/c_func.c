@@ -21,8 +21,6 @@ c_func_0(uint32_t *addr1)
     uint32_t *addr2 = (uint32_t *)((uint8_t *)addr1 + 0x1000);
     uint32_t *addr3 = (uint32_t *)((uint8_t *)addr1 + 0x2000);
 
-    if (*addr1 != 0) for(;;);
-
     *addr1 = MAP_MAGIC_1;
     *addr2 = MAP_MAGIC_1 + 1;
 
@@ -46,8 +44,6 @@ c_func_1(uint32_t *addr1)
 
     uint32_t *addr2 = (uint32_t *)((uint8_t *)addr1 + 0x1000);
     uint32_t *addr3 = (uint32_t *)((uint8_t *)addr1 + 0x2000);
-
-    if (*addr1 != 0) for(;;);
 
     *addr1 = MAP_MAGIC_2;
     *addr2 = MAP_MAGIC_2 + 1;

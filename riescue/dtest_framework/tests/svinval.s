@@ -212,6 +212,11 @@ test01:
 
     ;#test_passed()
 
+test_cleanup:
+    # Put your common initialization code here, e.g. initialize csr here if needed
+    li x1, 0xc0010002
+    ;#test_passed()
+
 .section .data
 
 ;#init_memory @lin1

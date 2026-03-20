@@ -44,7 +44,8 @@ class ArithmeticAction(Action):
         self.src2 = src2
         self.imm = imm
         if self.src2 is not None and self.imm is not None and self.src1 is not None:
-            raise ValueError("Arithmetic action cannot have both two source register and an immediate operand")
+            if self.src1 != "zero" and self.src2 != "zero":
+                raise ValueError("Arithmetic action cannot have both two source register and an immediate operand")
 
     def repr_info(self) -> str:
         op = ""
@@ -72,16 +73,26 @@ class ArithmeticAction(Action):
             if isinstance(inputs[0], int) and isinstance(inputs[1], int):
                 raise ValueError(f"Arithmetic action {step} has two immediate operands {inputs}")
             elif isinstance(inputs[0], int):
-                imm = inputs[0]
-                if not isinstance(inputs[1], str):
-                    raise ValueError(f"Arithmetic action {step} has an immediate operand and a non-register source operand {type(inputs[1])=}")
-                src1 = inputs[1]
-                # src2 = inputs[1]
+                if inputs[0] == 0:
+                    src1 = "zero"
+                    src2 = inputs[1] if isinstance(inputs[1], str) else None
+                    imm = 0
+                else:
+                    imm = inputs[0]
+                    if not isinstance(inputs[1], str):
+                        raise ValueError(f"Arithmetic action {step} has an immediate operand and a non-register source operand {type(inputs[1])=}")
+                    src1 = inputs[1]
+                    # src2 = inputs[1]
             elif isinstance(inputs[1], int):
-                imm = inputs[1]
-                if not isinstance(inputs[0], str):
-                    raise ValueError(f"Arithmetic action {step} has an immediate operand and a non-register source operand {type(inputs[1])=}")
-                src1 = inputs[0]
+                if inputs[1] == 0:
+                    src1 = inputs[0] if isinstance(inputs[0], str) else None
+                    src2 = "zero"
+                    imm = 0
+                else:
+                    imm = inputs[1]
+                    if not isinstance(inputs[0], str):
+                        raise ValueError(f"Arithmetic action {step} has an immediate operand and a non-register source operand {type(inputs[1])=}")
+                    src1 = inputs[0]
             else:
                 src1 = inputs[0]
                 src2 = inputs[1]
@@ -136,12 +147,20 @@ class ArithmeticAction(Action):
         imm = instruction.immediate_operand()
         if rs1 is not None:
             if self.src1 is None:
-                rs1.val = ctx.new_value_id()
+                if self.op == "sfence.vma":
+                    rs1.val = "zero"
+                    self.src1 = "zero"
+                else:
+                    rs1.val = ctx.new_value_id()
             else:
                 rs1.val = self.src1
         if rs2 is not None:
             if self.src2 is None:
-                rs2.val = ctx.new_value_id()
+                if self.op == "sfence.vma":
+                    rs2.val = "zero"
+                    self.src2 = "zero"
+                else:
+                    rs2.val = ctx.new_value_id()
             else:
                 rs2.val = self.src2
         if imm is not None:

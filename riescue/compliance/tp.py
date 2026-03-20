@@ -4,6 +4,12 @@
 # pyright: strict
 # pyright: reportMissingTypeStubs=false
 
+from coretp.step.step import TestStep
+
+
+from riescue.compliance.test_plan.actions.action import Action
+
+
 import argparse
 from pathlib import Path
 from typing import Optional, Any
@@ -24,6 +30,8 @@ from riescue.lib.toolchain import Toolchain
 from riescue.dtest_framework.config import FeatMgr
 from riescue.compliance.test_plan.generator import Predicates
 import riescue.lib.enums as RV
+from riescue.compliance.test_plan.actions import DEFAULT_MAPPINGS
+from riescue.compliance.test_plan.actions.registry import ActionRegistry
 
 
 class TpMode(BaseMode[TpCfg]):
@@ -38,7 +46,7 @@ class TpMode(BaseMode[TpCfg]):
 
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--isa", type=str, default="rv64imfda_zicsr_zk_zicond_zicbom_zicbop_zicboz_svadu_svinval", help="ISA to use")
+        parser.add_argument("--isa", type=str, default="rv64imfda_zicsr_zk_zicond_zicbom_zicbop_zicboz_svadu_svinval_zawrs_zihintpause_zihintntl", help="ISA to use")
         parser.add_argument("--test_plan", dest="test_plan_name", type=str, default="zicond", help="Test plan to use")
 
     def run(self, seed: int, toolchain: Toolchain, cl_args: Optional[argparse.Namespace] = None) -> Path:
@@ -46,7 +54,7 @@ class TpMode(BaseMode[TpCfg]):
         Top level wrapper to generate and simulate a test
         """
         cfg = self.configure(seed=seed, cl_args=cl_args)
-        return self.generate(cfg, toolchain)
+        return self.generate(cfg, toolchain, cl_args=cl_args)
 
     def configure(
         self,
@@ -69,7 +77,7 @@ class TpMode(BaseMode[TpCfg]):
             builder.with_args(cl_args)
         return builder.build(seed)
 
-    def generate(self, cfg: TpCfg, toolchain: Toolchain) -> Path:
+    def generate(self, cfg: TpCfg, toolchain: Toolchain, cl_args: Optional[argparse.Namespace] = None) -> Path:
         """
         Generate a test from test plan. Compiles and runs the test on ISS.
 
@@ -88,8 +96,26 @@ class TpMode(BaseMode[TpCfg]):
         except ValueError as e:
             raise ValueError(f"Test plan '{cfg.test_plan_name}' not found") from e
 
+        # map implementation specific test steps to actions
+        # assumption here is that teststep already exists
+        new_mapping = None
+        if len(cfg.conf) > 0:
+            for visible_conf in cfg.conf:
+                mapping = visible_conf.get_mapping()
+                new_mapping = DEFAULT_MAPPINGS
+                if mapping is not None:
+                    for teststep, action in mapping:
+                        for index, (default_teststep, _) in enumerate[tuple[type[TestStep], type[Action]]](new_mapping):
+                            if teststep == default_teststep:
+                                new_mapping[index] = (teststep, action)
+                                break
+
         rng = RandNum(cfg.seed)
-        generator = TestPlanGenerator(cfg.isa, rng)
+        generator = None
+        if new_mapping is not None:
+            generator = TestPlanGenerator(cfg, rng, action_registry=ActionRegistry(new_mapping))
+        else:
+            generator = TestPlanGenerator(cfg, rng)
         discrete_tests = generator.build(test_plan)
         env_constraints = self.get_predicates(cfg.featmgr)
         env = generator.solve(discrete_tests, env_constraints)
@@ -98,7 +124,10 @@ class TpMode(BaseMode[TpCfg]):
         test = generator.generate(discrete_tests, env, cfg.test_plan_name)
 
         # write test file
-        test_assembly_file = self.run_dir / f"tp_{cfg.test_plan_name}_{cfg.seed}.s"
+        output_name = cl_args.output_file if cl_args is not None and getattr(cl_args, "output_file", None) else f"tp_{cfg.test_plan_name}_{cfg.seed}"
+        test_assembly_file = self.run_dir / f"{output_name}.s"
+        with open(test_assembly_file, "w") as f:
+            f.write(test)
         with open(test_assembly_file, "w") as f:
             f.write(test)
 
@@ -111,7 +140,9 @@ class TpMode(BaseMode[TpCfg]):
         whisper = rd.toolchain.whisper
         if whisper is None:
             raise ValueError("No whisper configured in toolchain. Ensure Whisper was built in toolchain")
-        rd.simulate(cfg.featmgr, iss=whisper)
+
+        whisper_config_json_override = whisper.whisper_config_json.resolve()
+        rd.simulate(cfg.featmgr, iss=whisper, whisper_config_json_override=whisper_config_json_override)
 
         return generated_files.elf
 
@@ -170,16 +201,7 @@ class TpMode(BaseMode[TpCfg]):
         def virtualized_check(env: TestEnv) -> bool:
             return env.virtualized == (featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED)
 
-        def deleg_excp_to_check(env: TestEnv) -> bool:
-            if featmgr.deleg_excp_to == RV.RiscvPrivileges.MACHINE:
-                return env.deleg_excp_to == PrivilegeMode.M
-            elif featmgr.deleg_excp_to == RV.RiscvPrivileges.SUPER:
-                return env.deleg_excp_to == PrivilegeMode.S
-            else:
-                raise ValueError(f"Invalid delegation exception to mode: {featmgr.deleg_excp_to}")
-
         predicates.append(priv_check)
         predicates.append(paging_check)
         predicates.append(virtualized_check)
-        predicates.append(deleg_excp_to_check)
         return predicates

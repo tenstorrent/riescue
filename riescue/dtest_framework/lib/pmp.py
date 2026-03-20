@@ -1,12 +1,15 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: strict
+
 from __future__ import annotations
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
-from riescue.lib.enums import Xlen, RiscvPmpAddressMatchingModes
+from riescue.lib.enums import Xlen, RiscvPmpAddressMatchingModes, PmpAttributes
+from riescue.dtest_framework.config.memory import BaseMem, DramRange
 
 """
 Package containing PMP related classes. Used to generate ``pmpcfg`` and ``pmpaddr`` CSRs.
@@ -92,7 +95,7 @@ class PmpEntry:
 
     :param int base: region start address
     :param int size: region size in bytes, must be a power of two ≥ PMP_GRANULE
-    :param str perms: combination of ``"r"``, ``"w"``, ``"x"``
+    :param PmpAttributes perms: PMP attributes of the range. E.g. "rwx", "rw", "r"
     :param PmpAddrMatching addr_matching: the address matching mode
     """
 
@@ -100,7 +103,7 @@ class PmpEntry:
 
     base: int
     size: int
-    perms: str
+    perms: PmpAttributes
     addr_matching: RiscvPmpAddressMatchingModes = RiscvPmpAddressMatchingModes.OFF
 
     def to_pmpaddr(self, idx: int) -> PmpAddr:
@@ -162,8 +165,8 @@ class PmpEntry:
         :returns: encoded cfg byte
         :rtype: int
         """
-        perm_bits = (1 if "r" in self.perms else 0) | (1 if "w" in self.perms else 0) << 1 | (1 if "x" in self.perms else 0) << 2
-        return perm_bits | self.addr_matching.encode()
+        log.debug(f"permission bits for base = 0x{self.base:x} {self.perms.bits():b} | {self.addr_matching.encode():b}")
+        return self.perms.bits() | self.addr_matching.encode()
 
 
 class PmpRegion:
@@ -264,16 +267,29 @@ class PmpRegion:
             rem -= chunk
         return out
 
-    def add_region(self, base: int, size: int, perms: str = "rwx") -> PmpRegion:
+    def add_region(self, range: BaseMem, secure: bool = False) -> PmpRegion:
         """
         Append a region. Adds regions to PmpEntry list.
 
         .. warning::
             This does not optimize regions. Overlaps are not merged, they will not be merged. Only adds to list in order
 
+        :param BaseMem range: the region to add
+        :param bool secure: if True, then the region is secure. This creates a new DramRange with bit-55 set to 1
         :returns: self to allow chaining
         """
-        log.info(f"Adding region {base:x} {size:x} {perms}")
+
+        if secure:
+            if not isinstance(range, DramRange):
+                raise TypeError("PMP requires a DramRange to mark region secure")
+            # Since this secure region, we need to set bit-55 to 1 for PMP entries only
+            # Can't modify original DramRange object since other objects might reference it.
+            range = range.make_secure()
+
+        base = range.start
+        size = range.size
+        perms = range.permissions
+        log.debug(f"Adding region {base:x} {size:x} {perms} bit55={base & 0x0080000000000000:x}")
         if len(self._entries) >= self.NUM_ENTRIES:
             raise ValueError("no PMP slots left. Consolidate regions before adding more")
 
@@ -306,7 +322,8 @@ class PmpRegion:
 
         # generate all cfg and addr registe
         for cfg_idx, entry in enumerate(self._entries):
-            cfg_value = (cfg_value << 8) | entry.encode_cfg()
+            cfg_value = cfg_value | (entry.encode_cfg() << (8 * (cfg_idx % max_registers_per_cfg)))
+            log.debug(f"encoding cfg for base = 0x{entry.base:x} has {entry.encode_cfg():x} 0x{cfg_value:x}")
             addr_registers.append(entry.to_pmpaddr(cfg_idx))
 
             if len(addr_registers) == max_registers_per_cfg:
@@ -318,10 +335,10 @@ class PmpRegion:
                     value=cfg_value,
                     xlen=self.xlen,
                 )
+                log.debug(f"cfg_value: 0x{cfg_value:x}")
                 registers.append(PmpRegisters(cfg=cfg, addr=addr_registers))
                 addr_registers = []
                 cfg_value = 0
-
         # adding last cfg if any
         if cfg_idx is None:
             raise ValueError("no PMP entries but Pmp requsted")

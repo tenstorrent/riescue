@@ -20,7 +20,16 @@ class MemAccessAction(Action):
 
     register_fields = ["memory", "rs1"]
 
-    def __init__(self, offset: int = 0, memory: Optional[str] = None, src2: Optional[Union[str, int]] = None, op: Optional[str] = None, **kwargs):
+    def __init__(
+        self,
+        offset: int = 0,
+        memory: Optional[str] = None,
+        src2: Optional[Union[str, int]] = None,
+        op: Optional[str] = None,
+        has_immediate: bool = False,
+        extension: Optional[Extension] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.offset = offset
         self.memory = memory  # Should only ever hold label to memory block
@@ -28,6 +37,8 @@ class MemAccessAction(Action):
         self.rs2 = src2
         self.op = op
         self.expanded = False
+        self.has_immediate = has_immediate
+        self.extension = extension
 
         # not sure on this, please advise
         self.value = None
@@ -49,7 +60,7 @@ class MemAccessAction(Action):
                     continue  # skip the first input, it's the mandatory offset
                 src2 = src
 
-        return cls(step_id=step_id, offset=step.step.offset, memory=memory, src2=src2, op=step.step.op, **kwargs)
+        return cls(step_id=step_id, offset=step.step.offset, memory=memory, src2=src2, op=step.step.op, has_immediate=step.step.has_immediate, extension=step.step.extension, **kwargs)
 
     def repr_info(self) -> str:
         return f"{self.offset}('{self.memory}'))"
@@ -77,7 +88,7 @@ class MemAccessAction(Action):
             self.rs1 = memory_li.step_id
             new_actions.append(memory_li)
 
-        if not (-2048 <= self.offset <= 2047):
+        if not (-2048 <= self.offset <= 2047) or not self.has_immediate:
             li = LiAction(step_id=ctx.new_value_id(), immediate=self.offset)
             add = ArithmeticAction(step_id=ctx.new_value_id(), op="add", src1=self.rs1, src2=li.step_id)  # Should be able to select addi x1, (num>2^12) and it shoudl handle the li
             self.rs1 = add.step_id  # rewire
@@ -103,7 +114,12 @@ class MemAccessAction(Action):
         if self.op is not None:
             return ctx.instruction_catalog.get_instruction(self.op)
         else:
-            instruction_choices = ctx.instruction_catalog.filter(category=Category.LOAD | Category.STORE, exclude_extensions=Extension.SVINVAL)
+            # If Extension.A is specified, filter for atomic instructions (ATOMIC category)
+            # Otherwise, use regular LOAD/STORE instructions
+            if self.extension == Extension.A:
+                instruction_choices = ctx.instruction_catalog.filter(category=Category.ATOMIC, exclude_extensions=Extension.SVINVAL)
+            else:
+                instruction_choices = ctx.instruction_catalog.filter(category=Category.LOAD | Category.STORE, exclude_extensions=Extension.SVINVAL)
             return ctx.rng.choice(instruction_choices)
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:

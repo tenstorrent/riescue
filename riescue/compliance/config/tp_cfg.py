@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, replace
 
-from riescue.dtest_framework.config import FeatMgr
+from riescue.dtest_framework.config import FeatMgr, Conf
 from riescue.lib.toolchain import Toolchain, Whisper
 
 log = logging.getLogger(__name__)
@@ -17,8 +17,8 @@ class TpCfg:
     """
 
     featmgr: FeatMgr = field(default_factory=FeatMgr)
-    toolchain: Toolchain = field(default_factory=lambda: Toolchain(whisper=Whisper()))
-
+    toolchain: Toolchain = field(default_factory=Toolchain)
+    conf: list[Conf] = field(default_factory=list)
     isa: str = ""
     test_plan_name: str = ""
     seed: int = 0

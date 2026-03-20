@@ -30,5 +30,9 @@ excp_ret:
 
     ;#test_passed()
 
+test_cleanup:
+    li x1, 0xc0010002
+    ;#test_passed()
+
 
 .section .data

@@ -88,13 +88,14 @@ test01:
     cs:
         j release_flag
 
+    # hart 0 has higher priority than hart 1
     h0_code:
-        #Set my flag
+        #Set flag[0] = true
         la t0, h0_flag
         li t1, 1
         sd t1, 0(t0)
 
-        #Set turn to 1
+        #Set turn = true
         la t0, turn
         li t1, 1
         sd t1, 0(t0)
@@ -106,13 +107,14 @@ test01:
             #Check turn
             la t2, turn
             ld t3, 0(t2)
+            # while (flag[1] == true && turn == 1) loop
             # wait if 1's flag and 1's turn
             and t4, t1, t3
             bnez t4, h0_wait
             j cs
 
     h1_code:
-        #Set my flag
+        #Set flag[1] = true
         la t0, h1_flag
         li t1, 1
         sd t1, 0(t0)
@@ -130,12 +132,10 @@ test01:
             la t2, turn
             ld t3, 0(t2)
             #Wait if 0's flag and 0's turn
-            li t4, 1
-            and t4, t1, t4 # 0's flag is 1
-            li t5, 1
-            xor t5, t5, t3 # and turn is 0
-            and t4, t5, t5
-            beqz t4, h1_wait
+            # While (flag[0] == true && turn == 0) wait
+            seqz t4, t3  # t4 = (turn==0)
+            and t1, t1, t4 # t1 = (flag[0] && (turn==0))
+            bnez t1, h1_wait
             j cs
 
     release_flag:

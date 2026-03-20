@@ -20,6 +20,32 @@ class Xlen(IntEnum):
     XLEN64 = 64
 
 
+class PmpAttributes(MyEnum):
+    R = "r"
+    R_W = "rw"
+    R_X = "rx"
+    R_W_X = "rwx"
+    NONE = "none"
+
+    def bits(self) -> int:
+        if self == PmpAttributes.R:
+            return 1
+        elif self == PmpAttributes.R_W:
+            return 3
+        elif self == PmpAttributes.R_X:
+            return 5
+        elif self == PmpAttributes.R_W_X:
+            return 7
+        elif self == PmpAttributes.NONE:
+            return 0
+        else:
+            raise ValueError(f"PMP Attributes: {self} is unrecognized")
+
+    @classmethod
+    def from_str(cls, s: str) -> PmpAttributes:
+        return cls(s)
+
+
 class RiscvPmpAddressMatchingModes(MyEnum):
     OFF = 0
     TOR = 1
@@ -42,6 +68,111 @@ class RiscvPmpAddressMatchingModes(MyEnum):
     def encode(self) -> int:
         "returns value bit shifted to bits [4:3]"
         return self.value << 3
+
+
+class PmaSupport(MyEnum):
+    """
+    Base class for PMA support levels.
+    """
+
+
+class PmaAmoLevel(PmaSupport):
+    """
+    "Within AMOs, there are four levels of support: AMONone, AMOSwap, AMOLogical, and AMOArithmetic." (Atomicity PMAs - AMO support levels (Section 3.6.3))
+    """
+
+    AMO_NONE = auto()  #: "AMONone indicates that no AMO operations are supported."
+    AMO_SWAP = auto()  #: "AMOSwap indicates that only amoswap instructions are supported in this address range."
+    AMO_LOGICAL = auto()  #: "AMOLogical indicates that swap instructions plus all the logical AMOs (amoand, amoor, amoxor) are supported."
+    AMO_ARITHMETIC = auto()  #: "AMOArithmetic indicates that all RISC-V AMOs are supported."
+
+
+class PmaLrScLevel(PmaSupport):
+    """
+    "For LR/SC, there are three levels of support indicating combinations of the reservability and eventuality
+    properties: RsrvNone, RsrvNonEventual, and RsrvEventual." (Atomicity PMAs - LR/SC support levels (Section 3.6.3))
+    """
+
+    RSRV_NONE = auto()  #: "RsrvNone indicates that no LR/SC operations are supported (the location is non-reservable)."
+    RSRV_NON_EVENTUAL = auto()  #: "RsrvNonEventual indicates that the operations are supported (the location is reservable), but without the eventual success guarantee"
+    RSRV_EVENTUAL = auto()  #: "RsrvEventual indicates that the operations are supported and provide the eventual success guarantee."
+
+
+class PmaMisalignedAtomicityGranule(PmaSupport):
+    """
+    "The misaligned atomicity granule PMA provides constrained support for misaligned AMOs. This PMA, if
+    present, specifies the size of a misaligned atomicity granule, a naturally aligned power-of-two number of
+    bytes. Specific supported values for this PMA are represented by MAGNN, e.g., MAG16 indicates the
+    misaligned atomicity granule is at least 16 bytes." (Misaligned Atomicity Granule PMA (Section 3.6.3)
+    """
+
+    # "If a misaligned AMO accesses a region that does not specify a misaligned atomicity granule PMA, [...] then an exception is raised."
+    MAG_NONE = 0
+    MAG_16 = 16  # At least 16 bytes
+    MAG_32 = 32  # At least 32 bytes
+    MAG_64 = 64  # At least 64 bytes
+    MAG_128 = 128  # At least 128 bytes
+
+
+class PmaMemoryOrdering(PmaSupport):
+
+    RVWMO = auto()  #: "Coherent main memory regions always have either the RVWMO or RVTSO memory model."
+    RVTSO = auto()
+    INCOHERENT = auto()
+    IO_RELAXED = auto()
+    IO_STRONG = auto()
+
+
+class PmaStrongOrderingChannel(PmaSupport):
+    """
+    "Each strongly ordered I/O region specifies a numbered ordering channel, which is a mechanism by which
+    ordering guarantees can be provided between different I/O regions." Strong Ordering Channel for I/O regions (Section 3.6.5)
+    """
+
+    CHANNEL_0_POINT_TO_POINT = 0  #: "Channel 0 is used to indicate point-to-point strong ordering only, where only accesses by the hart to the single associated I/O region are strongly ordered."
+    CHANNEL_1_GLOBAL = 1  #: "Channel 1 is used to provide global strong ordering across all I/O regions."
+    CHANNEL_2 = 2  #: "Other larger channel numbers provide program ordering to accesses by that hart across any regions with the same channel number."
+    CHANNEL_3 = 3
+    CHANNEL_4 = 4
+    CHANNEL_5 = 5
+    CHANNEL_6 = 6
+    CHANNEL_7 = 7
+
+
+class PmaCoherence(PmaSupport):
+    """
+    "Coherence is a property defined for a single physical address, and indicates that writes to that address by
+    one agent will eventually be made visible to other coherent agents in the system."  Coherence PMAs (Section 3.6.6)
+    """
+
+    COHERENT = auto()
+    INCOHERENT = auto()
+
+
+class PmaCacheability(PmaSupport):
+    """
+    "The cacheability of a memory region should not affect the software view of the region except for
+    differences reflected in other PMAs, such as main memory versus I/O classification, memory ordering,
+    supported accesses and atomic operations, and coherence."Cacheability PMAs (Section 3.6.6)
+    """
+
+    CACHEABLE = auto()
+    NON_CACHEABLE = auto()
+    CONFIGURABLE = auto()
+
+
+class PmaIdempotency(PmaSupport):
+    """
+    "Idempotency PMAs describe whether reads and writes to an address region are idempotent. Main memory
+    regions are assumed to be idempotent. For I/O regions, idempotency on reads and writes can be specified
+    separately (e.g., reads are idempotent but writes are not)." Idempotency PMAs (Section 3.6.7)
+    """
+
+    IDEMPOTENT = auto()  #: "Main memory regions are assumed to be idempotent."
+    NON_IDEMPOTENT = auto()
+
+    READ_IDEMPOTENT_WRITE_NON_IDEMPOTENT = auto()  #: "For I/O regions where reads and writes have different idempotency"
+    READ_NON_IDEMPOTENT_WRITE_IDEMPOTENT = auto()
 
 
 class AddressType(MyEnum):
@@ -167,6 +298,7 @@ class RiscvBaseArch(MyEnum):
 
 class RiscvPageSizes(MyEnum):
     S4KB = auto()
+    S64KB = auto()
     S4MB = auto()
     S2MB = auto()
     S1GB = auto()
@@ -187,6 +319,8 @@ class RiscvPageSizes(MyEnum):
         """
         if pagesize == cls.S4KB:
             return 1000
+        elif pagesize == cls.S64KB:
+            return 200
         elif pagesize == cls.S4MB:
             return 200
         elif pagesize == cls.S2MB:
@@ -204,6 +338,8 @@ class RiscvPageSizes(MyEnum):
     def memory(cls, pagesize: RiscvPageSizes) -> int:
         if pagesize == cls.S4KB:
             return 0x1000
+        elif pagesize == cls.S64KB:
+            return 0x10000
         elif pagesize == cls.S4MB:
             return 0x400000
         elif pagesize == cls.S2MB:
@@ -232,6 +368,8 @@ class RiscvPageSizes(MyEnum):
         Return which pagetable level to stop at for the given pagesize
         """
         if pagesize == cls.S4KB:
+            return 0
+        elif pagesize == cls.S64KB:
             return 0
         elif pagesize == cls.S4MB:
             return 1
@@ -352,11 +490,11 @@ class RiscvPagingModes(MyEnum):
         if mode == RiscvPagingModes.SV32:
             pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S4MB]
         elif mode == RiscvPagingModes.SV39:
-            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB]
+            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S64KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB]
         elif mode == RiscvPagingModes.SV48:
-            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB, RiscvPageSizes.S512GB]
+            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S64KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB, RiscvPageSizes.S512GB]
         elif mode == RiscvPagingModes.SV57:
-            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB, RiscvPageSizes.S512GB, RiscvPageSizes.S256TB]
+            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S64KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB, RiscvPageSizes.S512GB, RiscvPageSizes.S256TB]
         else:
             pass
 
@@ -496,6 +634,9 @@ class HookPoint(MyEnum):
     #: Insert code before the loader.
     #: Can be used to insert code for custom CSRs, platform intialization code. GPRs, and changes to tvec, status, and satp will be overwritten by loader.
     PRE_LOADER = "pre_loader"
+    #: Insert additional M-level configuration needed before the runtime may jump to a less privileged or virtualized mode.
+    #: Code should avoid modifying trap handling or paging registers, e.g. tvec, satp, or vsatp.
+    M_LOADER = "m_loader"
     POST_LOADER = "post_loader"  #: Insert code after the loader but before the test jumps to the scheduler, inside ``loader__done`` label.
 
     # Scheduler hooks

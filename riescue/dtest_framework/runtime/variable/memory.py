@@ -40,11 +40,18 @@ class BaseMemory(ABC):
         """
         return name in self._variables
 
-    def register(self, name: str, value: int, size: Optional[int] = None, description: str = "", hart_variable: bool = True) -> Variable:
+    def register(self, name: str, value: int, size: Optional[int] = None, description: str = "", hart_variable: bool = True, element_count: int = 1) -> Variable:
         """
         Register a variable with the memory.
 
         Subclasses should just wrap this method
+
+        :param name: Name of the variable
+        :param value: Initial value of the variable (applies to all elements for arrays)
+        :param size: Size per element in bytes (defaults to variable_size)
+        :param description: Description of the variable
+        :param hart_variable: Whether this is a hart-local variable
+        :param element_count: Number of elements (1 for scalar, >1 for array)
         """
 
         if name in self._variables:
@@ -59,9 +66,11 @@ class BaseMemory(ABC):
             description=description,
             amo_enabled=self.amo_enabled,
             hart_variable=hart_variable,
+            element_count=element_count,
         )
         # for alignment reasons, going to keep all variables the same size even if they only need a 1 or 2 bytes
-        self._offset += self.variable_size
+        # Advance offset by total size (element_count * variable_size)
+        self._offset += self.variable_size * element_count
         self._variables[name] = new_variable
         return self._variables[name]
 

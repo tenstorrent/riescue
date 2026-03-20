@@ -149,7 +149,7 @@ The ``tohost`` write value can be overridden by setting the ``eot_pass_value`` a
 
 
 The ``tohost`` address can be configured by changing the ``htif`` section in the CPU configuration file.
-If no ``htif`` section is provided, it will insert the address at the end of the runtime code (after the ``.section .text`` section).
+If no ``htif`` section is provided, it will insert the address at the end of the runtime code (after the ``.section .runtime`` section).
 
 
 

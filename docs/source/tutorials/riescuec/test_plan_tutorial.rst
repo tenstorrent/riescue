@@ -97,7 +97,7 @@ Execute test plan mode using:
 
 .. code-block:: bash
 
-   riescuec --mode test_plan --seed 12345  --test_plan zicond
+   riescuec --mode tp --seed 12345  --test_plan zicond
 
 **Test Generation Process**
 

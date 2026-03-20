@@ -61,6 +61,9 @@
 # test_setup: Set MIE in mstatus
 #####################
 test_setup:
+    # Clear mideleg so S-mode interrupts aren't masked in M-mode
+    csrw mideleg, x0
+
     # Enable Global interrupts
     ENABLE_MIE
 

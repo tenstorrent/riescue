@@ -8,6 +8,7 @@ import argparse
 from pathlib import Path
 from typing import Optional, Union
 import os
+import re
 
 import riescue.lib.logger as RiescueLogger
 from riescue.lib.rand import RandNum, initial_random_seed
@@ -115,12 +116,6 @@ class RiescueD(CliBase):
             default=None,
             help="Path to cpu feature configuration. Defaults to dtest_framework/lib/config.json",
         )
-        parser.add_argument(
-            "--conf",
-            type=Path,
-            default=None,
-            help="Path to conf.py file for additional config and hooks.",
-        )
 
         run_args = parser.add_argument_group(
             "Run Control",
@@ -155,12 +150,25 @@ class RiescueD(CliBase):
         cls.add_arguments(parser)
         cl_args = parser.parse_args(args)
 
-        if args is not None:
-            print("riescued.py " + " ".join(args))
-        else:
-            print(" ".join(sys.argv))
+        rd = cls.from_clargs(cl_args, **kwargs)
 
-        return cls.from_clargs(cl_args, **kwargs)
+        # Print command for debug
+        if args is not None:
+            cmd_str = "riescued.py " + " ".join(args)
+        else:
+            cmd_str = " ".join(sys.argv)
+        print(cmd_str)
+
+        # Print reproducible command (argv already has all args; append seed if auto-generated)
+        argv = sys.argv[1:] if args is None else list(args)
+        seed_suffix = f" --seed {rd.rng.get_seed()}" if cl_args.seed is None else ""
+        print("# Reproducible: riescued.py " + " ".join(argv) + seed_suffix)
+        rd.run(
+            cl_args,
+            elaborate_only=cl_args.elaborate_only,
+            run_iss=cl_args.run_iss,
+        )
+        return rd
 
     @classmethod
     def from_clargs(cls, cl_args, **kwargs):
@@ -177,7 +185,7 @@ class RiescueD(CliBase):
         if testfile is None:
             raise ValueError("Testfile is required when running from CLI")
 
-        rd = cls(
+        return cls(
             testfile=testfile,
             cpuconfig=cl_args.cpuconfig,
             run_dir=cl_args.run_dir,
@@ -185,26 +193,12 @@ class RiescueD(CliBase):
             toolchain=Toolchain.from_clargs(cl_args),
         )
 
-        # load Conf from path if provided
-        if cl_args.conf is not None:
-            conf = Conf.load_conf_from_path(cl_args.conf)
-        else:
-            conf = None
-
-        rd.run(
-            cl_args,
-            elaborate_only=cl_args.elaborate_only,
-            run_iss=cl_args.run_iss,
-            conf=conf,
-        )
-        return rd
-
     def run(
         self,
         cl_args: argparse.Namespace,
         elaborate_only: bool = False,
         run_iss: bool = False,
-        conf: Optional[Conf] = None,
+        conf: Optional[list[Conf]] = None,
     ) -> GeneratedFiles:
         """
         Run RiescueD configuration, generation, and compilation. Simulate if requested.
@@ -212,6 +206,7 @@ class RiescueD(CliBase):
         :param cl_args: Command line arguments
         :param elaborate_only: Generate assembly file, don't compile or simulate
         :param run_iss: Run ISS with the test. Default ISS is Whisper, but can be run with any other ISS using --iss <iss>
+        :param selfcheck: Dump selfcheck_data region to disk after ISS run (requires --run_iss with Whisper)
         :param conf: Optional ``Conf`` object to modify ``FeatMgr``. CLI-passed ``Conf`` takes priority over ``Conf`` passed into this method
 
         :return: Generated files; structure containing all generated files
@@ -228,6 +223,18 @@ class RiescueD(CliBase):
             return self.generated_files
 
         self.build(featmgr)
+        if featmgr.selfcheck:
+            if self.toolchain.whisper is None:
+                raise ValueError("Whisper is required for selfcheck mode. Provide Whisper in toolchain configuration")
+            self.simulate(
+                featmgr,
+                iss=self.toolchain.whisper,
+                whisper_config_json_override=cl_args.whisper_config_json,
+                dump_selfcheck=True,
+            )
+
+            self.build(featmgr, relink_selfcheck=True)
+
         if run_iss:
             if self.toolchain.simulator is None:
                 raise ValueError("No ISS selected. Provide ISS in toolchain configuration")
@@ -239,7 +246,7 @@ class RiescueD(CliBase):
 
         return self.generated_files
 
-    def configure(self, args: Optional[argparse.Namespace] = None, conf: Optional[Conf] = None) -> FeatMgr:
+    def configure(self, args: Optional[argparse.Namespace] = None, conf: Optional[list[Conf]] = None) -> FeatMgr:
         """
         Configure ``FeatMgr`` object for generation. ``FeatMgr`` can be modified before generation.
 
@@ -251,11 +258,13 @@ class RiescueD(CliBase):
 
         log.debug("Initializing FeatMgr")
         featmgr_builder = FeatMgrBuilder()
-        featmgr_builder.conf = conf
+        if conf is not None:
+            featmgr_builder.conf.extend(conf)
         featmgr_builder.with_test_header(self.parsed_data.test_header)
         featmgr_builder.with_cpu_json(self.cpuconfig)
         if args is not None:
             featmgr_builder.with_args(args)
+        featmgr_builder.with_vector_delegations(self.pool.parsed_vector_delegations)
         return featmgr_builder.build(rng=self.rng)
 
     def generate(self, featmgr: FeatMgr) -> GeneratedFiles:
@@ -288,11 +297,12 @@ class RiescueD(CliBase):
         test_gen.generate(file_in=self.testfile, generated_files=self.generated_files)
         return self.generated_files
 
-    def build(self, featmgr: FeatMgr, generator: Optional[Generator] = None) -> GeneratedFiles:
+    def build(self, featmgr: FeatMgr, relink_selfcheck: bool = False, generator: Optional[Generator] = None) -> GeneratedFiles:
         """
         Compile and disassemble the test code.
 
         :param featmgr: ``FeatMgr`` object
+        :param relink_selfcheck: If true, don't compile test and relink test with selfcheck data from previous ISS run
         :param generator: [Deprecated] ``Generator`` object, currently ignored
         :returns: The internal :attr:`generated_files` instance, a :class:`GeneratedFiles` object containing paths to generated files.
         """
@@ -302,22 +312,70 @@ class RiescueD(CliBase):
 
         compiler = self.toolchain.compiler
         linker_script = self.generated_files.linker_script
+
         # fmt: off
         compiler_args = [
             "-I", str(self.run_dir),
-            "-T", str(linker_script),
-            "-o", str(self.generated_files.elf),
-            str(self.generated_files.assembly),
+            "-c",
         ]
-        # fmt: on
+        if featmgr.compiler_include_dir is not None:
+            compiler_args.extend(["-I", str(featmgr.compiler_include_dir)])
+        if relink_selfcheck:
+            self.generated_files.selfcheck_asm = self.run_dir / f"{self.testname}_selfcheck_dump.s"
+            self.generated_files.selfcheck_obj = self.run_dir / f"{self.testname}_selfcheck_dump.o"
+
+            if self.generated_files.selfcheck_dump is None:
+                raise ValueError("selfcheck_dump path is not set. Run simulate() with dump_selfcheck=True first")
+
+            with open(self.generated_files.selfcheck_dump, "r") as selfcheck_dump:
+                line = selfcheck_dump.readline()
+                assert line.startswith("@"), "Expected first line in selfcheck dump to be address line starting with @"
+
+                with open(self.generated_files.selfcheck_asm, "w") as selfcheck_asm:
+                    selfcheck_asm.write(".section .selfcheck_data, \"aw\"\n")
+
+                    for line in selfcheck_dump:
+                        assert not line.startswith("@"), "Expected no address lines in selfcheck dump after first line"
+                        for byte_str in line.strip().split():
+                            byte = int(byte_str, 16)
+                            selfcheck_asm.write(f".byte 0x{byte:02x}\n")
+
+            compiler_args.extend([
+                "-o", str(self.generated_files.selfcheck_obj),
+                str(self.generated_files.selfcheck_asm),
+            ])
+        else:
+            compiler_args.extend([
+                str(self.generated_files.assembly),
+            ])
+
+            if featmgr.cfiles is not None:
+                for cfile in featmgr.cfiles:
+                    compiler_args.append(f"{str(self._resolve_path(cfile))}")
+
         if featmgr.big_endian:
             compiler_args.append("-mbig-endian")
 
+        compiler.run(cwd=self.run_dir, args=compiler_args)
+
+        linker_args = [
+            "-T", str(linker_script),
+            "-o", str(self.generated_files.elf),
+            str(self.generated_files.obj),
+        ]
+        if relink_selfcheck:
+            linker_args.append(str(self.generated_files.selfcheck_obj))
+
+        if featmgr.big_endian:
+            linker_args.append("-F")
+            linker_args.append("elf64-bigriscv")
+            linker_args.append("-mbig-endian")
+
         if featmgr.cfiles is not None:
             for cfile in featmgr.cfiles:
-                compiler_args.append(f"{str(self._resolve_path(cfile))}")
+                linker_args.append(re.sub(r"\.[cs]$", ".o", f"{str(self.run_dir)}/{os.path.basename(cfile)}"))
 
-        compiler.run(cwd=self.run_dir, args=compiler_args)
+        compiler.run(cwd=self.run_dir, args=linker_args)
 
         # Generate Disassembly
         disassembler = self.toolchain.disassembler
@@ -335,6 +393,7 @@ class RiescueD(CliBase):
         featmgr: FeatMgr,
         iss: Union[Spike, Whisper],
         whisper_config_json_override: Optional[Path] = None,
+        dump_selfcheck: bool = False,
     ) -> Path:
         """
         Run test code through ISS
@@ -342,8 +401,13 @@ class RiescueD(CliBase):
         :param featmgr: ``FeatMgr`` object
         :param iss: ``Spike`` or ``Whisper`` object
         :param whisper_config_json_override: Optional path to whisper config json file to override default
+        :param dump_selfcheck: Dump selfcheck_data region to disk after ISS run (requires Whisper)
         :return: Path to ISS log file
         """
+
+        if dump_selfcheck and not isinstance(iss, Whisper):
+            raise ValueError("Selfcheck dump is only supported with Whisper ISS")
+
         # In wysiwyg mode, we use a different end-of-test mechanism where we look for x31=0xc001c0de to be written
         # This is not supported by whisper, so we are using --endpc to the end of the test in whisper
         # To do this, we need to find the pc of label "fail" in disassembly and send it to --endpc
@@ -406,6 +470,12 @@ class RiescueD(CliBase):
                 ]
             if featmgr.wysiwyg and failed_pc is not None:
                 iss_args += ["--endpc", str(hex(failed_pc))]
+
+            if dump_selfcheck:
+                self.generated_files.selfcheck_dump = self.run_dir / f"{self.testname}_selfcheck_dump.hex"
+                selfcheck_dumpmem = f"{self.generated_files.selfcheck_dump}:@selfcheck_data:@selfcheck_data+@selfcheck_per_hart_size*@NUM_CPUS"
+                resolved_dumpmem = iss.process_dumpmem_arg(self.generated_files.elf, selfcheck_dumpmem)
+                iss_args += ["--dumpmem", resolved_dumpmem]
         else:
             raise ValueError("No ISS selected. Provide ISS in toolchain configuration")
 

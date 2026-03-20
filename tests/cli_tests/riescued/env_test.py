@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import unittest
+from pathlib import Path
+
+from riescue.lib.toolchain.exceptions import ToolFailureType
 
 from tests.cli_tests.riescued.base_riescued import BaseRiescuedTest
 
@@ -49,6 +52,35 @@ class TestEnvTests(BaseRiescuedTest):
         "Test that uses PBMT_NCIo_randomization"
         cli_args = ["--run_iss", "--pbmt_ncio_randomization", "100"]
         self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=self.iterations)
+
+    def test_fs_vs_randomization_equates(self):
+        """FS/VS randomization options are written to equates.inc with correct values and value-list comments."""
+        cli_args = [
+            "--run_iss",
+            "--fs_randomization",
+            "50",
+            "--fs_randomization_values",
+            "1, 2",
+            "--vs_randomization",
+            "75",
+            "--vs_randomization_values",
+            "2",
+        ]
+        results = self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=1)
+        self.assertGreater(len(results), 0)
+        equates = self.get_all_equates(results[0])
+        self.assertIn("FS_RANDOMIZATION", equates)
+        self.assertIn("VS_RANDOMIZATION", equates)
+        self.assertEqual(equates["FS_RANDOMIZATION"], 50)
+        self.assertEqual(equates["VS_RANDOMIZATION"], 75)
+        # Check value-list comments appear in equates file
+        equates_file = results[0].generated_files.elf.with_name(f"{results[0].generated_files.elf.stem}_equates.inc")
+        self.assertTrue(equates_file.exists())
+        content = equates_file.read_text()
+        self.assertIn("FS_RANDOMIZATION_VALUES:", content)
+        self.assertIn("VS_RANDOMIZATION_VALUES:", content)
+        self.assertIn("1, 2", content)
+        self.assertIn("0=Off 1=Initial 2=Clean 3=Dirty", content)
 
     def test_ld_basic(self):
         args = ["--run_iss"]
@@ -103,6 +135,24 @@ class TestEnvTests(BaseRiescuedTest):
         cli_args += ["--cpuconfig=dtest_framework/lib/config_secure_0.json", "--whisper_config_json=dtest_framework/lib/whisper_secure_config.json"]
         self.run_riescued(testname="dtest_framework/tests/test_long.s", cli_args=cli_args, iterations=self.iterations)
 
+    def test_sstateen(self):
+        "Test that sstateen setup works when smstateen extension is enabled"
+        cli_args = ["--run_iss", "--cpuconfig=dtest_framework/lib/smstateen_config.json", "--whisper_config_json=dtest_framework/lib/whisper_smstateen_config.json"]
+        self.run_riescued(testname="dtest_framework/tests/test.s", cli_args=cli_args, iterations=self.iterations)
+
+    def test_hstateen(self):
+        "Test that hstateen setup works when smstateen extension is enabled"
+        cli_args = ["--run_iss", "--test_env=virtualized", "--cpuconfig=dtest_framework/lib/smstateen_config.json", "--whisper_config_json=dtest_framework/lib/whisper_smstateen_config.json"]
+        self.run_riescued(testname="dtest_framework/tests/test.s", cli_args=cli_args, iterations=self.iterations)
+
+    def test_no_va_pa_overlap(self):
+        args = [
+            "--run_iss",
+            "--cpuconfig=dtest_framework/lib/config_no_va_pa_overlap.json",
+            "--test_paging_mode=sv48",
+        ]
+        self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
+
 
 class Bf16Test(BaseRiescuedTest):
     "Test for bf16"
@@ -139,6 +189,23 @@ class Test_EquatesTests(BaseRiescuedTest):
     def test_equates_multiple_defines(self):
         args = ["--run_iss", "--test_equates", "DEFINE_A=1", "-teq", "DEFINE_B=1"]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
+
+
+class ConfTests(BaseRiescuedTest):
+    """
+    Combined tests for --conf. Example conf
+    """
+
+    def setUp(self):
+        self.testname = "dtest_framework/tests/test.s"
+        super().setUp()
+
+    def test_conf_loop(self):
+        "Passed in Conf should cause test to hit max instruction limit"
+        loop_conf = Path(__file__).parent / "data" / "loop_conf.py"
+        args = ["--run_iss", "--conf", str(loop_conf), "--whisper_max_instr", "2500"]
+        for failure in self.expect_toolchain_failure_generator(testname=self.testname, cli_args=args, failure_kind=ToolFailureType.MAX_INSTRUCTION_LIMIT, iterations=self.iterations):
+            pass  # We expect a failure, so we don't need to do anything
 
 
 if __name__ == "__main__":

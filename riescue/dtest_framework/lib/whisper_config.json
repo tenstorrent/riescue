@@ -1,6 +1,6 @@
 {
     "xlen" : 64,
-    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zicntr_zihpm_zvqdot_zjpm_svpbmt_svadu_sstc_ssu64xl",
+    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zicntr_zihpm_zvqdot_zjpm_svpbmt_svadu_sstc_ssu64xl_ssnpm_smmpm_smnpm_svnapot_sdtrig",
     "reset_vec"             : "0x80000000",
     "enable_performance_counters" : "true",
     "perf_count_atomic_load_store" : "true",
@@ -67,21 +67,21 @@
 	    },
 
 	    "tselect" : {
-	        "Comment" : "Hardwired to 0",
+	        "Comment" : "Trigger select; writable for sdtrig tests",
 	        "reset" : "0x0",
-	        "mask" : "0x0"
+	        "mask" : "0xffffffffffffffff"
 	    },
 
 	    "tdata1" : {
-	        "Comment" : "Hardwired to 0",
+	        "Comment" : "Trigger data1 (mcontrol6 config); writable for sdtrig tests",
 	        "reset" : "0x0",
-	        "mask" : "0x0"
+	        "mask" : "0xffffffffffffffff"
 	    },
 
 	    "tdata2" : {
-	        "Comment" : "Hardwired to 0",
+	        "Comment" : "Trigger data2 (address); writable for sdtrig tests",
 	        "reset" : "0x0",
-	        "mask" : "0x0"
+	        "mask" : "0xffffffffffffffff"
 	    },
 
 	    "tdata3" : {
@@ -89,32 +89,20 @@
 	        "reset" : "0x0",
 	        "mask" : "0x0"
 	    },
-
-	    "dcsr" : {
-	        "Comment" : "Hardwired to 0",
-	        "reset" : "0x0",
-	        "mask" : "0x0"
-	    },
-
-	    "dpc" : {
-	        "Comment" : "Hardwired to 0",
-	        "reset" : "0x0",
-	        "mask" : "0x0"
-	    },
-
-	    "dscratch" : {
-	        "Comment" : "Hardwired to 0",
-	        "reset" : "0x0",
-	        "mask" : "0x0"
-	    },
-
-	    "dscratch1" : {
-	        "Comment" : "Hardwired to 0",
-	        "number" : "0x7b3",
-	        "reset" : "0x0",
-	        "mask" : "0x0"
-	    },
-
+		"dcsr" : {
+			"dcsr-comment"    : "Reset with M-mode (prv=3). Debug ROM sets DCSR.prv to test_priv at entry.",
+			"reset"           : "0x40000013",
+			"mask"            : "0x4003be37",
+			"poke_mask"       : "0x3bfff"
+		},
+  
+		"dpc" : {
+			"reset"           : "0x0",
+			"mask"            : "0xfffffffffffffffe"
+		},
+  
+		"dscratch0" : { "exists" : "true" },
+		"dscratch1" : { "exists" : "true" },  
 		"mnstatus" : {
 	        "exists" : "true"
 	    },
@@ -205,102 +193,155 @@
 	    "pmacfg0": {
             "number"          : "0x7e0",
             "reset"           : "0x0",
-            "mask"            : "0xffffffffffffffff",
-            "poke_mask"       : "0xffffffffffffffff"
+            "mask"            : "0xfc0ffffffffff1ff",
+            "poke_mask"       : "0xfc0ffffffffff1ff"
         },
         "pmacfg1": {
           "number"          : "0x7e1",
           "reset"           : "0x0",
-          "mask"            : "0xfcfffffffffff1ff",
-	      "poke_mask": "0xfcfffffffffff1ff"
+          "mask"            : "0xfc0ffffffffff1ff",
+	      "poke_mask": "0xfc0ffffffffff1ff"
         },
 	    "pmacfg2": {
 	    	"number": "0x7e2",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg3": {
 	    	"number": "0x7e3",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg4": {
 	    	"number": "0x7e4",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg5": {
 	    	"number": "0x7e5",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg6": {
 	    	"number": "0x7e6",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg7": {
 	    	"number": "0x7e7",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg8": {
 	    	"number": "0x7e8",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg9": {
 	    	"number": "0x7e9",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg10": {
 	    	"number": "0x7ea",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg11": {
 	    	"number": "0x7eb",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg12": {
 	    	"number": "0x7ec",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg13": {
 	    	"number": "0x7ed",
 	    	"reset": "0x0",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg14": {
 	    	"comment": "Cover default 0-2gb range for IO",
 	    	"number": "0x7ee",
 	    	"reset": "0x7c00000000000007",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    },
 	    "pmacfg15": {
-	    	"comment": "Cover default 2gb-52bit range for dram",
+	    	"comment": "Cover default 2gb-56bit range for dram",
 	    	"number": "0x7ef",
-	    	"reset": "0xd0000000000001e7",
-	    	"mask": "0xfcfffffffffff1ff",
-	    	"poke_mask": "0xfcfffffffffff1ff"
+	    	"reset": "0xe0000000000001e7",
+	    	"mask": "0xfc0ffffffffff1ff",
+	    	"poke_mask": "0xfc0ffffffffff1ff"
 	    }
     },
+
+	"trigger_use_tcontrol" : false,
+    "all_inst_addr_trigger" : "false",
+    "trigger_on_all_data_addr" : [ [0, true], [1, false], [2, true], [3, true], [4, false], [5, false], [8, true], [9, false], [12, false], [13, false] ],
+    "trigger_types" : [ "none", "disabled", "mcontrol6", "icount"],
+    "trigger_actions" : ["raisebreak", "enterdebug", "starttrace", "stoptrace", "emittrace"],
+    "triggers" : [
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077dc", "0xffffffffffffffff", "0xffffffffffffffff", 0],
+        "poke_mask" : ["0xf800000001c077dc", "0xffffffffffffffff", "0xffffffffffffffff", 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077dc", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077dc", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077dc", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077dc", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077dc", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077dc", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077db", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077db", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077db", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077db", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077db", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077db", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077db", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077db", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000400", 0, 0, "0x1008008"],
+        "mask" : ["0xf800000007ffffc7", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000007ffffc7", "0xff", 0, 0]
+      }
+    ],
 
 	"auto_increment_timer" : true,
     "time_down_sample": 2,

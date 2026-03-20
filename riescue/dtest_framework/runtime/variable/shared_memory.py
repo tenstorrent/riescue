@@ -58,9 +58,25 @@ class SharedMemory(BaseMemory):
     def equates(self, offset: int = 0) -> str:
         """
         Generates .equ directives for the variables.
+
+        Uses os_data (virtual address / linker symbol) as the base for S-mode
+        translated access.
         """
         equates: list[str] = []
         for variable in self._variables.values():
             equ = f".equ {variable.name},"
             equates.append(f"{equ:<40} os_data + {variable.offset + offset}")
+        return "\n".join(equates)
+
+    def pa_equates(self, offset: int = 0) -> str:
+        """
+        Generates PA-based .equ directives (with _pa suffix) for the variables.
+
+        Uses os_data_pa (physical address equate) as the base for M-mode
+        bare addressing (MPRV=0).
+        """
+        equates: list[str] = []
+        for variable in self._variables.values():
+            equ = f".equ {variable.name}_pa,"
+            equates.append(f"{equ:<40} os_data_pa + {variable.offset + offset}")
         return "\n".join(equates)

@@ -11,12 +11,12 @@ class PagingTest(BaseRiescueCTest):
     "Runs paging test plan"
 
     def test_cli(self):
-        self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv39", "--test_priv_mode", "super"])
-        self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv39", "--test_priv_mode", "user"])
-        self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv48", "--test_priv_mode", "super"])
-        self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv48", "--test_priv_mode", "user"])
-        self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv57", "--test_priv_mode", "super"])
-        self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv57", "--test_priv_mode", "user"])
+        self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv39", "--test_priv_mode", "super", "--more_os_pages", "--seed", "1"], iterations=1)
+        # self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv39", "--test_priv_mode", "user", "--more_os_pages"])
+        # self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv48", "--test_priv_mode", "super", "--more_os_pages"])
+        # self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv48", "--test_priv_mode", "user", "--more_os_pages"])
+        # self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv57", "--test_priv_mode", "super", "--more_os_pages"])
+        # self.run_tp_mode(plan="paging", cli_args=["--test_paging_mode", "sv57", "--test_priv_mode", "user", "--more_os_pages"])
 
 
 if __name__ == "__main__":

@@ -17,7 +17,8 @@ from .test_harness import TestHarness
 from riescue.compliance.test_plan.context import LoweringContext
 from riescue.compliance.test_plan.memory import MemoryRegistry
 from riescue.compliance.test_plan.actions import Action, StackPageAction
-from riescue.compliance.test_plan.actions.csr import CsrApiInstruction
+from riescue.compliance.test_plan.actions.csr import CsrApiInstruction, CsrDirectAccessAction
+from riescue.dtest_framework.config import FeatMgr
 
 log = logging.getLogger(__name__)
 
@@ -29,10 +30,10 @@ class Transformer:
     :param rng: :class:`RandNum` object to use for randomization.
     """
 
-    def __init__(self, rng: RandNum, mem_reg: MemoryRegistry, isa: str = "rv32i"):
+    def __init__(self, rng: RandNum, mem_reg: MemoryRegistry, featmgr: FeatMgr, isa: str = "rv64i_zicsr"):
         self.rng = rng
         self.mem_reg = mem_reg  # Memory Registry exists for life of Transformer
-
+        self.featmgr = featmgr  # FeatMgr needed for feature discovery
         self.expander = Expander()  # Expands Actions into a flat list of Actions
         self.elaborator = Elaborator()  # Elaborates Actions into Instructions
         self.canonicalizer = Canonicalizer()  # Canonicalizes Actions
@@ -50,6 +51,7 @@ class Transformer:
             mem_reg=self.mem_reg,
             env=env,
             instruction_catalog=self.catalog,
+            featmgr=self.featmgr,
         )
         canonicalized_tests, code_page_actions, memory = self.canonicalizer.canonicalize(tests, ctx)
         global_functions = []
@@ -99,6 +101,9 @@ class Transformer:
             if isinstance(instr, CsrApiInstruction) and instr.api_call != "read":
                 found_csrs = True
                 break
+            if instr.name in ["csrrw", "csrrwi", "csrrs", "csrrsi", "csrrc", "csrrci"]:
+                found_csrs = True
+                break
         if not found_csrs:
             return [], {}
 
@@ -123,15 +128,42 @@ class Transformer:
         instructions.append(li_space)
 
         for instr in test_instructions:
+            needs_storing = False
             if isinstance(instr, CsrApiInstruction) and instr.api_call != "read":
 
                 # for every CSR write, save CSR to space and move index to next 8 bytes
 
                 # store index to csr name
                 space_index_to_csrs[space_index] = instr.csr_name
+                needs_storing = True
+            if instr.name in ["csrrw", "csrrwi", "csrrs", "csrrsi", "csrrc", "csrrci"]:
+                csr_operand = instr.csr_operand()
+                if csr_operand is not None:
+                    if instr.name.endswith("i"):
+                        if instr.immediate_operand() is None:
+                            # read-only CSR, no need to store
+                            continue
+                        check_operand = instr.immediate_operand()
+                        if check_operand is not None and check_operand.val == 0:
+                            # read-only CSR, no need to store
+                            continue
+                    else:
+                        if instr.rs1() is None:
+                            # read-only CSR, no need to store
+                            continue
+                        main_rs1 = instr.rs1()
+                        if main_rs1 is not None and main_rs1.val == "x0":
+                            # read-only CSR, no need to store
+                            continue
+                    space_index_to_csrs[space_index] = csr_operand.val
+                    needs_storing = True
 
+            if needs_storing:
+                # store CSR value to space
+                csr_name = space_index_to_csrs[space_index]
                 # somehow do CSR read to T2
-                csr_read = CsrApiInstruction(csr_name=instr.csr_name, name="csrr", api_call="read")
+                instruction_id = ctx.new_value_id()
+                csr_read = CsrApiInstruction(csr_name=csr_name, name="csrr", api_call="read", force_machine_rw=True, instruction_id=instruction_id)
                 instructions.append(csr_read)
 
                 sd = ctx.instruction_catalog.get_instruction("sd")
@@ -187,9 +219,89 @@ class Transformer:
             instructions.append(ld)
 
             # write t2 to CSR
-            csr_write = CsrApiInstruction(csr_name=csr_name, name="csrw", api_call="write")
+            instruction_id = ctx.new_value_id()
+            csr_write = CsrApiInstruction(csr_name=csr_name, name="csrw", api_call="write", force_machine_rw=True, instruction_id=instruction_id)
             instructions.append(csr_write)
         return instructions
+
+    # Specific to CsrDirectAccessAction
+    def _randomize_csr(self, ctx: LoweringContext, op: str, src: Optional[str], src_value: Optional[int]) -> tuple[str, bool]:
+        """Select a random CSR valid for current privilege mode and operation."""
+        priv = ctx.env.priv.name.lower()
+
+        FILTERED_CSRS = ["mip", "mie", "sip", "sie", "satp"]  # Do not create new interrupts
+
+        # Map privilege to Accessibility filter
+        accessibility_map = {
+            "m": "Machine",
+            "s": "Supervisor",
+            "u": "User",
+        }
+        accessibility = accessibility_map.get(priv, "Machine")
+
+        is_read_only_op = op in ["csrrs", "csrrc", "csrrsi", "csrrci"] and src is None and (src_value == 0 or src_value is None)
+
+        names_to_csrs = []
+
+        if accessibility == "User":
+            csr_configs_exclude_machine = ctx.get_csr_manager().lookup_csrs(
+                match={"software-write": "W", "ISS_Support": "Yes"},
+                exclude={"Accessibility": "Machine"},
+            )
+
+            non_machine_csrs = list(csr_configs_exclude_machine.keys())
+
+            csr_configs_exclude_super = ctx.get_csr_manager().lookup_csrs(
+                match={"software-write": "W", "ISS_Support": "Yes"},
+                exclude={"Accessibility": "Supervisor"},
+            )
+
+            non_super_csrs = list(csr_configs_exclude_super.keys())
+
+            names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs]
+
+        else:
+            csr_configs = ctx.get_csr_manager().lookup_csrs(
+                match={"Accessibility": accessibility, "software-write": "W", "ISS_Support": "Yes"},
+            )
+            if not csr_configs:
+                # Fallback: try without ISS_Support filter
+                csr_configs = ctx.get_csr_manager().lookup_csrs(
+                    match={"Accessibility": accessibility, "software-write": "W"},
+                )
+            names_to_csrs += list(csr_configs.keys())
+
+        if is_read_only_op:
+            if accessibility == "User":
+                csr_configs_exclude_machine = ctx.get_csr_manager().lookup_csrs(
+                    match={"software-read": "R", "ISS_Support": "Yes"},
+                    exclude={"Accessibility": "Machine"},
+                )
+
+                non_machine_csrs = list(csr_configs_exclude_machine.keys())
+
+                csr_configs_exclude_super = ctx.get_csr_manager().lookup_csrs(
+                    match={"software-read": "R", "ISS_Support": "Yes"},
+                    exclude={"Accessibility": "Supervisor"},
+                )
+
+                non_super_csrs = list(csr_configs_exclude_super.keys())
+
+                names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs]
+
+            else:
+                csr_configs = ctx.get_csr_manager().lookup_csrs(
+                    match={"Accessibility": accessibility, "software-read": "R", "ISS_Support": "Yes"},
+                )
+                if not csr_configs:
+                    # Fallback: try without ISS_Support filter
+                    csr_configs = ctx.get_csr_manager().lookup_csrs(
+                        match={"Accessibility": accessibility, "software-read": "R"},
+                    )
+                names_to_csrs += list(csr_configs.keys())
+        names_to_csrs = [name for name in names_to_csrs if name not in FILTERED_CSRS]
+        csr_name = ctx.rng.choice(names_to_csrs)
+        return csr_name, is_read_only_op
 
     def _transform(self, actions: list[Action], ctx: LoweringContext) -> list[Instruction]:
         """

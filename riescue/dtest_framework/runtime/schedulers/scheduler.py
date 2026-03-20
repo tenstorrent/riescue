@@ -22,13 +22,19 @@ class Scheduler(AssemblyGenerator, ABC):
     This class contains scaffolding for the scheduler interface, including jumping to test, switching privilege for test, scheduler error handling, etc.
     Actual scheduling logic is implemented in subclasses.
 
-    Runs in ``handler_priv`` mode.
+    Runs in machine mode. self.xtvec and self.scratch_reg are machine mode registers set in AssemblyGenerator.
     """
 
     def __init__(self, dtests: list[str], **kwargs: Any):
         super().__init__(**kwargs)
         self.dtests = dtests
         self.force_alignment = self.featmgr.force_alignment  # Align all instructions on 8 byte boundary
+
+        self.variable_manager.register_hart_variable("scheduler__saved_stvec", 0)
+        if self.featmgr.fs_randomization > 0:
+            self.variable_manager.register_hart_variable("fs_rr_index", 0)
+        if self.featmgr.vs_randomization > 0:
+            self.variable_manager.register_hart_variable("vs_rr_index", 0)
 
         self.dtests_sequence: list[str]
         if self.featmgr.repeat_times == -1 or self.mp_parallel:
@@ -38,13 +44,11 @@ class Scheduler(AssemblyGenerator, ABC):
         self.rng.shuffle(self.dtests_sequence)
 
     @abstractmethod
-    def scheduler_init(self) -> str:
-        return ""
-
-    @abstractmethod
     def scheduler_dispatch(self) -> str:
         """
-        Logic responsible for loading a0 with the next test.
+        Logic responsible for loading t1 with the next test.
+
+        Scheduler assumes that the Hart Context is set into the ``tp`` register at this point.
         """
         return ""
 
@@ -53,10 +57,11 @@ class Scheduler(AssemblyGenerator, ABC):
         Generates scheduler assmebly code for scheduler. Subclasses should really only implement the abstract methods, scheduler_init, scheduler_dispatch, and scheduler_finished.
         """
         return f"""
-.section .text
+.section .runtime, "ax"
 
 # Scheduler initialization; only ran once
 {self.scheduler_init_label}:
+    {self._init_setup()}
     {self.scheduler_init()}
 
 # Entry point for scheduling next test
@@ -64,10 +69,12 @@ class Scheduler(AssemblyGenerator, ABC):
     {self._dispatch_setup()}
     {self.featmgr.call_hook(RV.HookPoint.PRE_DISPATCH)}
     {self.scheduler_dispatch()}
+    {"jal test_execution_log_add" if self.featmgr.log_test_execution else ""}
     {self.featmgr.call_hook(RV.HookPoint.POST_DISPATCH)}
 
-# Jump to test. Test address should be loaded into a0 before running
+# Jump to test. Test address should be loaded into t1 before running
 scheduler__execute_test:
+    {self.save_hart_context()}
     {self.execute_test()}
 
 # Exit point for scheduler; only ran when all tests are finished
@@ -93,6 +100,17 @@ scheduler__test_cleanup_ptr:
 
 """
 
+    def scheduler_init(self) -> str:
+        """
+        default behavior is to load test_setup into t1 and jump to scheduler__execute_test.
+        Schedulers shouldn't include test_setup as part of the dispatch logic.
+        """
+        return """
+    la t1, scheduler__test_setup_ptr
+    ld t1, (t1)
+    j scheduler__execute_test
+"""
+
     def scheduler_finished(self) -> str:
         """
         Done with scheduler, proceed to EOT. Override if any additional cleanup is needed
@@ -108,32 +126,77 @@ scheduler__test_cleanup_ptr:
         """
         return ""
 
+    def _init_setup(self) -> str:
+        """
+        Setup for scheduler initialization.
+        Disables interrupts, sets up scheduler panic handler before running scheduler__init code.
+        """
+        return f"""
+        # Setup scheduler panic handler before running test_setup
+        la t0, scheduler__panic
+        csrrw t0, {self.tvec}, t0
+        {self.variable_manager.get_variable("scheduler__saved_stvec").store(src_reg='t0')}
+        """
+
     def _dispatch_setup(self) -> str:
         """
         Setup for scheduler dispatch.
-        Disables interrupts, sets up kernel panic handler to catch internal errors.
+        Sets up scheduler panic handler before running scheduler__dispatch code.
+        """
+        return f"""
+        # Setup scheduler panic handler before dispatching
+        la t0, scheduler__panic
+        csrrw t0, {self.tvec}, t0
+        {self.variable_manager.get_variable("scheduler__saved_stvec").store(src_reg='t0')}
         """
 
-        return ""
+    def save_hart_context(self) -> str:
+        """
+        Responsible for saving hart context so test doesn't overwrite data.
+
+        - save tp to scratch register
+        - restore tvec to trap handler
+        - Enable interrupts at the end of save # FIXME: Interrupts are only re-enabled if handler is in a different privilege mode.
+        """
+        code = f"""
+    {self.variable_manager.get_variable("scheduler__saved_stvec").load(dest_reg="t0")}
+    csrw {self.tvec}, t0
+    {self.variable_manager.exit_hart_context(scratch=self.scratch_reg)}
+    li tp, 0
+"""
+        return code
 
     def execute_test(self) -> str:
         """
-        Handles jumping to test. Test address should be loaded into ``a0``
+        Handles jumping to test. Test address should be loaded into ``t1``
 
         If test is in M/S mode, handler should already be in correct privilege mode, and can jump to test.
+
+        Scheduler should save the Hart Context before executing the test.
         """
 
         # set tvec
         # enable interrupts
 
         if self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
-            code = "jr a0\n"
+            code = ""
+            # For M-mode paging, enable MPRV just before jumping to test code.
+            # MPRV=1 + MPP=S makes data accesses use S-mode translation.
+            if self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE:
+                code += """
+                li t0, ((1 << 17) | (1 << 11))    # Set MPRV=1 and MPP=01 (supervisor)
+                csrrs x0, mstatus, t0
+                li t0, (1<<12) # Clear mstatus[12]
+                csrrc x0, mstatus, t0
+                """
+            code += "jr t1\n"
         else:
             # For user mode use sret to jump to test
             code = self.switch_test_privilege(
                 from_priv=RV.RiscvPrivileges.SUPER,
                 to_priv=self.featmgr.priv_mode,
-                jump_register="a0",
+                jump_register="t1",
+                switch_to_vs=self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED,
             )
         return code
 
@@ -163,4 +226,20 @@ scheduler__test_cleanup_ptr:
         """
         for test in self.dtests_sequence:
             code += f"    .dword {test}\n"
+        code += self._fs_vs_rr_tables_section()
+        return code
+
+    def _fs_vs_rr_tables_section(self) -> str:
+        """Round-robin tables for FS/VS randomization (per-dispatch deterministic cycle)."""
+        code = ""
+        if self.featmgr.fs_randomization > 0 and self.featmgr.fs_randomization_values:
+            code += "\n        .align 2\n        fs_rr_table:\n"
+            for v in self.featmgr.fs_randomization_values:
+                code += f"            .word {v & 0x3}\n"
+            code += f"        .equ fs_rr_table_size, {len(self.featmgr.fs_randomization_values)}\n"
+        if self.featmgr.vs_randomization > 0 and self.featmgr.vs_randomization_values:
+            code += "\n        .align 2\n        vs_rr_table:\n"
+            for v in self.featmgr.vs_randomization_values:
+                code += f"            .word {v & 0x3}\n"
+            code += f"        .equ vs_rr_table_size, {len(self.featmgr.vs_randomization_values)}\n"
         return code

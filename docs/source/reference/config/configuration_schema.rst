@@ -24,20 +24,12 @@ The program counter value when the processor starts.
 **mmap** - Memory Map
 ^^^^^^^^^^^^^^^^^^^^^
 
-Defines the system memory layout with DRAM and I/O regions.
+The Memory Map is configured with the ``mmap`` key, using the Memory class:
 
-**Type:** Object
+.. autoclass:: riescue.dtest_framework.config.memory.Memory
+   :noindex:
 
-**Structure:**
 
-.. code-block:: json
-
-    {
-        "mmap": {
-            "dram": {  },
-            "io": {  }
-        }
-    }
 
 Memory Map Components
 ---------------------
@@ -45,68 +37,18 @@ Memory Map Components
 **dram** - DRAM Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Main system memory regions where code and data are allocated.
-
-**Type:** Object with named regions
-
-**Region Properties:**
-
-- ``address`` (required) - Starting memory address (string or integer)
-- ``size`` (required) - Size of the memory region (string or integer)
-
-**Examples:**
-
-.. code-block:: json
-
-    "dram": {
-        "region0": {
-            "address": "0x8000_0000",
-            "size": "0x10_0000_0000_0000"
-        },
-        "main_ram": {
-            "address": "0x80000000",
-            "size": "0x40000000"
-        }
-    }
+.. autoclass:: riescue.dtest_framework.config.memory.DramRange
+   :members: from_dict
+   :noindex:
 
 **io** - I/O Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Memory-mapped I/O regions and devices.
 
-**Type:** Object
-
-**Properties:**
-
-- ``address`` (required) - I/O region base address
-- ``size`` (required) - Total I/O region size
-- ``items`` (optional) - Named I/O devices within the region
-
-**I/O Item Properties:**
-
-- ``address`` (required) - Device base address
-- ``size`` (required) - Device size
-- ``test_access`` (optional) - Determines if location can be used as a random memory address: ``true`` or ``false``. Defaults to ``false``
-
-**Examples:**
-
-.. code-block:: json
-
-    "io": {
-        "io0": {
-            "address": "0x0",
-            "size": "0x1_0000"
-        },
-        "uart": {
-            "address": "0x200_c000",
-            "size": "0x5ff_4000",
-            "test_access": "available"
-        },
-        "htif": {
-            "address": "0x7000_0000",
-            "size": "0x10"
-        }
-    }
+.. autoclass:: riescue.dtest_framework.config.memory.IoRange
+   :members: from_dict
+   :noindex:
 
 **Special I/O Devices:**
 

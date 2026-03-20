@@ -104,12 +104,16 @@ hart_context_{hart_id}:
             else:
                 value = variable.value
 
-            if variable.description:
-                comment = f"# {variable.description}"
-            else:
-                comment = f"# {variable.name}"
-            hart_local_variables.append(f".{self.swap_type:<5} {value:<30} {comment}")
-            bytes_allocated += self.variable_size
+            base_comment = variable.description if variable.description else variable.name
+
+            # Loop for all elements (1 iteration for scalars)
+            for i in range(variable.element_count):
+                if variable.element_count > 1:
+                    comment = f"# {base_comment}[{i}]"
+                else:
+                    comment = f"# {base_comment}"
+                hart_local_variables.append(f".{self.swap_type:<5} {value:<30} {comment}")
+                bytes_allocated += self.variable_size
 
         if include_padding:
             # padding context to 64-byte boundary, to allow for alignment on 64-byte blocks
@@ -118,6 +122,24 @@ hart_context_{hart_id}:
                 hart_local_variables.append(f".space {padding_needed:<30} # padding to 64-byte boundary")
 
         return intial_context + "\n".join(hart_local_variables)
+
+    def per_hart_size(self) -> int:
+        """Return the size of a single hart context in bytes, including 64-byte alignment padding."""
+        bytes_allocated = self.variable_size * self._num_internal_variables
+        for variable in self._variables.values():
+            bytes_allocated += self.variable_size * variable.element_count
+        padding_needed = (64 - (bytes_allocated % 64)) % 64
+        return bytes_allocated + padding_needed
+
+    def equates(self, name: str = "hart_context") -> str:
+        """
+        Generate .equ directives for the hart context.
+        """
+        equates: list[str] = []
+        for variable in self._variables.values():
+            equ = f".equ {variable.name},"
+            equates.append(f"{equ:<40} {name} + {variable.offset}")
+        return "\n".join(equates)
 
 
 class HartStack:

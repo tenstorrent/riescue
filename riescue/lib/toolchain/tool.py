@@ -288,9 +288,9 @@ class Spike(Tool):
             self.spike_isa = spike_isa
         else:
             if third_party_spike:
-                self.spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvl256b_zve64d_svpbmt"
+                self.spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvl256b_zve64d_svpbmt_svnapot"
             else:
-                self.spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_svpbmt_sstc_zicntr"
+                self.spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_svpbmt_sstc_zicntr_svnapot"
 
         if not third_party_spike:
             self.varch = {"vlen": 256, "elen": 64}

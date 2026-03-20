@@ -27,7 +27,6 @@ class Mp5CoreTests(BaseRiescuedTest):
             "10",
             "--pbmt_ncio_randomization",
             "0",
-            "--disable_wfi_wait",  # RVTOOLS-4204
         ]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 
@@ -44,7 +43,6 @@ class Mp5CoreTests(BaseRiescuedTest):
             "machine",
             "--pbmt_ncio_randomization",
             "0",
-            "--disable_wfi_wait",  # RVTOOLS-4204
         ]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 
@@ -61,7 +59,6 @@ class Mp5CoreTests(BaseRiescuedTest):
             "user",
             "--pbmt_ncio_randomization",
             "0",
-            "--disable_wfi_wait",  # RVTOOLS-4204
         ]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 

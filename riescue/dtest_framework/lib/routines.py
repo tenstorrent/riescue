@@ -14,21 +14,36 @@ class Routines:
 
     # Used in the place barrier routine
     @classmethod
-    def place_acquire_lock(
-        cls, name: str, lock_addr_reg: str, swap_val_reg: str, work_reg: str, end_test_label: str, max_tries: int = 500, time_wait: int = 500, disable_wfi_wait: bool = False
-    ) -> str:
+    def place_acquire_lock(cls, name: str, lock_addr_reg: str, swap_val_reg: str, work_reg: str, end_test_label: str, max_tries: int = 500, use_zawrs: bool = False, bare: bool = False) -> str:
+        # Build load and wait code based on ZAWRS availability
+        # When using ZAWRS, use lr.w to establish reservation so wrs.nto can wait on it
+        if use_zawrs:
+            load_lock = f"lr.w {work_reg}, ({lock_addr_reg})"
+            wait_code = f"""
+        {name}_wait:
+            wrs.nto                              # Wait until reservation invalidated
+            j {name}_retry_acquire_lock
+"""
+        else:
+            load_lock = f"lw {work_reg}, ({lock_addr_reg})"
+            wait_code = f"""
+        {name}_wait:
+            j {name}_retry_acquire_lock
+"""
+
+        _pa = "_pa" if bare else ""
         return f"""
-        li {lock_addr_reg}, barrier_lock
+        li {lock_addr_reg}, barrier_lock{_pa}
         li {swap_val_reg}, {max_tries}        # Initialize swap value.
 
         j {name}_retry_acquire_lock
 
         {name}_check_if_early_bail:
-            li {lock_addr_reg}, num_harts_ended
+            li {lock_addr_reg}, num_harts_ended{_pa}
             lw {work_reg}, 0({lock_addr_reg})
             bnez {work_reg}, {name}_early_bail
             # Looks like we are stuck and no other hart has apparently bailed, so end in a fail.
-            li a0, failed_addr
+            li a0, failed_addr{_pa}
             ld a1, 0(a0)
             jalr ra, 0(a1)
 
@@ -45,20 +60,12 @@ class Routines:
             # jump to fail if {swap_val_reg} is zero or less
             bge zero, {swap_val_reg}, {name}_check_if_early_bail
 
-
-            lw           {work_reg}, ({lock_addr_reg})     # Check if lock is held.
-            bnez         {work_reg},  {f'{name}_skip_wfi_wait_jump_back' if disable_wfi_wait else f'{name}_wfi_wait'}    # Retry if held.
+            {load_lock}     # Check if lock is held
+            bnez         {work_reg}, {name}_wait    # Retry if held.
             amoswap.w.aq {work_reg}, {swap_val_reg}, ({lock_addr_reg})
-            bnez         {work_reg},  {f'{name}_skip_wfi_wait_jump_back' if disable_wfi_wait else f'{name}_wfi_wait'}     # Retry if held.
+            bnez         {work_reg}, {name}_wait     # Retry if held.
             j {name}_acquired_lock
-        {name}_wfi_wait:
-            # do wait WFI here to prevent any sort of max instruction failure with arbitrary time wait
-            rdtime {work_reg}
-            addi {work_reg}, {work_reg}, {time_wait}
-            csrrw x0, stimecmp, {work_reg}
-            wfi
-        {name}_skip_wfi_wait_jump_back:
-            j {name}_retry_acquire_lock
+{wait_code}
         {name}_acquired_lock:
             fence
 
@@ -68,8 +75,7 @@ class Routines:
     @classmethod
     def place_release_lock(cls, name: str, lock_addr_reg: str) -> str:
         return f"""
-        fence
-        amoswap.w.rl x0, x0, ({lock_addr_reg}) # Release lock by storing 0.
+        amoswap.d.rl x0, x0, ({lock_addr_reg}) # Release lock by storing 0.
         {name}_released_lock:
 
         """
@@ -89,7 +95,8 @@ class Routines:
         num_cpus: int,
         end_test_label: str,
         max_tries: int,
-        disable_wfi_wait: bool,
+        use_zawrs: bool,
+        bare: bool = False,
     ) -> str:
         """
         Barrier routine.
@@ -105,7 +112,8 @@ class Routines:
         :param num_cpus: Number of CPUs.
         :param end_test_label: Label to end the test.
         :param max_tries: Maximum number of tries to acquire the lock.
-        :param disable_wfi_wait: Whether to disable WFI wait.
+        :param use_zawrs: Whether to use ZAWRS extension (wrs.nto instruction) for waiting.
+        :param bare: If True, use PA-based equate names (``_pa`` suffix) for M-mode bare addressing.
 
         Requires these symbols to be defined in the assembly:
         - ``barrier_lock``: Word-sized lock variable (init 0)
@@ -119,11 +127,12 @@ class Routines:
         ``gp``, ``a0``, ``a1``, and ``ra`` are also clobbered.
 
         """
+        _pa = "_pa" if bare else ""
         return f"""
-        li {lock_addr_reg}, barrier_lock
-        li {arrive_counter_addr_reg}, barrier_arrive_counter
-        li {depart_counter_addr_reg}, barrier_depart_counter
-        li {flag_addr_reg}, barrier_flag
+        li {lock_addr_reg}, barrier_lock{_pa}
+        li {arrive_counter_addr_reg}, barrier_arrive_counter{_pa}
+        li {depart_counter_addr_reg}, barrier_depart_counter{_pa}
+        li {flag_addr_reg}, barrier_flag{_pa}
 
         {cls.place_acquire_lock(
             name = name + "_0",
@@ -132,7 +141,8 @@ class Routines:
             work_reg = work_reg_1,
             end_test_label=end_test_label,
             max_tries=max_tries,
-            disable_wfi_wait=disable_wfi_wait
+            use_zawrs=use_zawrs,
+            bare=bare
         )}
         # Branch if arrive_counter not equal to zero
         lw {work_reg_1}, 0({arrive_counter_addr_reg})
@@ -147,8 +157,11 @@ class Routines:
             {name}_depart_count_not_num_harts:
                 {cls.place_release_lock(name = name + "_0", lock_addr_reg = lock_addr_reg)}
                 {name}_wait_while_depart_count_not_num_harts:
-                    lw {work_reg_1}, 0({depart_counter_addr_reg})
-                    bne {work_reg_1}, {work_reg_2}, {name}_wait_while_depart_count_not_num_harts
+                    {'lr.w' if use_zawrs else 'lw'} {work_reg_1}, ({depart_counter_addr_reg})
+                    beq {work_reg_1}, {work_reg_2}, {name}_depart_count_reached
+                    {'wrs.nto' if use_zawrs else ''}
+                    j {name}_wait_while_depart_count_not_num_harts
+                {name}_depart_count_reached:
                 {cls.place_acquire_lock(
                     name = name + "_1",
                     lock_addr_reg = lock_addr_reg,
@@ -156,7 +169,8 @@ class Routines:
                     work_reg = work_reg_1,
                     end_test_label=end_test_label,
                     max_tries=max_tries,
-                    disable_wfi_wait=disable_wfi_wait
+                    use_zawrs=use_zawrs,
+                    bare=bare
                 )}
                 # Set flag to zero
                 amoswap.w x0, x0, ({flag_addr_reg})
@@ -167,7 +181,7 @@ class Routines:
             addi {work_reg_1}, {work_reg_1}, 1
             {cls.place_release_lock(name = name + "_1", lock_addr_reg = lock_addr_reg)}
 
-            li {arrive_counter_addr_reg}, barrier_arrive_counter
+            li {arrive_counter_addr_reg}, barrier_arrive_counter{_pa}
 
             # Branch if arrive_count not equal to num_harts
             li {work_reg_2}, {num_cpus}
@@ -183,7 +197,7 @@ class Routines:
             {name}_arrive_count_not_num_harts:
                 {name}_wait_while_flag_zero:
                     # Check again if num_harts_ended is non-zero
-                    li {arrive_counter_addr_reg}, num_harts_ended
+                    li {arrive_counter_addr_reg}, num_harts_ended{_pa}
                     lw {work_reg_2}, 0({arrive_counter_addr_reg})
                     beqz {work_reg_2}, {name}_no_early_bail
                     {name}_yes_other_bailed:
@@ -192,8 +206,11 @@ class Routines:
                         ld a1, 0(a0)
                         jalr ra, 0(a1)
                     {name}_no_early_bail:
-                    lw {work_reg_1}, 0({flag_addr_reg})
-                    beqz {work_reg_1}, {name}_wait_while_flag_zero
+                    {'lr.w' if use_zawrs else 'lw'} {work_reg_1}, ({flag_addr_reg})
+                    bnez {work_reg_1}, {name}_flag_set
+                    {'wrs.nto' if use_zawrs else ''}
+                    j {name}_wait_while_flag_zero
+                {name}_flag_set:
                 {cls.place_acquire_lock(
                     name = name + "_2",
                     lock_addr_reg = lock_addr_reg,
@@ -201,7 +218,8 @@ class Routines:
                     work_reg = work_reg_1,
                     end_test_label=end_test_label,
                     max_tries=max_tries,
-                    disable_wfi_wait=disable_wfi_wait
+                    use_zawrs=use_zawrs,
+                    bare=bare
                 )}
                 li {work_reg_1}, 1
                 amoadd.w {work_reg_2}, {work_reg_1}, ({depart_counter_addr_reg})
@@ -250,7 +268,7 @@ class Routines:
 
     @classmethod
     def place_semaphore_acquire_ticket(
-        cls, name: str, semaphore_addr_reg: str, lock_addr_reg: str, swap_val_reg: str, return_val_reg: str, work_reg: str, retry: bool, end_test_label: str, disable_wfi_wait: bool
+        cls, name: str, semaphore_addr_reg: str, lock_addr_reg: str, swap_val_reg: str, return_val_reg: str, work_reg: str, retry: bool, end_test_label: str, use_zawrs: bool
     ) -> str:
         return f"""
             {name}_acquire_ticket:
@@ -260,7 +278,7 @@ class Routines:
                     swap_val_reg = swap_val_reg,
                     work_reg = work_reg,
                     end_test_label=end_test_label,
-                    disable_wfi_wait=disable_wfi_wait
+                    use_zawrs=use_zawrs
                 )}
                 ld {work_reg}, ({semaphore_addr_reg})
                 bge x0, {work_reg}, {f'{name}_acquire_ticket' if retry else f'{name}_acquire_ticket_fail'}
@@ -283,7 +301,7 @@ class Routines:
         """
 
     @classmethod
-    def place_semaphore_release_ticket(cls, name: str, semaphore_addr_reg: str, lock_addr_reg: str, swap_val_reg: str, return_val_reg: str, work_reg: str, disable_wfi_wait: bool) -> str:
+    def place_semaphore_release_ticket(cls, name: str, semaphore_addr_reg: str, lock_addr_reg: str, swap_val_reg: str, return_val_reg: str, work_reg: str, use_zawrs: bool) -> str:
         return f"""
             fence
             {name}_release_ticket:
@@ -293,7 +311,7 @@ class Routines:
                     swap_val_reg = swap_val_reg,
                     work_reg = work_reg,
                     end_test_label="end_test_addr",
-                    disable_wfi_wait=disable_wfi_wait
+                    use_zawrs=use_zawrs
                 )}
                 ld {work_reg}, ({semaphore_addr_reg})
                 addi {work_reg}, {work_reg}, 1
