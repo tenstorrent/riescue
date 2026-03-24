@@ -5,6 +5,7 @@
 from textwrap import wrap
 
 from riescue.compliance.lib.instr_setup import LdStBaseSetup
+from riescue.compliance.lib.instr_setup.utils import get_store_size
 
 
 class AtomicMemoryOperationsSetup(LdStBaseSetup):
@@ -64,7 +65,14 @@ class AtomicMemoryOperationsSetup(LdStBaseSetup):
         self.write_data(instr, f"\t.{size_name} {hex(random_word)}")
 
     def post_setup(self, modified_arch_state, instr):
-        """This code assumes *spike* is returning a semicolon separated string of addresses, byte by byte"""
+        """Generate post-instruction self-checking verification code for atomics.
+
+        GPR result: checked using the destination register value from the ISS trace.
+        Memory result: verified byte-by-byte, truncated to the actual store width
+        (4 bytes for .w variants, 8 bytes for .d variants).  LR instructions are
+        load-reserve (no memory write) so stdata is empty and memory verification
+        is skipped automatically.
+        """
         mod_mem_loc = modified_arch_state[4]
         mod_mem_vals = modified_arch_state[5]
         byte_values = mod_mem_vals.split(";")
@@ -92,14 +100,17 @@ class AtomicMemoryOperationsSetup(LdStBaseSetup):
             self.write_post(";#test_failed()")
         self.write_post("\t2:\n")
 
-        """Spike instead decided to provide one address and one full word"""
+        # The ISS (Whisper) reports stdata as the stored value zero-extended to
+        # 64 bits regardless of the actual store width.  Split into individual
+        # bytes (little-endian) and then truncate to the real store size so we
+        # only verify the bytes actually written by the instruction.
         if len(byte_values) == 1:
             byte_values_temp = wrap(byte_values[0], 2)
-
-            byte_values = byte_values_temp
             """Byte sequence needs to be least significant byte first"""
             if not self.resource_db.big_endian:
-                byte_values = byte_values_temp[::-1]
+                byte_values_temp = byte_values_temp[::-1]
+            store_size = get_store_size(instr.name)
+            byte_values = byte_values_temp[:store_size]
 
         for byte_number, byte_value in enumerate(byte_values):
             mem_addr_argument = hex(self._offset.value + byte_number) + "(" + base_addr_reg + ")"

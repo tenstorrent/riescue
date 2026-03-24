@@ -18,11 +18,49 @@ from riescue.lib.toolchain import Compiler, Disassembler, Spike, Whisper
 from riescue.lib.rand import initial_random_seed
 from riescue.lib.cli_base import CliBase
 from riescue.lib.toolchain import Toolchain
+from riescue.lib.toolchain.toolchain import apply_iss_fallback
 from riescue.lib.instr_info.instr_lookup_json import InstrInfoJson
 
 log = logging.getLogger("riescue")  # special case because ctk can be a main module
 
 ComplianceConfigs = Union[ResourceBuilder, TpBuilder]
+
+
+def _apply_iss_fallback(cl_args: argparse.Namespace, toolchain: "Toolchain") -> None:
+    """
+    Apply ISS availability fallback logic to cl_args in-place.
+
+    Rules:
+    - No --first_pass_iss flag + only whisper available  → whisper single-pass
+    - No --first_pass_iss flag + only spike available    → spike single-pass
+    - No --first_pass_iss flag + neither available       → error
+    - No --first_pass_iss flag + both available          → existing two-pass (no change)
+    - --first_pass_iss whisper + whisper available       → whisper single-pass
+    - --first_pass_iss spike  + spike available          → spike single-pass
+    - --first_pass_iss <iss>  + <iss> not available      → error
+    """
+    whisper_available = toolchain.whisper is not None
+    spike_available = toolchain.spike is not None
+    iss_flag = cl_args.first_pass_iss  # None if not passed by user
+
+    if iss_flag is None:
+        if not whisper_available and not spike_available:
+            raise SystemExit("ERROR: No ISS found. Set WHISPER_PATH or SPIKE_PATH, or add whisper/spike to your PATH.")
+        elif whisper_available and not spike_available:
+            log.info("Spike not found — using whisper single-pass mode")
+            cl_args.first_pass_iss = "whisper"
+            cl_args.disable_pass = True
+        elif spike_available and not whisper_available:
+            log.info("Whisper not found — using spike single-pass mode")
+            cl_args.first_pass_iss = "spike"
+            cl_args.disable_pass = True
+        # else: both available → existing two-pass behaviour, no changes
+    else:
+        if iss_flag == "whisper" and not whisper_available:
+            raise SystemExit("ERROR: --first_pass_iss whisper specified but whisper not found. Set WHISPER_PATH or add whisper to PATH.")
+        if iss_flag == "spike" and not spike_available:
+            raise SystemExit("ERROR: --first_pass_iss spike specified but spike not found. Set SPIKE_PATH or add spike to PATH.")
+        cl_args.disable_pass = True
 
 
 # remove this?
@@ -140,10 +178,14 @@ class Ctk(CliBase):
         seed = cl_args.seed
         if seed is None:
             seed = initial_random_seed()
+
+        toolchain = Toolchain.from_clargs(cl_args, build_both=True)
+        apply_iss_fallback(cl_args, toolchain)
+
         ctk = cls(
             seed=seed,
             run_dir=cl_args.run_dir,
-            toolchain=Toolchain.from_clargs(cl_args, build_both=True),
+            toolchain=toolchain,
         )
 
         ctk.run(cl_args)

@@ -68,11 +68,21 @@ class Toolchain:
         Create toolchain from command line arguments.
         """
         if build_both:
+            try:
+                whisper = Whisper.from_clargs(args)
+            except FileNotFoundError as e:
+                log.warning(f"Whisper not found: {e}")
+                whisper = None
+            try:
+                spike = Spike.from_clargs(args)
+            except FileNotFoundError as e:
+                log.warning(f"Spike not found: {e}")
+                spike = None
             return cls(
                 compiler=Compiler.from_clargs(args),
                 disassembler=Disassembler.from_clargs(args),
-                whisper=Whisper.from_clargs(args),
-                spike=Spike.from_clargs(args),
+                whisper=whisper,
+                spike=spike,
             )
         elif args.iss == "whisper":
             return cls(
@@ -91,3 +101,40 @@ class Toolchain:
                 compiler=Compiler.from_clargs(args),
                 disassembler=Disassembler.from_clargs(args),
             )
+
+
+def apply_iss_fallback(cl_args: argparse.Namespace, toolchain: Toolchain) -> None:
+    """
+    Apply ISS availability fallback logic to cl_args in-place.
+
+    Rules:
+    - No --first_pass_iss flag + only whisper available  → whisper single-pass
+    - No --first_pass_iss flag + only spike available    → spike single-pass
+    - No --first_pass_iss flag + neither available       → error
+    - No --first_pass_iss flag + both available          → existing two-pass (no change)
+    - --first_pass_iss whisper + whisper available       → whisper single-pass
+    - --first_pass_iss spike  + spike available          → spike single-pass
+    - --first_pass_iss <iss>  + <iss> not available      → error
+    """
+    whisper_available = toolchain.whisper is not None
+    spike_available = toolchain.spike is not None
+    iss_flag = cl_args.first_pass_iss  # None if not passed by user
+
+    if iss_flag is None:
+        if not whisper_available and not spike_available:
+            raise SystemExit("ERROR: No ISS found. Set WHISPER_PATH or SPIKE_PATH, or add whisper/spike to your PATH.")
+        elif whisper_available and not spike_available:
+            log.info("Spike not found — using whisper single-pass mode")
+            cl_args.first_pass_iss = "whisper"
+            cl_args.disable_pass = True
+        elif spike_available and not whisper_available:
+            log.info("Whisper not found — using spike single-pass mode")
+            cl_args.first_pass_iss = "spike"
+            cl_args.disable_pass = True
+        # else: both available → existing two-pass behaviour, no changes
+    else:
+        if iss_flag == "whisper" and not whisper_available:
+            raise SystemExit("ERROR: --first_pass_iss whisper specified but whisper not found. Set WHISPER_PATH or add whisper to PATH.")
+        if iss_flag == "spike" and not spike_available:
+            raise SystemExit("ERROR: --first_pass_iss spike specified but spike not found. Set SPIKE_PATH or add spike to PATH.")
+        cl_args.disable_pass = True

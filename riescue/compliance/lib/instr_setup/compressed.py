@@ -2,12 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import struct
-from textwrap import wrap
 
 
 from riescue.compliance.config import Resource
 from riescue.compliance.lib.instr_setup import InstrSetup, LoadSetup, StoreSetup
-from riescue.compliance.lib.instr_setup.utils import generate_a_fp_value
+from riescue.compliance.lib.instr_setup.utils import generate_a_fp_value, get_store_size
 from riescue.compliance.lib.riscv_imm_constraint_database import imm_constraints
 
 
@@ -288,14 +287,22 @@ class CStoreComponent:
         result_reg2 = self.get_random_reg(instr.reg_manager)
         base_addr_reg = self.get_random_reg(instr.reg_manager)
 
-        """Spike instead decided to provide one address and one full word"""
-        if len(byte_values) == 1:
-            byte_values_temp = wrap(byte_values[0], 2)
+        """Spike/Whisper return a single address and the stored value zero-extended to 64 bits.
 
-            byte_values = byte_values_temp
-            """Byte sequence needs to be least significant byte first"""
+        Bug fix: truncate to actual store width so unwritten pre-initialized bytes are not
+        incorrectly verified. See get_store_size() for details.
+        """
+        if len(byte_values) == 1:
+            store_size = get_store_size(instr.name)
+            stdata_value = int(byte_values[0], 16)
+
+            byte_values = []
             if not self.resource_db.big_endian:
-                byte_values = byte_values_temp[::-1]
+                for i in range(store_size):
+                    byte_values.append(f"{(stdata_value >> (8 * i)) & 0xFF:02x}")
+            else:
+                for i in range(store_size - 1, -1, -1):
+                    byte_values.append(f"{(stdata_value >> (8 * i)) & 0xFF:02x}")
 
         for byte_number, byte_value in enumerate(byte_values):
             mem_addr_argument = hex(self.offset + byte_number) + "(" + base_addr_reg + ")"

@@ -135,7 +135,7 @@ class RiscvInstructionTraceEntry:
 
     def get_trace_string(self):
         """Return a short string of the trace entry"""
-        return f"{self.pc},{self.instr},{' '.join(self.gpr)},{' '.join(self.csr)},{' '.join(self.pa)},{' '.join(self.stdata)},{self.binary},{self.mode},{self.instr_str},{self.operand}\n"
+        return f"{self.pc},{self.instr},{';'.join(self.gpr)},{';'.join(self.csr)},{' '.join(self.pa)},{' '.join(self.stdata)},{self.binary},{self.mode},{self.instr_str},{self.operand}\n"
 
 
 # Input data format: 1 line per record unless last char is '+' in
@@ -154,84 +154,138 @@ def process_whisper_sim_log(whisper_log: Path, csv: Path, full_trace: int = 1) -
 
     Extract instruction and affected register information from whisper simulation
     log and save to CSV file.
+
+    Multi-line records (same rank '#N') are merged into a single CSV row so that
+    atomic (AMO) instructions, which produce both an 'r' line (GPR destination
+    update) and an 'm' line (memory write), are captured in one row with correct
+    GPR, pa, and stdata fields.
+
+    SV39 note: when Whisper is run with --traceptw the bracket annotation on
+    every memory-touching log line changes from [paddr] to [vaddr:paddr].  We
+    intentionally ignore ad[1] (the physical address) in all bracket annotations
+    because it is never the stored data value — the actual stored value always
+    comes from the 'm'-resource line's val field via the fallback below.
     """
     instr_cnt = 0
     records = ["pc,instr,gpr,csr,pa,stdata,binary,mode,instr_str,operand,pad\n"]
 
     with open(whisper_log, "r") as f:
-        changes = []  # list of tuples (resource, address, value)
+        # State accumulated for the current multi-line instruction record.
+        current_rank = None
+        changes = []  # list of (resource, addr_str, val) for current instruction
+        rec_pc = None
+        rec_opcode = ""
+        rec_mode = ""
+        rec_instr = ""
+        rec_disas = ""
+        rec_operands = ""
+        # Memory address / store-data accumulated from bracket annotations.
+        # For Whisper these are overridden by the m-resource fallback, but we
+        # accumulate them in case a non-Whisper ISS uses the [a:d] bracket format.
+        acc_mem_addr = []
+        acc_store_data = []
+
+        def emit_record():
+            nonlocal instr_cnt
+            if rec_pc is None:
+                return
+            regs = []
+            csrs = []
+            mem_addr = list(acc_mem_addr)
+            store_data = list(acc_store_data)
+            for res, addr_str, val in changes:
+                addr = int(addr_str, 16)
+                if res == "r" and addr != 0:
+                    regs.append(int_reg_name(addr) + ":" + val)
+                elif res == "f":
+                    regs.append(fp_reg_name(addr) + ":" + val)
+                elif res == "v":
+                    # Whisper logs wide vector registers as colon-separated 64-bit
+                    # chunks (e.g. "0x1234:0x5678:...").  Strip the 0x prefixes and
+                    # colons so downstream consumers see a single hex string.
+                    normalized = val.replace("0x", "").replace(":", "")
+                    regs.append("v" + str(addr) + ":" + normalized)
+                elif res == "c":
+                    csrs.append("c" + str(addr) + ":" + val)
+                elif res == "m":
+                    # Whisper's stored value is always in the val field of the
+                    # 'm' resource line; use it as the authoritative stdata
+                    # (overriding anything accumulated from bracket annotations).
+                    if len(store_data) == 0:
+                        mem_addr = [addr_str]
+                        store_data = [val]
+
+            record = RiscvInstructionTraceEntry()
+            record.pc = rec_pc
+            record.instr = rec_instr
+            for x in regs:
+                record.gpr.append(x)
+            for x in csrs:
+                record.csr.append(x)
+            for x in mem_addr:
+                record.pa.append(x)
+            for x in store_data:
+                record.stdata.append(x)
+            record.binary = rec_opcode
+            record.mode = rec_mode
+            record.instr_str = rec_disas
+            record.operand = rec_operands
+            instr_cnt += 1
+            records.append(record.get_trace_string())
+
         for line in f:
             fields = line.split()
-            current_rank = ""
 
             if len(fields) >= 8:
                 (rank, hart, mode, pc, opcode, resource, addr, value, instr) = fields[0:9]
-                pending = current_rank == rank
-                current_rank = rank
 
-                if pending:
-                    fields.pop()
-                elif fields[-1] == "+":
+                if rank != current_rank:
+                    # New instruction: flush the previously accumulated record.
+                    emit_record()
+                    # Reset all per-record state.
+                    current_rank = rank
+                    changes = []
+                    acc_mem_addr = []
+                    acc_store_data = []
+                    rec_pc = pc
+                    rec_opcode = opcode
+                    rec_mode = mode
+                    rec_instr = instr
+
+                # Pop the continuation marker '+' if present.
+                if fields[-1] == "+":
                     fields.pop()
 
-                mem_addr = []
-                store_data = []
+                # Process the optional bracket annotation at the end of the line.
+                # Expecting [a] or [a:d] or [a;a;a;...] or [a:d;a:d;...]
+                # where a is an address and d is a data value with an 0x prefix.
+                #
+                # Bug fix (SV39 / --traceptw): Whisper appends [vaddr:paddr] to
+                # every memory-touching log line, for ALL resource types (r, m,
+                # f, v, ...).  In that format ad[1] is the physical address, not
+                # the stored data.  We therefore never treat ad[1] as store_data
+                # here; the actual stored value is always captured via the
+                # 'm'-resource fallback in emit_record().
                 if fields[-1].startswith("["):
-                    # Expecting [a] or [a:d] or [a;a;a;...] or [a:d;a:d;...]
-                    # where a is an address and d is a data value with an 0x prefix
                     mem_items = fields[-1].strip("[]").replace("0x", "").split(";")
                     mem_items.sort()  # To match other iss tool
                     for x in mem_items:
                         ad = x.split(":")
                         if len(ad) > 0:
-                            mem_addr.append(ad[0])
-                        if len(ad) > 1:
-                            store_data.append(ad[1])
-
+                            acc_mem_addr.append(ad[0])
+                        # Intentionally NOT using ad[1] as store_data for any
+                        # resource type — see the SV39 note above.
                     fields.pop()
 
                 disas = " ".join(fields[7:])  # instruction disassembly
                 operands = " ".join(fields[8:])  # instruction operands
+                rec_disas = disas
+                rec_operands = operands
+
                 changes.append((resource, addr, value))
 
-                if not pending:
-                    regs = []
-                    csrs = []
-                    for change in changes:
-                        (res, addr_str, val) = change
-                        addr = int(addr_str, 16)
-                        if res == "r" and addr != 0:
-                            regs.append(int_reg_name(addr) + ":" + val)
-                        elif res == "f":
-                            regs.append(fp_reg_name(addr) + ":" + val)
-                        elif res == "v":
-                            regs.append("v" + str(addr) + ":" + val)
-                        elif res == "c":
-                            csrs.append("c" + str(addr) + ":" + val)
-                        elif res == "m":
-                            if len(store_data) == 0:
-                                mem_addr = [addr_str]
-                                store_data = [val]
-
-                    record = RiscvInstructionTraceEntry()
-                    record.pc = pc
-                    record.instr = instr
-                    for x in regs:
-                        record.gpr.append(x)
-                    for x in csrs:
-                        record.csr.append(x)
-                    for x in mem_addr:
-                        record.pa.append(x)
-                    for x in store_data:
-                        record.stdata.append(x)
-                    record.binary = opcode
-                    record.mode = mode
-                    record.instr_str = disas
-                    record.operand = operands
-
-                    changes = []
-                    instr_cnt += 1
-                    records.append(record.get_trace_string())
+        # Flush the final record.
+        emit_record()
 
     with open(csv, "w") as csv_fd:
         csv_fd.writelines(records)

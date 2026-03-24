@@ -1,10 +1,9 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from textwrap import wrap
-
 from riescue.compliance.lib.immediate import Immediate12
 from riescue.compliance.lib.instr_setup.base import InstrSetup
+from riescue.compliance.lib.instr_setup.utils import get_store_size
 
 
 class LdStBaseSetup(InstrSetup):
@@ -41,6 +40,14 @@ class StoreSetup(LdStBaseSetup):
 
     def __init__(self, resource_db):
         super().__init__(resource_db)
+
+    def _get_store_size(self, instr_name: str) -> int:
+        """Return the number of bytes written by a store instruction.
+
+        Delegates to the shared get_store_size() in utils so all store
+        post_setup implementations use the same logic.
+        """
+        return get_store_size(instr_name)
 
     def pre_setup(self, instr):
         rs1 = instr.srcs[0]
@@ -86,14 +93,26 @@ class StoreSetup(LdStBaseSetup):
         result_reg2 = self.get_random_reg(instr.reg_manager)
         base_addr_reg = self.get_random_reg(instr.reg_manager)
 
-        """Spike instead decided to provide one address and one full word"""
-        if len(byte_values) == 1:
-            byte_values_temp = wrap(byte_values[0], 2)
+        """Spike/Whisper return a single address and the stored value zero-extended to 64 bits.
 
-            byte_values = byte_values_temp
-            """Byte sequence needs to be least significant byte first"""
+        Bug fix: the ISS zero-extends the stored value to fill the stdata field regardless of
+        store width (e.g. SH gives 0x000000000000e9b4, not just 0xe9b4). Iterating over all
+        8 bytes and expecting zeros for the unwritten ones is incorrect when memory has been
+        pre-initialized with random data. We must truncate to the actual store width.
+        """
+        if len(byte_values) == 1:
+            store_size = self._get_store_size(instr.name)
+            stdata_value = int(byte_values[0], 16)
+
+            byte_values = []
             if not self.resource_db.big_endian:
-                byte_values = byte_values_temp[::-1]
+                # Little-endian: LSB is at the lowest address
+                for i in range(store_size):
+                    byte_values.append(f"{(stdata_value >> (8 * i)) & 0xFF:02x}")
+            else:
+                # Big-endian: MSB is at the lowest address
+                for i in range(store_size - 1, -1, -1):
+                    byte_values.append(f"{(stdata_value >> (8 * i)) & 0xFF:02x}")
 
         for byte_number, byte_value in enumerate(byte_values):
             mem_addr_argument = hex(self._offset.value + byte_number) + "(" + base_addr_reg + ")"
