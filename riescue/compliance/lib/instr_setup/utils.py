@@ -3,7 +3,6 @@
 
 import struct
 import logging
-from textwrap import wrap
 
 import numpy as np
 
@@ -11,6 +10,35 @@ from riescue.compliance.lib.riscv_imm_constraint_database import imm_constraints
 from riescue.compliance.config import Resource
 
 log = logging.getLogger(__name__)
+
+
+def get_store_size(instr_name: str) -> int:
+    """Return the number of bytes written by a store instruction.
+
+    The ISS reports stdata as the stored value zero-extended to 64 bits,
+    so we must determine the actual store width from the instruction name
+    rather than inferring it from the stdata field.
+
+    Works for integer stores (sb/sh/sw/sd) and FP stores (fsw/fsd) and
+    compressed stores (c.sw/c.sd/c.sh/c.fsw/c.fsd) and atomics
+    (amoadd.w/d, amoswap.w/d, sc.w/d, lr.w/d, etc.).
+    """
+    instr_lower = instr_name.lower()
+    # Atomic (AMO) and LR/SC instructions encode width as an explicit .w or .d
+    # suffix in the base instruction name (e.g. amoadd.w, sc.d).  Check these
+    # first because some AMO names (e.g. amoswap) contain "sw" which would
+    # otherwise be misclassified by the substring checks below.
+    if instr_lower.startswith(("amo", "lr.", "sc.")):
+        return 4 if instr_lower.endswith("w") else 8
+    if "sd" in instr_lower:
+        return 8
+    elif "sw" in instr_lower:
+        return 4
+    elif "sh" in instr_lower:
+        return 2
+    elif "sb" in instr_lower:
+        return 1
+    return 8  # default: assume doubleword for unknown instructions
 
 
 def float_to_hex(value, num_bytes: int, reg_size=8) -> str:
@@ -266,14 +294,26 @@ class CStoreComponent:
         result_reg2 = self.get_random_reg(instr.reg_manager)
         base_addr_reg = self.get_random_reg(instr.reg_manager)
 
-        """Spike instead decided to provide one address and one full word"""
-        if len(byte_values) == 1:
-            byte_values_temp = wrap(byte_values[0], 2)
+        """Spike/Whisper return a single address and the stored value zero-extended to 64 bits.
 
-            byte_values = byte_values_temp
-            """Byte sequence needs to be least significant byte first"""
+        Bug fix: the ISS zero-extends the stored value to fill the stdata field regardless of
+        store width (e.g. FSW gives 0x00000000beb85d4d, not just 0xbeb85d4d). Iterating over
+        all 8 bytes and expecting zeros for the unwritten ones is incorrect when memory has been
+        pre-initialized with random data. We must truncate to the actual store width.
+        """
+        if len(byte_values) == 1:
+            store_size = get_store_size(instr.name)
+            stdata_value = int(byte_values[0], 16)
+
+            byte_values = []
             if not self.resource_db.big_endian:
-                byte_values = byte_values_temp[::-1]
+                # Little-endian: LSB is at the lowest address
+                for i in range(store_size):
+                    byte_values.append(f"{(stdata_value >> (8 * i)) & 0xFF:02x}")
+            else:
+                # Big-endian: MSB is at the lowest address
+                for i in range(store_size - 1, -1, -1):
+                    byte_values.append(f"{(stdata_value >> (8 * i)) & 0xFF:02x}")
 
         for byte_number, byte_value in enumerate(byte_values):
             mem_addr_argument = hex(self.offset + byte_number) + "(" + base_addr_reg + ")"

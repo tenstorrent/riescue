@@ -196,7 +196,7 @@ class VecLoadUnitStrideSegmentedSetup(SegmentedComponent, VecLoadUnitStrideSetup
         for vr in mod_vrs:
             if ":" not in vr:
                 continue
-            (reg, value) = tuple(vr.split(":"))
+            (reg, value) = vr.split(":", 1)
             if reg[0] == "v":
                 vrs[int(reg[1:])] = value
             else:
@@ -586,7 +586,7 @@ class VecLoadStridedSegmentedSetup(SegmentedComponent, VecLoadComponent, VecUnit
         for vr in mod_vrs:
             if ":" not in vr:
                 continue
-            (reg, value) = tuple(vr.split(":"))
+            (reg, value) = vr.split(":", 1)
             if reg[0] == "v":
                 vrs[int(reg[1:])] = value
             else:
@@ -923,7 +923,7 @@ class VecLoadIndexedUnorderedSegmentedSetup(SegmentedComponent, VecLoadStoreBase
         for vr in mod_vrs:
             if ":" not in vr:
                 continue
-            (reg, value) = tuple(vr.split(":"))
+            (reg, value) = vr.split(":", 1)
             if reg[0] == "v":
                 vrs[int(reg[1:])] = value
             else:
@@ -1326,7 +1326,7 @@ class VecLoadWholeRegSetup(SegmentedComponent, VecLoadUnitStrideSetup):
         for vr in mod_vrs:
             if ":" not in vr:
                 continue
-            (reg, value) = tuple(vr.split(":"))
+            (reg, value) = vr.split(":", 1)
             if reg[0] == "v":
                 vrs[int(reg[1:])] = value
             else:

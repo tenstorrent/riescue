@@ -786,7 +786,7 @@ class VecFpCvtBF16Setup(VectorInstrSetup):
         for vr in mod_vrs:
             if ":" not in vr:
                 continue
-            (reg, value) = tuple(vr.split(":"))
+            (reg, value) = vr.split(":", 1)
             if reg[0] == "v":
                 vrs[int(reg[1:])] = value
             else:
@@ -1056,7 +1056,7 @@ class VecFpWmaBF16Setup(VectorInstrSetup, FpLoadUtil):
         for vr in mod_vrs:
             if ":" not in vr:
                 continue
-            (reg, value) = tuple(vr.split(":"))
+            (reg, value) = vr.split(":", 1)
             if reg[0] == "v":
                 vrs[int(reg[1:])] = value
             else:
