@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-from riescue.lib.toolchain import Toolchain, Whisper, Spike, Compiler, Disassembler
+from riescue.lib.toolchain import Toolchain, Compiler, Disassembler
 
 
 def experimental_toolchain_from_args(args: argparse.Namespace) -> Toolchain:
@@ -15,8 +15,11 @@ def experimental_toolchain_from_args(args: argparse.Namespace) -> Toolchain:
 
     This might be better as a toolchain extension or in a riescuec-specific toolchain
     """
-    whisper = Whisper.from_clargs(args)
-    spike = Spike.from_clargs(args)
+    # Use build_both=True so a missing ISS tool degrades gracefully instead
+    # of raising FileNotFoundError before the caller's fallback logic runs.
+    _tc = Toolchain.from_clargs(args, build_both=True)
+    whisper = _tc.whisper
+    spike = _tc.spike
 
     experimental_enabled = any(
         [
