@@ -343,12 +343,23 @@ class AssemblyWriter:
                     csr_spec = match.group(1).strip()
                     read_write_set_clear = match.group(2).strip().rstrip(")")
                     direct_rw = "false"
+                    force_machine_rw_line = False
                     if "," in parsed_line:
                         rest = parsed_line[parsed_line.index(read_write_set_clear) + len(read_write_set_clear) :].strip()
                         if rest.startswith(","):
-                            rest_parts = [p.strip() for p in rest[1:].split(",")]
+                            rest_parts = [p.strip().rstrip(")") for p in rest[1:].split(",")]
                             if rest_parts and "=" not in rest_parts[0]:
+                                # Old format: ;#csr_rw(csr, action, direct_rw, force_machine_rw)
                                 direct_rw = rest_parts[0].lower()
+                                if len(rest_parts) > 1:
+                                    force_machine_rw_line = rest_parts[1].lower() == "true"
+                            else:
+                                # New format: ;#csr_rw(csr, action, force_machine=true, ...)
+                                for p in rest_parts:
+                                    if "=" in p:
+                                        k, v = p.split("=", 1)
+                                        if k.strip() == "force_machine":
+                                            force_machine_rw_line = v.strip().lower() == "true"
 
                     try:
                         parsed_csr_val = self.pool.get_parsed_csr_access(csr_spec, read_write_set_clear)
@@ -397,7 +408,7 @@ class AssemblyWriter:
                     if read_write_set_clear in ("write_subfield", "read_subfield") and parsed_csr_val.field:
                         subfield = {parsed_csr_val.field: str(parsed_csr_val.value or 0)}
 
-                    use_syscall = (parsed_csr_val.force_machine_rw and test_priv_mode != "machine") or ((priv_mode_prio < csr_prio or no_virtualized_on_hypervisor) and direct_rw != "true")
+                    use_syscall = (force_machine_rw_line and test_priv_mode != "machine") or ((priv_mode_prio < csr_prio or no_virtualized_on_hypervisor) and direct_rw != "true")
 
                     if use_syscall:
                         code_to_replace = ""
@@ -409,11 +420,11 @@ class AssemblyWriter:
                             code_to_replace += f"li t2, {parsed_csr_val.value}\n"
                         elif read_write_set_clear == "write" and parsed_csr_val.value is not None:
                             code_to_replace += f"li t2, {parsed_csr_val.value}\n"
-                        flag_name = "machine_csr_jump_table_flags" if priv_mode == "machine" or parsed_csr_val.force_machine_rw else "super_csr_jump_table_flags"
+                        flag_name = "machine_csr_jump_table_flags" if priv_mode == "machine" or force_machine_rw_line else "super_csr_jump_table_flags"
                         code_to_replace += f"li x31, {flag_name}\n"
                         code_to_replace += f"li t5, {parsed_csr_val.csr_id}\n"
                         code_to_replace += "sd t5, 0(x31)\n"
-                        sys_call = "0xf0001006" if priv_mode == "super" and not parsed_csr_val.force_machine_rw else "0xf0001005"
+                        sys_call = "0xf0001006" if priv_mode == "super" and not force_machine_rw_line else "0xf0001005"
                         code_to_replace += f"li x31, {sys_call}\n"
                         code_to_replace += "ecall\n"
                         line = line + "\n" + code_to_replace

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from .base import BaseAdapter
 from riescue.dtest_framework.config import Candidate
-from riescue.lib.toolchain import Toolchain, Spike, Whisper, Compiler, Disassembler
+from riescue.lib.toolchain import Toolchain
 import riescue.lib.enums as RV
 
 if TYPE_CHECKING:
@@ -41,11 +41,8 @@ class TpArgsAdapter(BaseAdapter):
             log.error("Using default memory map (not default cpuconfig). This is likely in error")
         builder.featmgr_builder.with_args(args)
 
-        # build tool chain
-        cfg.toolchain = Toolchain(
-            compiler=Compiler.from_clargs(args),
-            disassembler=Disassembler.from_clargs(args),
-            spike=Spike.from_clargs(args),
-            whisper=Whisper.from_clargs(args),
-        )
+        # build tool chain — use build_both=True so missing ISS tools are
+        # handled gracefully (FileNotFoundError caught → None) rather than
+        # crashing here before the caller's fallback logic runs.
+        cfg.toolchain = Toolchain.from_clargs(args, build_both=True)
         return builder
