@@ -1,0 +1,3 @@
+feature,machine,supervisor,user,bare,sv39,sv48,sv57,repeat_times
+svinval,x,x,x,x,x,x,x,1
+svadu,,x,x,,x,x,x,1

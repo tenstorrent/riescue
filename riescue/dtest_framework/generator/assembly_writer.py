@@ -212,6 +212,7 @@ class AssemblyWriter:
         trigger_config_idx = 0
         trigger_disable_idx = 0
         trigger_enable_idx = 0
+        rvcp_discrete: str | None = None
         for line in assembly_content.split("\n"):
             # Filter out PMA hint directives - they are processed by parser and should not appear in output
             # Handle multi-line directives
@@ -224,6 +225,11 @@ class AssemblyWriter:
                 if ")" in stripped and not stripped.startswith("#"):
                     in_pma_hint = False
                 continue
+
+            if stripped.startswith(";#discrete_test(test=") and not stripped.startswith(";#discrete_debug_test"):
+                m_dt = re.match(r"^;#discrete_test\(test=([^)]+)\)", stripped)
+                if m_dt:
+                    rvcp_discrete = cast(str, m_dt.group(1)).strip()
 
             # replace .section .code, with .section .code, "ax" or "aw"
             if ".section .code," in line and not section_code_found:
@@ -543,13 +549,22 @@ class AssemblyWriter:
 
             parsed_line = line.strip()
             if parsed_line.startswith(";#test_passed"):
-                # runtime should probably be the one generating this code
-                # maybe make a public method on runtime to generate this code.
-                replaced_lines = self.runtime.test_passed()
-
+                if rvcp_discrete is None:
+                    log.warning(";#test_passed() reached before any ;#discrete_test(test=...) — HTIF RVCP message will use 'UNKNOWN' as discrete name")
+                replaced_lines = list(self.runtime.test_passed())
+                discrete_rvcp_passed: str = cast(str, rvcp_discrete or "UNKNOWN")  # pyright: ignore[reportUnknownArgumentType]
+                htif_pre = self.runtime.htif_console_rvcp_asm_lines(discrete_rvcp_passed, "PASSED")
+                if htif_pre:
+                    replaced_lines = htif_pre + replaced_lines
                 line = line + "\n\t" + "\n\t".join(replaced_lines)
             if parsed_line.startswith(";#test_failed"):
-                replaced_lines = self.runtime.test_failed()
+                if rvcp_discrete is None:
+                    log.warning(";#test_failed() reached before any ;#discrete_test(test=...) — HTIF RVCP message will use 'UNKNOWN' as discrete name")
+                replaced_lines = list(self.runtime.test_failed())  # pyright: ignore[reportUnknownArgumentType]
+                discrete_rvcp_failed: str = cast(str, rvcp_discrete or "UNKNOWN")
+                htif_pre = self.runtime.htif_console_rvcp_asm_lines(discrete_rvcp_failed, "FAILED")
+                if htif_pre:
+                    replaced_lines = htif_pre + replaced_lines
                 line = line + "\n\t" + "\n\t".join(replaced_lines)
 
             parsed_lines.append(line)

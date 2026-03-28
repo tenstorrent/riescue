@@ -112,6 +112,10 @@ class CliAdapter(Adapter):
             featmgr.eot_pass_value = cmdline.eot_pass_value
         if cmdline.eot_fail_value is not None:
             featmgr.eot_fail_value = cmdline.eot_fail_value
+        if cmdline.eot_print_htif_console:
+            featmgr.eot_print_htif_console = True
+        if cmdline.print_rvcp_passes:
+            featmgr.print_rvcp_passes = True
         if cmdline.switch_to_user_page is not None:
             featmgr.switch_to_user_page = cmdline.switch_to_user_page
         if cmdline.switch_to_super_page is not None:

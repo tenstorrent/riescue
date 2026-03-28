@@ -101,6 +101,20 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Sets the end of test fail value; defaults to 1",
         type=lambda x: int(x, 0),
     )
+    eot_args.add_argument(
+        "--eot_print_htif_console",
+        action="store_true",
+        default=False,
+        help="Emit RVCP FAIL lines via HTIF tohost putchar (64-bit sd per byte, device 1 cmd 1; Whisper-compatible) "
+        "for each ;#test_failed() in Riescue-D generated tests. "
+        "FAIL line is wrapped with ============ lines. Does not emit PASSED lines; use --print_rvcp_passes for those.",
+    )
+    eot_args.add_argument(
+        "--print_rvcp_passes",
+        action="store_true",
+        default=False,
+        help="Emit RVCP PASSED lines via HTIF tohost putchar for ;#test_passed() and final ALL PASSED summary line. " "Off by default; independent of --eot_print_htif_console.",
+    )
 
     mp_args = parser.add_argument_group("Multiprocessor", "Arguments for multiprocessor tests")
     mp_args.add_argument(
