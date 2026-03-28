@@ -59,12 +59,14 @@ class Scheduler(AssemblyGenerator, ABC):
         return f"""
 .section .runtime, "ax"
 
-# Scheduler initialization; only ran once
+# Scheduler initialization; only ran once (4-byte align for long-range JAL from loader)
+.balign 4
 {self.scheduler_init_label}:
     {self._init_setup()}
     {self.scheduler_init()}
 
-# Entry point for scheduling next test
+# Entry point for scheduling next test (4-byte align: R_RISCV_JAL requires even PC offset)
+.balign 4
 {self.scheduler_dispatch_label}:
     {self._dispatch_setup()}
     {self.featmgr.call_hook(RV.HookPoint.PRE_DISPATCH)}
