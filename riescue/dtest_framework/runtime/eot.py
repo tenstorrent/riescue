@@ -8,6 +8,71 @@ from typing import Any
 import riescue.lib.enums as RV
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 
+# HTIF console putchar: packed 64-bit word per character (device 1, cmd 1) — Whisper handleStoreToHost / Spike-style.
+# ACT4 Sail reference uses two 32-bit sw per character; not the same instruction pattern as this sd loop.
+# dev=1, cmd=1 → bits [63:56] = 0x01, bits [55:48] = 0x01.
+_HTIF_DEV_CMD_BITS: int = (1 << 56) | (1 << 48)
+
+
+def rvcp_message(elf_basename: str, discrete: str, outcome: str) -> str:
+    """Single-line RVCP status, newline-terminated. ASCII only (no ``TEST`` prefix before discrete)."""
+    return f"RVCP: Test File {elf_basename} {discrete} {outcome}\n"
+
+
+_RVCP_FAIL_BANNER_LINE = "============\n"
+
+# ANSI: red background on ``<elf_basename> <discrete> FAILED``; reset after (Whisper / terminal must interpret SGR).
+_RVCP_FAIL_BG_RED = "\x1b[41m"
+_RVCP_FAIL_SGR_RESET = "\x1b[0m"
+
+
+def rvcp_fail_message_with_banners(elf_basename: str, discrete: str) -> str:
+    """FAIL line between banner lines; ``<elf> <discrete> FAILED`` uses red background SGR (ASCII + ESC)."""
+    prefix = "RVCP: Test File "
+    highlighted = f"{elf_basename} {discrete} FAILED"
+    mid = f"{prefix}{_RVCP_FAIL_BG_RED}{highlighted}{_RVCP_FAIL_SGR_RESET}\n"
+    return f"{_RVCP_FAIL_BANNER_LINE}{mid}{_RVCP_FAIL_BANNER_LINE}"
+
+
+def _asm_escape_string(s: str) -> str:
+    """Escape a Python string for use in a GAS ``.asciz`` directive (double-quoted)."""
+    out: list[str] = []
+    for ch in s:
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\t":
+            out.append("\\t")
+        elif ord(ch) < 32 or ord(ch) > 126:
+            out.append(f"\\{ord(ch):03o}")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def htif_rvcp_call_lines(label: str, message: str) -> list[str]:
+    """
+    Emit assembly lines to print ``message`` via ``htif_rvcp_print`` subroutine call.
+
+    Stores the null-terminated string in ``.pushsection .runtime, "ax"`` so it lands in the
+    already-mapped runtime section without requiring linker-script changes.  The call site uses
+    ``la t4, <label>`` (PC-relative) + ``jal ra, htif_rvcp_print`` — two instructions instead of
+    the previous O(len) inline sd sequence.  Clobbers: t4, ra (caller must not need ra preserved).
+    """
+    escaped = _asm_escape_string(message)
+    return [
+        '.pushsection .runtime, "ax"',
+        f"{label}:",
+        f'    .asciz "{escaped}"',
+        ".popsection",
+        ".align 2",  # Realign to 4-byte boundary: .popsection restores cursor to just after the string bytes
+        f"la t4, {label}",
+        "jal ra, htif_rvcp_print",
+    ]
+
 
 class Eot(AssemblyGenerator):
     """
@@ -41,9 +106,60 @@ class Eot(AssemblyGenerator):
 
         self.eot_wait_for_others_timeout = self.EOT_DEFAULT_WAIT_FOR_OTHERS_TIMEOUT  #: Number of loops to wait for other harts to finish before writing to tohost.
 
+    def _htif_rvcp_print_subroutine(self) -> str:
+        """
+        ``htif_rvcp_print``: loop-based HTIF putchar subroutine.  Prints a null-terminated ASCII
+        string pointed to by ``t4`` via HTIF tohost (one RV64 ``sd`` per byte, device 1 / cmd 1).
+        Emitted only when ``--eot_print_htif_console`` or ``--print_rvcp_passes`` is active.
+        Clobbers: t3, t4, t5, t6, ra (caller uses ``jal ra, htif_rvcp_print``).
+        """
+        if not (self.featmgr.eot_print_htif_console or self.featmgr.print_rvcp_passes):
+            return ""
+        dev_cmd = hex(_HTIF_DEV_CMD_BITS)
+        return f"""
+# HTIF RVCP console print subroutine: t4 = pointer to null-terminated message.
+# norvc + balign: executable .runtime must stay 4-byte aligned for JAL/J relocations.
+.option push
+.option norvc
+.balign 4
+htif_rvcp_print:
+    la   t3, tohost
+    li   t6, {dev_cmd}
+.Lhtif_rvcp_loop:
+    lbu  t5, 0(t4)
+    beqz t5, .Lhtif_rvcp_done
+    or   t5, t5, t6
+    sd   t5, 0(t3)
+    addi t4, t4, 1
+    j    .Lhtif_rvcp_loop
+.Lhtif_rvcp_done:
+    ret
+.option pop
+"""
+
+    def _htif_rvcp_all_passed_string_data(self) -> str:
+        """
+        Static string for the ALL PASSED RVCP message in ``.runtime`` (near code for medany ``la``).
+        ``.balign 4`` after ``.asciz`` keeps the following HTIF/EOT instructions 4-byte aligned so
+        PC-relative ``j``/``jal`` relocs are not rejected (odd byte delta).
+        """
+        if not (self.featmgr.eot_print_htif_console or self.featmgr.print_rvcp_passes):
+            return ""
+        msg = rvcp_message(f"{self.pool.testname}.elf", "ALL", "PASSED")
+        escaped = _asm_escape_string(msg)
+        # .asciz adds trailing NUL; GAS may not pad before the next insn — explicit .space keeps
+        # htif_rvcp_print on a 4-byte boundary (R_RISCV_JAL requires even PC-relative offset).
+        n_with_nul = len(msg.encode("latin-1")) + 1
+        pad = (4 - (n_with_nul % 4)) % 4
+        pad_asm = f"    .space {pad}\n" if pad else ""
+        return f"""
+.align 3
+.Lhtif_rvcp_msg_all_passed:
+    .asciz "{escaped}"
+{pad_asm}"""
+
     def generate(self) -> str:
         code = f"""
-
 .section .runtime, "ax"
 # End of test data
 .align 3
@@ -51,14 +167,18 @@ tohost_mutex:
     .dword 0;
 tohost_addr_mem:
     .dword tohost
-
-# End of Test
+{self._htif_rvcp_all_passed_string_data()}
+{self._htif_rvcp_print_subroutine()}
+# End of Test (4-byte align: PC-relative branches/jumps require even byte delta)
+.balign 4
 eot__end_test:
     {self.end_test()}
 
+.balign 4
 eot__passed:
     {self.passed()}
 
+.balign 4
 eot__failed:
     {self.failed()}
 
@@ -180,6 +300,17 @@ eot__failed:
         """
         return code
 
+    def _eot_htif_console_rvcp_all_passed_asm(self) -> str:
+        """
+        Final EOT pass: whole test file succeeded (all discrete tests). Discrete tag \"ALL\".
+        Emitted with --eot_print_htif_console or --print_rvcp_passes (HTIF tohost putchar).
+        The string .Lhtif_rvcp_msg_all_passed is declared in the data area of generate() to
+        avoid same-section .pushsection alignment issues when already in .runtime.
+        """
+        if not (self.featmgr.eot_print_htif_console or self.featmgr.print_rvcp_passes):
+            return ""
+        return "\n    la t4, .Lhtif_rvcp_msg_all_passed\n    jal ra, htif_rvcp_print\n"
+
     def passed(self) -> str:
         """
         Generate code to indicate that test has passed.
@@ -193,6 +324,7 @@ eot__failed:
 
         code = ""
         code += self.featmgr.call_hook(RV.HookPoint.PRE_PASS)
+        code += self._eot_htif_console_rvcp_all_passed_asm()
         code += f"""
     fence iorw, iorw
     ld t0, tohost_addr_mem

@@ -117,6 +117,10 @@ class FeatMgr:
     io_imsic_sfile_stride: Optional[int] = None
     eot_pass_value: int = 1
     eot_fail_value: int = 3
+    #: When True, Riescue-D injects RVCP FAIL lines (with banners) via HTIF tohost putchar before ;#test_failed().
+    eot_print_htif_console: bool = False
+    #: When True, Riescue-D injects RVCP PASSED lines via HTIF tohost putchar before ;#test_passed() and at final ALL PASSED.
+    print_rvcp_passes: bool = False
 
     # MP mode
     mp: RV.RiscvMPEnablement = RV.RiscvMPEnablement.MP_ON

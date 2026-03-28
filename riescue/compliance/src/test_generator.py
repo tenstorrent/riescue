@@ -197,7 +197,6 @@ class TestGenerator:
         """
 
         header = self._write_header()
-
         body: list[str] = []
         body.append(".section .code\n")
 
@@ -326,11 +325,11 @@ class TestGenerator:
                 spike_log, spike_csv_log = testcase.get_spike_logs()
                 whisper_log, whisper_csv_log = testcase.get_whisper_logs()
                 process_spike_sim_log(spike_log, spike_csv_log)
-                process_whisper_sim_log(whisper_log, whisper_csv_log)
+                process_whisper_sim_log(whisper_log, whisper_csv_log, narrow_scalar_store_stdata=True)
             elif self.resource_db.first_pass_iss == "spike":
                 process_spike_sim_log(log.resolve(), csv_log.resolve())
             elif self.resource_db.first_pass_iss == "whisper":
-                process_whisper_sim_log(log.resolve(), csv_log.resolve())
+                process_whisper_sim_log(log.resolve(), csv_log.resolve(), narrow_scalar_store_stdata=True)
             else:
                 raise ValueError(f"Unknown ISS {self.resource_db.first_pass_iss}")
 
