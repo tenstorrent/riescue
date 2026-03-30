@@ -145,6 +145,34 @@ class Toolchain:
                 disassembler=Disassembler.from_clargs(args),
             )
 
+    @staticmethod
+    def _try_build_sail(args: argparse.Namespace) -> Optional[Sail]:
+        """
+        Attempt to build a Sail instance from CLI args.
+        Returns None (with a warning) if Sail executable is not found,
+        so that build_both=True does not hard-fail when Sail is absent.
+        """
+        import os
+        import shutil
+        from pathlib import Path
+
+        sail_path = getattr(args, "sail_path", None)
+        sail_env = os.environ.get("SAIL_PATH")
+
+        if sail_path is None and sail_env is None:
+            if shutil.which("sail_riscv_sim") is None:
+                log.warning(
+                    "Sail executable not found (no --sail_path, no SAIL_PATH env var, "
+                    "and 'sail_riscv_sim' not in PATH). Sail will not be available."
+                )
+                return None
+
+        try:
+            return Sail.from_clargs(args)
+        except FileNotFoundError as e:
+            log.warning(f"Could not build Sail ISS: {e}. Sail will not be available.")
+            return None
+
 
 def apply_iss_fallback(cl_args: argparse.Namespace, toolchain: Toolchain) -> None:
     """
@@ -180,32 +208,9 @@ def apply_iss_fallback(cl_args: argparse.Namespace, toolchain: Toolchain) -> Non
             raise SystemExit("ERROR: --first_pass_iss whisper specified but whisper not found. Set WHISPER_PATH or add whisper to PATH.")
         if iss_flag == "spike" and not spike_available:
             raise SystemExit("ERROR: --first_pass_iss spike specified but spike not found. Set SPIKE_PATH or add spike to PATH.")
-        cl_args.disable_pass = True
-
-    @staticmethod
-    def _try_build_sail(args: argparse.Namespace) -> Optional[Sail]:
-        """
-        Attempt to build a Sail instance from CLI args.
-        Returns None (with a warning) if Sail executable is not found,
-        so that build_both=True does not hard-fail when Sail is absent.
-        """
-        import os
-        from pathlib import Path
-
-        sail_path = getattr(args, "sail_path", None)
-        sail_env = os.environ.get("SAIL_PATH")
-
-        if sail_path is None and sail_env is None:
-            import shutil
-            if shutil.which("riscv_sim_RV64") is None:
-                log.warning(
-                    "Sail executable not found (no --sail_path, no SAIL_PATH env var, "
-                    "and 'riscv_sim_RV64' not in PATH). Sail will not be available."
-                )
-                return None
-
-        try:
-            return Sail.from_clargs(args)
-        except FileNotFoundError as e:
-            log.warning(f"Could not build Sail ISS: {e}. Sail will not be available.")
-            return None
+        # Only disable the second pass when no explicit --second_pass_iss was
+        # provided. If the user specified both --first_pass_iss and
+        # --second_pass_iss (e.g. whisper + sail), the two-pass flow should
+        # run normally and the second pass must not be skipped.
+        if getattr(cl_args, "second_pass_iss", None) is None:
+            cl_args.disable_pass = True
