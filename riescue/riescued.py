@@ -19,7 +19,7 @@ from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.generator import Generator
 from riescue.dtest_framework.lib.discrete_test import DiscreteTest
 from riescue.lib.cli_base import CliBase
-from riescue.lib.toolchain import Toolchain, Spike, Whisper
+from riescue.lib.toolchain import Toolchain, Spike, Whisper, Sail
 
 
 log = logging.getLogger("riescue")  # special case because riescued can be a main module
@@ -391,7 +391,7 @@ class RiescueD(CliBase):
     def simulate(
         self,
         featmgr: FeatMgr,
-        iss: Union[Spike, Whisper],
+        iss: Union[Spike, Whisper, Sail],
         whisper_config_json_override: Optional[Path] = None,
         dump_selfcheck: bool = False,
     ) -> Path:
@@ -399,7 +399,7 @@ class RiescueD(CliBase):
         Run test code through ISS
 
         :param featmgr: ``FeatMgr`` object
-        :param iss: ``Spike`` or ``Whisper`` object
+        :param iss: ``Spike``, ``Whisper``, or ``Sail`` object
         :param whisper_config_json_override: Optional path to whisper config json file to override default
         :param dump_selfcheck: Dump selfcheck_data region to disk after ISS run (requires Whisper)
         :return: Path to ISS log file
@@ -427,24 +427,20 @@ class RiescueD(CliBase):
                     failed_pc = int(failed_pc, 16) + 0x10
                     print(f"Setting end-of-sim pc to: {failed_pc:016x}")
 
-        # Spike ISS path and args
+        # ISS-specific args and log path
         iss_args = []
         if isinstance(iss, Spike):
-
             iss_args.append("--priv=msu")
             iss_args.append(f"--pc=0x{featmgr.reset_pc:x}")
             iss_log = self.run_dir / f"{self.testname}_spike.log"
             if not featmgr.force_alignment:
                 iss_args.append("--misaligned")
-
             if featmgr.mp_mode_on():
                 iss_args.append(f"-p{featmgr.num_cpus}")
-
             if featmgr.tohost_nonzero_terminate or featmgr.fe_tb:
                 iss_args.append("--tt-tohost-nonzero-terminate")
             if featmgr.big_endian:
                 iss_args.append("--big-endian")
-
             if featmgr.wysiwyg and failed_pc is not None:
                 iss_args += ["--end-pc", str(hex(failed_pc))]
 
@@ -457,7 +453,6 @@ class RiescueD(CliBase):
             else:
                 whisper_config_json = self.package_path / "dtest_framework/lib/whisper_config.json"
             iss.whisper_config_json = whisper_config_json
-
             if featmgr.mp_mode_on():
                 iss_args += [
                     "--quitany",
@@ -476,6 +471,27 @@ class RiescueD(CliBase):
                 selfcheck_dumpmem = f"{self.generated_files.selfcheck_dump}:@selfcheck_data:@selfcheck_data+@selfcheck_per_hart_size*@NUM_CPUS"
                 resolved_dumpmem = iss.process_dumpmem_arg(self.generated_files.elf, selfcheck_dumpmem)
                 iss_args += ["--dumpmem", resolved_dumpmem]
+
+        elif isinstance(iss, Sail):
+            # Sail 0.10+: ELF entry point and privilege mode are determined
+            # automatically from the ELF and the JSON config file.
+            # No --pc, --priv, or --misaligned flags needed here — those are
+            # controlled via --sail_config / --sail_config_override.
+            # iss_args stays empty; all Sail-specific flags are already in
+            # sail.args from __init__ (--inst-limit, --trace-htif) and
+            # sail.run_iss() adds --config-override and --trace-output.
+            iss_log = self.run_dir / f"{self.testname}_sail.log"
+            if featmgr.mp_mode_on():
+                log.warning(
+                    "Sail does not support multiprocessor mode. "
+                    "Ignoring mp_mode for Sail ISS run."
+                )
+            if featmgr.wysiwyg:
+                log.warning(
+                    "Sail does not support wysiwyg mode (no --endpc equivalent). "
+                    "Ignoring wysiwyg failed_pc for Sail ISS run."
+                )
+
         else:
             raise ValueError("No ISS selected. Provide ISS in toolchain configuration")
 

@@ -15,7 +15,7 @@ from riescue.compliance.src.comparator import Comparator
 from riescue.compliance.src.instr_builder import InstrBuilder
 from riescue.compliance.lib.testcase import TestCase
 from riescue.riescued import RiescueD
-from riescue.lib.toolchain import Spike, Whisper, Toolchain
+from riescue.lib.toolchain import Spike, Whisper, Sail, Toolchain
 from riescue.lib.rand import RandNum
 
 log = logging.getLogger(__name__)
@@ -37,8 +37,18 @@ class BringupMode(BaseMode[Resource]):
         bringup_args.add_argument("--fp_config", "-fcfg", type=Path, help="JSON File specifying default floating point instruction configuration")
         bringup_args.add_argument("--dump_instrs", action="store_true", help="Switch to dump the instruction fields as JSON")
         bringup_args.add_argument("--disable_pass", action="store_true", help="Disables the second pass for the compliance run")
-        bringup_args.add_argument("--first_pass_iss", type=str, help="Provide Target ISS for the first pass")
-        bringup_args.add_argument("--second_pass_iss", type=str, help="Provide Target ISS for the second pass")
+        bringup_args.add_argument(
+            "--first_pass_iss", type=str,
+            help="Provide Target ISS for the first pass. "
+                 "Valid values: 'whisper', 'spike', 'sail'. "
+                 "NOTE: Sail is not recommended as a first-pass ISS since its log format "
+                 "differs from Whisper's commit log format used for operand value extraction.",
+        )
+        bringup_args.add_argument(
+            "--second_pass_iss", type=str,
+            help="Provide Target ISS for the second pass. "
+                 "Valid values: 'whisper', 'spike', 'sail'.",
+        )
         bringup_args.add_argument("--rpt_cnt", type=int, help="Each instruction will have rpt_cnt instances in the test")
         bringup_args.add_argument("--max_instrs_per_file", type=int, help="Max instrs in the test file during the first pass. Doesn't include second pass or runtime instructions")
         bringup_args.add_argument("--compare_iss", action="store_true", help="Run second pass testcase on both ISS targets (i.e whisper and spike) and compares the logs")
@@ -165,15 +175,39 @@ class BringupMode(BaseMode[Resource]):
         return last_rd.generated_files.elf
 
     # helper methods
-    def _get_iss(self, iss_name: str, toolchain: Toolchain) -> Union[Spike, Whisper]:
+    def _get_iss(self, iss_name: str, toolchain: Toolchain) -> Union[Spike, Whisper, Sail]:
+        """
+        Resolve an ISS name string to the corresponding ISS object from the toolchain.
+
+        Valid ISS names: 'whisper', 'spike', 'sail'
+
+        Sail note: Sail is supported as a second-pass ISS (golden model verification).
+        Using Sail as a first-pass ISS is not recommended — Sail's log format differs
+        from Whisper's commit log format that riescue uses for operand value extraction.
+        Tests will likely fail if Sail is used as first_pass_iss. This is tracked as a
+        known limitation; see GitHub issues.
+        """
         if iss_name == "whisper":
             iss = toolchain.whisper
         elif iss_name == "spike":
             iss = toolchain.spike
+        elif iss_name == "sail":
+            iss = toolchain.sail
+            if iss is None:
+                raise ValueError(
+                    "ISS 'sail' was requested but Sail is not configured in the toolchain. "
+                    "Provide --sail_path or set the SAIL_PATH environment variable."
+                )
         else:
-            raise ValueError(f"Invalid ISS: {iss_name}")
+            raise ValueError(
+                f"Invalid ISS: '{iss_name}'. "
+                f"Valid values are: 'whisper', 'spike', 'sail'."
+            )
         if iss is None:
-            raise ValueError(f"No ISS {iss_name} configured in toolchain")
+            raise ValueError(
+                f"ISS '{iss_name}' was requested but is not configured in the toolchain. "
+                f"Make sure the corresponding path/environment variable is set."
+            )
         return iss
 
     def _rd_run_iss(self, file: Path, iss: Union[str, list[str]], resource: Resource, toolchain: Toolchain) -> RiescueD:
@@ -236,6 +270,7 @@ class BringupMode(BaseMode[Resource]):
                 f"{output_file}_1_spike_csv.log",
                 f"{output_file}_1_spike.log",
                 f"{output_file}_2_whisper.log",
+                f"{output_file}_2_sail.log",   # sail log cleanup
             ]
 
             for file in files_to_remove:

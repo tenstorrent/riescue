@@ -19,6 +19,7 @@ from riescue.lib.rand import initial_random_seed
 from riescue.lib.cli_base import CliBase
 from riescue.lib.toolchain import Toolchain
 from riescue.lib.toolchain.toolchain import apply_iss_fallback
+from riescue.lib.toolchain import Toolchain, Sail
 from riescue.lib.instr_info.instr_lookup_json import InstrInfoJson
 
 log = logging.getLogger("riescue")  # special case because ctk can be a main module
@@ -154,6 +155,7 @@ class Ctk(CliBase):
         RiescueLogger.add_arguments(parser)
         Whisper.add_arguments(parser)
         Spike.add_arguments(parser)
+        Sail.add_arguments(parser)
         Compiler.add_arguments(parser)
         Disassembler.add_arguments(parser)
 

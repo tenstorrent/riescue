@@ -294,7 +294,7 @@ class Spike(Tool):
 
         if not third_party_spike:
             self.varch = {"vlen": 256, "elen": 64}
-            args.append(f"--max-instrs={spike_max_instr}")
+            args.append(f"--instructions={spike_max_instr}")
         else:
             self.varch = None
 

@@ -1,0 +1,42 @@
+{
+    "reset_pc": "0x80000000",
+    "mmap": {
+        "dram": {
+            "region0": {
+                "address": "0x80000000",
+                "size": "0x10000000"
+            }
+        },
+        "io": {
+            "clint": {
+                "address": "0x2000000",
+                "size": "0xc000"
+            },
+            "htif": {
+                "address": "0x70000000",
+                "size": "0x10"
+            }
+        }
+    },
+    "features": {
+        "rv64": {"supported": true, "enabled": true, "randomize": 100},
+        "i":    {"supported": true, "enabled": true, "randomize": 100},
+        "m":    {"supported": false, "enabled": false, "randomize": 0},
+        "a":    {"supported": false, "enabled": false, "randomize": 0},
+        "f":    {"supported": false, "enabled": false, "randomize": 0},
+        "d":    {"supported": false, "enabled": false, "randomize": 0},
+        "c":    {"supported": false, "enabled": false, "randomize": 0},
+        "h":    {"supported": false, "enabled": false, "randomize": 0},
+        "v":    {"supported": false, "enabled": false, "randomize": 0},
+        "u":    {"supported": true, "enabled": true, "randomize": 100},
+        "s":    {"supported": true, "enabled": true, "randomize": 100}
+    },
+    "mp": "off",
+    "num_cpus": "1",
+    "test_generation": {
+        "secure_access_probability": 0,
+        "secure_pt_probability": 0,
+        "a_d_bit_randomization": 0,
+        "pbmt_ncio_randomization": 0
+    }
+}

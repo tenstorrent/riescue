@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from .base import BaseAdapter
 from riescue.dtest_framework.config import Candidate
-from riescue.lib.toolchain import Toolchain, Spike, Whisper, Compiler, Disassembler
+from riescue.lib.toolchain import Toolchain, Spike, Whisper, Sail, Compiler, Disassembler
 import riescue.lib.enums as RV
 
 if TYPE_CHECKING:
@@ -24,6 +24,11 @@ class BringupArgsAdapter(BaseAdapter):
     """
     Adapter for :class:`BringupTest`.
     """
+
+    # Valid ISS names. Checked when first_pass_iss / second_pass_iss are set
+    # from CLI args so users get a clear error rather than a cryptic failure
+    # deep in _get_iss().
+    VALID_ISS_NAMES: frozenset[str] = frozenset({"spike", "whisper", "sail"})
 
     def apply(self, builder: ResourceBuilder, src: argparse.Namespace) -> ResourceBuilder:
         args = src
@@ -61,10 +66,31 @@ class BringupArgsAdapter(BaseAdapter):
             resource.user_config = self.find_config(args.user_config)
         if args.fp_config is not None:
             resource.fp_config = self.find_config(args.fp_config)
+
         if args.first_pass_iss is not None:
+            if args.first_pass_iss not in self.VALID_ISS_NAMES:
+                raise ValueError(
+                    f"Invalid --first_pass_iss value: '{args.first_pass_iss}'. "
+                    f"Valid values are: {sorted(self.VALID_ISS_NAMES)}"
+                )
+            if args.first_pass_iss == "sail":
+                log.warning(
+                    "--first_pass_iss sail is not recommended. Sail's log format "
+                    "differs from Spike's commit log format that riescue uses for "
+                    "operand value extraction in the first pass. Tests will likely "
+                    "fail at the log parsing stage. Use Sail as --second_pass_iss "
+                    "instead. Tracked as a known limitation."
+                )
             resource.first_pass_iss = args.first_pass_iss
+
         if args.second_pass_iss is not None:
+            if args.second_pass_iss not in self.VALID_ISS_NAMES:
+                raise ValueError(
+                    f"Invalid --second_pass_iss value: '{args.second_pass_iss}'. "
+                    f"Valid values are: {sorted(self.VALID_ISS_NAMES)}"
+                )
             resource.second_pass_iss = args.second_pass_iss
+
         if args.compare_iss is not None:
             resource.compare_iss = args.compare_iss
         if args.dump_instrs is not None:
@@ -104,6 +130,7 @@ class BringupArgsAdapter(BaseAdapter):
         if args.big_endian is not None:
             resource.big_endian = args.big_endian
             featmgr_builder.featmgr.num_cpus = 1  # from legacy code, not sure what the restriction is
+            # Sail does not support big-endian; fall back to spike/spike for big-endian runs
             resource.first_pass_iss = "spike"
             resource.second_pass_iss = "spike"
             log.info("Big endian enabled, disabling mp and setting num_cpus to 1")
