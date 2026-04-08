@@ -26,7 +26,7 @@ dependencies = [
     "intervaltree",
     "coverage",
     "pyright[nodejs]",
-    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@929db28fb32db78c1261571eb50202630b8eeff4",
+    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@fdfaa8833d233e807c245227345781560cc4089d",
 ]
 
 [tool.setuptools.package-dir]
