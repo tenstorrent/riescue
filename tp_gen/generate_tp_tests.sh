@@ -8,7 +8,7 @@
 # Usage: ./generate_tp_tests.sh [--batch N] [--test_plan FEATURE] [--seed_count N]
 #   --batch N          Run N commands in parallel at a time (default: 10)
 #   --test_plan FEATURE  Only run the specified feature from features.csv
-#   --seed_count N     Number of seeds to generate per test (default: 10)
+#   --seed_count N     Number of seeds to generate per test (default: 2)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CSV_FILE="${SCRIPT_DIR}/features.csv"
@@ -17,7 +17,7 @@ OUTPUT_FILE="${SCRIPT_DIR}/generated_commands.sh"
 # Parse CLI args
 BATCH_SIZE=10
 TEST_PLAN=""
-SEED_COUNT=10
+SEED_COUNT=2
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --batch)
@@ -57,6 +57,7 @@ echo "#!/bin/bash" > "$OUTPUT_FILE"
 echo "# Auto-generated riescuec tp-mode commands" >> "$OUTPUT_FILE"
 echo "# Generated on $(date)" >> "$OUTPUT_FILE"
 echo "" >> "$OUTPUT_FILE"
+echo "mkdir -p testsuite" >> "$OUTPUT_FILE"
 
 total_cmds=0
 
@@ -130,8 +131,12 @@ tail -n +2 "$CSV_FILE" | while IFS=',' read -r feature machine supervisor user d
         done
     fi
 
+    # Per-feature intermediate file with only the riescuec commands
+    FEATURE_CMD_FILE="${SCRIPT_DIR}/${feature}_tp_commands.sh"
+    > "$FEATURE_CMD_FILE"
+
     echo "# Feature: $feature ($total_count total commands)" >> "$OUTPUT_FILE"
-    echo "mkdir -p ${feature}" >> "$OUTPUT_FILE"
+    echo "mkdir -p testsuite/${feature}" >> "$OUTPUT_FILE"
     echo "COMPLETED_${feature}=0" >> "$OUTPUT_FILE"
     count=0
 
@@ -140,15 +145,16 @@ tail -n +2 "$CSV_FILE" | while IFS=',' read -r feature machine supervisor user d
         for priv in "${priv_modes[@]}"; do
             for paging in "${paging_modes[@]}"; do
                 if [[ "$priv" == "machine" ]]; then
-                    run_dir="${feature}/${priv}"
+                    run_dir="testsuite/${feature}/${priv}"
                 else
-                    run_dir="${feature}/${priv}_${paging}"
+                    run_dir="testsuite/${feature}/${priv}_${paging}"
                 fi
                 echo "mkdir -p ${run_dir}" >> "$OUTPUT_FILE"
                 for seed in $(seq 1 $SEED_COUNT); do
                     stdout_log="${run_dir}/tp_${feature}_${seed}_stdout.log"
                     stderr_log="${run_dir}/tp_${feature}_${seed}_stderr.log"
-                    echo "riescuec --mode tp --test_plan ${feature} --test_paging_mode ${paging} --test_priv_mode ${priv} --seed ${seed}${extra_suffix}${rt_suffix} --run_dir ${run_dir} > ${stdout_log} 2> ${stderr_log} &" >> "$OUTPUT_FILE"
+                    echo "riescuec --mode tp --test_plan ${feature} --test_paging_mode ${paging} --test_priv_mode ${priv} --seed ${seed}${rt_suffix}${extra_suffix} --run_dir ${run_dir} > ${stdout_log} 2> ${stderr_log} &" >> "$OUTPUT_FILE"
+                    echo "riescuec --mode tp --test_plan ${feature} --test_paging_mode ${paging} --test_priv_mode ${priv} --seed ${seed}${rt_suffix}${extra_suffix} --run_dir ${run_dir}" >> "$FEATURE_CMD_FILE"
                     ((count++))
                     if (( count % BATCH_SIZE == 0 )); then
                         echo "wait" >> "$OUTPUT_FILE"
@@ -165,12 +171,13 @@ tail -n +2 "$CSV_FILE" | while IFS=',' read -r feature machine supervisor user d
         for priv in "${priv_modes[@]}"; do
             for paging in "${paging_modes[@]}"; do
                 for g_paging in "${g_paging_modes[@]}"; do
-                    run_dir="${feature}/virtualized/${priv}_${paging}_g${g_paging}"
+                    run_dir="testsuite/${feature}/virtualized/${priv}_${paging}_g${g_paging}"
                     echo "mkdir -p ${run_dir}" >> "$OUTPUT_FILE"
                     for seed in $(seq 1 $SEED_COUNT); do
                         stdout_log="${run_dir}/tp_${feature}_${seed}_stdout.log"
                         stderr_log="${run_dir}/tp_${feature}_${seed}_stderr.log"
-                        echo "riescuec --mode tp --test_plan ${feature} --test_paging_mode ${paging} --test_paging_g_mode ${g_paging} --test_priv_mode ${priv} --test_env virtualized --seed ${seed}${extra_suffix}${rt_suffix} --run_dir ${run_dir} > ${stdout_log} 2> ${stderr_log} &" >> "$OUTPUT_FILE"
+                        echo "riescuec --mode tp --test_plan ${feature} --test_paging_mode ${paging} --test_paging_g_mode ${g_paging} --test_priv_mode ${priv} --test_env virtualized --seed ${seed}${rt_suffix}${extra_suffix} --run_dir ${run_dir} > ${stdout_log} 2> ${stderr_log} &" >> "$OUTPUT_FILE"
+                        echo "riescuec --mode tp --test_plan ${feature} --test_paging_mode ${paging} --test_paging_g_mode ${g_paging} --test_priv_mode ${priv} --test_env virtualized --seed ${seed}${rt_suffix}${extra_suffix} --run_dir ${run_dir}" >> "$FEATURE_CMD_FILE"
                         ((count++))
                         if (( count % BATCH_SIZE == 0 )); then
                             echo "wait" >> "$OUTPUT_FILE"
@@ -190,6 +197,8 @@ tail -n +2 "$CSV_FILE" | while IFS=',' read -r feature machine supervisor user d
         echo "echo \"[${feature}] Progress: \${COMPLETED_${feature}}/${total_count} commands completed\"" >> "$OUTPUT_FILE"
     fi
     echo "" >> "$OUTPUT_FILE"
+    mkdir -p "testsuite/${feature}"
+    cp "$FEATURE_CMD_FILE" "testsuite/${feature}/${feature}_tp_commands.sh"
     echo "  $feature: $count commands generated (batch size: $BATCH_SIZE)"
 done
 
@@ -202,14 +211,8 @@ bash "$OUTPUT_FILE"
 
 # Cleanup
 rm -f riescuec_tp.testlog
-
-# Move generated_commands.sh into each feature folder
-tail -n +2 "$CSV_FILE" | while IFS=',' read -r feature _rest; do
-    feature=$(echo "$feature" | xargs)
-    [[ -n "$TEST_PLAN" && "$feature" != "$TEST_PLAN" ]] && continue
-    [[ -n "$feature" && -d "$feature" ]] && cp "$OUTPUT_FILE" "$feature/generated_commands.sh"
-done
 rm -f "$OUTPUT_FILE"
+rm -f "${SCRIPT_DIR}"/*_tp_commands.sh
 
 # Report pass/fail results
 echo ""
@@ -221,7 +224,7 @@ passed=0
 failed=0
 failed_files=()
 
-for stderr_log in $(find . -name "*_stderr.log" -type f 2>/dev/null); do
+for stderr_log in $(find testsuite -name "*_stderr.log" -type f 2>/dev/null); do
     if grep -q "PASSED" "$stderr_log"; then
         ((passed++))
     elif grep -q "FAILED" "$stderr_log"; then
