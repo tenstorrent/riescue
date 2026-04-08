@@ -34,7 +34,7 @@ riescue = "riescue/"
 
 [tool.setuptools.package-data]
 "riescue.dtest_framework.tests" = ["*.s"]
-"riescue.dtest_framework.lib" = ["*.json"]
+"riescue.dtest_framework.lib" = ["*.json", "*.h"]
 "riescue.compliance.tests" = ["*.json"]
 "riescue.compliance.tests.rv_i" = ["*.json"]
 "riescue.compliance.tests.configs" = ["*.json"]
