@@ -194,7 +194,7 @@ Automatically generate page table entries:
 **Special Values:**
 
 - ``&random``: Use a random physical address
-- ``modify_pt=1``: Allow modification of page table entry during test. Creats page pointing to each level of the page table. These pages can be used to read the page table entries to do read modified write to pagetables.
+- ``modify_pt=1``: Allow modification of page table entry during test. Creates page pointing to each level of the page table. These pages can be used to read the page table entries to do read modified write to pagetables. For more granular control, use ``modify_leaf_pt`` (leaf entries only) or ``modify_nonleaf_pt`` (non-leaf entries only). The ``g`` (global bit) parameter can also be set on page mappings.
 
 Memory Initialization
 ~~~~~~~~~~~~~~~~~~~~~
@@ -555,7 +555,7 @@ Create a ``cpu_config.json`` file to specify your target system:
         }
     }
 
-* The ``mmap`` section sepcifies the memory map for the target system
+* The ``mmap`` section specifies the memory map for the target system
    * ``dram``: DRAM memory region where code and variables can be allocated. The ``"address"`` and ``"size"`` detailing the address and size of the DRAM region
    * ``io``: The I/O region, with ``"address"`` and ``"size"`` detailing the address and size of the I/O region
       * ``items``: A list of I/O devices, with ``"address"`` and ``"size"`` detailing the address and size of the I/O device

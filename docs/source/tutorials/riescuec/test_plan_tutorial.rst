@@ -66,7 +66,7 @@ Test plans are defined using the ``coretp`` framework. Example memory paging tes
 
 **Built-in Test Plans**
 
-RiESCUE-C includes pre-defined test plans: ``paging_test_plan`` for virtual memory and page table validation, ``svadu_test_plan`` for SVADU (Sv32/39/48 Address Update) testing, and ``sinval_test_plan`` for supervisor invalidation instruction testing.
+RiESCUE-C includes pre-defined test plans: ``paging_test_plan`` for virtual memory and page table validation, ``svadu_test_plan`` for SVADU (Sv32/39/48 Address Update) testing, ``sinval_test_plan`` for supervisor invalidation instruction testing, ``zicond`` for conditional operations, and others.
 
 Test Plan Structure
 -------------------
@@ -86,7 +86,7 @@ Test Plan Structure
 
 **Available TestStep Types**
 
-The framework provides these concrete TestStep implementations: ``Load`` and ``Store`` for memory operations, ``Arithmetic`` for computational operations, ``Memory`` for memory allocation, ``AssertEqual`` and ``AssertNotEqual`` for validation, and ``CsrRead`` and ``CsrWrite`` for control and status register operations.
+The framework provides these concrete TestStep implementations: ``Load`` and ``Store`` for memory operations, ``Arithmetic`` for computational operations, ``Memory`` for memory allocation, ``AssertEqual`` and ``AssertNotEqual`` for validation, ``CsrRead`` and ``CsrWrite`` for control and status register operations, and ``CsrDirectAccess`` for direct CSR access patterns.
 
 Test Execution Planning
 -----------------------

@@ -10,11 +10,17 @@ from pathlib import Path
 import riescue.lib.common as common
 import riescue.lib.enums as RV
 from riescue.dtest_framework.lib.pma import PmaInfo
+from riescue.dtest_framework.lib.sdtrig import TriggerType, TriggerAction, TriggerMatch
 
 if TYPE_CHECKING:
     from riescue.dtest_framework.pool import Pool
 
 log = logging.getLogger(__name__)
+
+# ;#random_addr() arguments that stay string literals (not int(..., 0) parsed).
+_RND_ADDR_STR_KEY_A = r"name|type|pma_memory_type|pma_amo_type|pma_cacheability|"
+_RND_ADDR_STR_KEY_B = r"pma_combining|pma_routing_to|custom_region"
+_RANDOM_ADDR_STRING_KEYS = re.compile(_RND_ADDR_STR_KEY_A + _RND_ADDR_STR_KEY_B)
 
 
 class Parser:
@@ -44,7 +50,6 @@ class Parser:
         self.random_addrs = dict()
         self.test_header = ParsedTestHeader()
         self.discrete_tests = dict()
-        self.parsed_pte_id = 1
         self.parsed_trigger_id = 1
         self.parsed_csr_id = 1  # Monotonic id for ;#csr_rw ParsedCsrAccess labels/csr_id
 
@@ -135,10 +140,6 @@ class Parser:
                 self.parse_sections(line)
             if line.startswith(";#csr_rw"):
                 self.parse_csr_rw(line)
-            if line.startswith(";#read_pte"):
-                self.parse_read_pte(line)
-            if line.startswith(";#write_pte"):
-                self.parse_write_pte(line)
 
         # End of file: flush any remaining ;#discrete_debug_test body
         if self._collecting_discrete_debug_test:
@@ -200,7 +201,7 @@ class Parser:
             for arg in args:
                 var = arg.split("=")[0]
                 val = arg.split("=")[1]
-                if not (re.match(r"name|type|pma_memory_type|pma_amo_type|pma_cacheability|pma_combining|pma_routing_to", var)):
+                if not _RANDOM_ADDR_STRING_KEYS.match(var):
                     val = int(val, 0)
                 if re.match(r"in_pma", var):
                     rnd_inst.pma_info = PmaInfo()
@@ -972,7 +973,7 @@ class Parser:
 
         csr_name = parts[0]
         read_write_set_clear = parts[1]
-        field, value, bit = None, None, None
+        field = None
 
         # Old format: 3-4 args, 3rd and 4th are direct_rw and force_machine (no =)
         if len(parts) >= 3 and "=" not in parts[2]:
@@ -989,16 +990,6 @@ class Parser:
                         force_machine_rw = v.lower() == "true"
                     elif k == "field":
                         field = v
-                    elif k == "value":
-                        try:
-                            value = int(v, 0)
-                        except ValueError:
-                            value = v
-                    elif k == "bit":
-                        try:
-                            bit = int(v, 0)
-                        except (ValueError, TypeError):
-                            bit = None
 
         if not csr_name or not read_write_set_clear:
             return
@@ -1024,37 +1015,9 @@ class Parser:
             force_machine_rw=force_machine_rw,
             hypervisor=hypervisor,
             field=field,
-            value=value,
-            bit=bit,
         )
         self.pool.add_parsed_csr_access(csr_access)
         self.parsed_csr_id += 1
-
-    def parse_read_pte(self, line):
-        pattern = r"^;#read_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+),\s*(?P<level>\d+)\)"
-        match = re.match(pattern, line)
-        if match:
-            lin_name = match.group("lin_name")
-            paging_mode = match.group("paging_mode")
-            level = int(match.group("level"))
-
-            label = f"read_pte_{lin_name}_{paging_mode}_level_{level}_key_{self.parsed_pte_id}"
-            read_pte = ParsedReadPte(lin_name=lin_name, paging_mode=paging_mode, level=level, label=label, pte_id=self.parsed_pte_id)
-            self.pool.add_parsed_read_pte(read_pte)
-            self.parsed_pte_id += 1
-
-    def parse_write_pte(self, line):
-        pattern = r"^;#write_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+),\s*(?P<level>\d+)\)"
-        match = re.match(pattern, line)
-        if match:
-            lin_name = match.group("lin_name")
-            paging_mode = match.group("paging_mode")
-            level = int(match.group("level"))
-
-            label = f"write_pte_{lin_name}_{paging_mode}_level_{level}_key_{self.parsed_pte_id}"
-            write_pte = ParsedWritePte(lin_name=lin_name, paging_mode=paging_mode, level=level, label=label, write_pte_id=self.parsed_pte_id)
-            self.pool.add_parsed_write_pte(write_pte)
-            self.parsed_pte_id += 1
 
     def parse_pma_hint(self, line: str) -> None:
         """
@@ -1110,7 +1073,9 @@ class Parser:
 
     def parse_trigger_config(self, line: str) -> None:
         """
-        Parse ;#trigger_config(index=N, type=execute|load|store|load_store, addr=SYM, action=breakpoint [, size=1|2|4|8] [, chain=0|1])
+        Parse ;#trigger_config(index=N, type=execute|load|store|load_store|icount|itrigger|etrigger,
+                               addr=SYM, action=breakpoint [, size=1|2|4|8] [, chain=0|1]
+                               [, match=equal] [, priv_mode=[m,s,u]] [, count=N] [, pending=0])
         """
         pattern = r"^;#trigger_config\((.+)\)"
         match = re.match(pattern, line.strip())
@@ -1118,17 +1083,30 @@ class Parser:
             return
         args = self._parse_directive_args(match.group(1))
         index = int(args.get("index", 0))
-        trigger_type = args.get("type", "execute").lower()
+        trigger_type = TriggerType.str_to_enum(args.get("type", "execute"))
         addr = args.get("addr", "")
-        action = args.get("action", "breakpoint").lower()
+        action = TriggerAction.str_to_enum(args.get("action", "breakpoint"))
         size = int(args.get("size", 4))
         chain = int(args.get("chain", 0))
-        if not addr:
-            log.warning(";#trigger_config requires addr= parameter")
+        match_type = TriggerMatch.str_to_enum(args.get("match", "equal"))
+        count = int(args.get("count", 0))
+        pending = int(args.get("pending", 0))
+
+        # Parse priv_mode=[m,s,u] — stored as a comma-separated string inside brackets
+        priv_mode_raw = args.get("priv_mode", "m,s,u")
+        priv_mode: tuple[str, ...] = tuple(tok.strip() for tok in priv_mode_raw.strip("[]").split(",") if tok.strip())
+
+        # icount does not use tdata2; itrigger/etrigger use addr as tdata2 value
+        needs_tdata2 = trigger_type != TriggerType.ICOUNT
+
+        if trigger_type not in (TriggerType.ICOUNT, TriggerType.ITRIGGER, TriggerType.ETRIGGER) and not addr:
+            log.warning(";#trigger_config requires addr= parameter for mcontrol6 triggers")
             return
-        # Add ParsedCsrAccess for tselect, tdata1, tdata2 (force_machine_rw) so jump table has entries
+
+        # Add ParsedCsrAccess for tselect, tdata1, and (if needed) tdata2
+        csr_names = ("tselect", "tdata1", "tdata2") if needs_tdata2 else ("tselect", "tdata1")
         csr_ids = []
-        for csr_name in ("tselect", "tdata1", "tdata2"):
+        for csr_name in csr_names:
             label = f"trigger_config_{self.parsed_trigger_id}_{csr_name}_write"
             acc = ParsedCsrAccess(
                 csr_name=csr_name,
@@ -1143,6 +1121,10 @@ class Parser:
                 self.pool.add_parsed_csr_access(acc)
                 self.parsed_csr_id += 1
             csr_ids.append(self.pool.parsed_csr_accesses[csr_name]["write"].csr_id)
+        # Pad to 3-tuple with 0 for unused tdata2 slot (icount)
+        while len(csr_ids) < 3:
+            csr_ids.append(0)
+
         cfg = ParsedTriggerConfig(
             index=index,
             trigger_type=trigger_type,
@@ -1150,6 +1132,10 @@ class Parser:
             action=action,
             size=size,
             chain=chain,
+            match=match_type,
+            priv_mode=priv_mode,
+            count=count,
+            pending=pending,
             trigger_id=self.parsed_trigger_id,
             csr_ids=(csr_ids[0], csr_ids[1], csr_ids[2]),
         )
@@ -1398,6 +1384,7 @@ class ParsedRandomAddress:
     pma_info: Optional[PmaInfo] = None
     secure: bool = False
     resolve_priority: int = 10
+    custom_region: Optional[str] = None
 
 
 @dataclass
@@ -1519,8 +1506,12 @@ class ParsedPageMapping:
     _256tbpage: bool = False
     final_pagesize: int = 0
     modify_pt: bool = False
+    modify_leaf_pt: bool = False
+    modify_nonleaf_pt: bool = False
     address_size: int = 0x1000
     address_mask: int = 0xFFFFFFFFFFFFF000
+    phys_address_size: int = 0x1000
+    phys_address_mask: int = 0xFFFFFFFFFFFFF000
     linked_page_mappings: list["ParsedPageMapping"] = field(default_factory=list)
     linked_ppm_offset: int = 0x0
 
@@ -1597,24 +1588,6 @@ class ParsedCsrAccess:
 
 
 @dataclass
-class ParsedReadPte:
-    lin_name: str
-    paging_mode: str
-    level: int
-    pte_id: int
-    label: str
-
-
-@dataclass
-class ParsedWritePte:
-    lin_name: str
-    paging_mode: str
-    level: int
-    write_pte_id: int
-    label: str
-
-
-@dataclass
 class ParsedPmaHint:
     """Parsed PMA hint from ;#pma_hint directive"""
 
@@ -1637,11 +1610,15 @@ class ParsedTriggerConfig:
     """Parsed ;#trigger_config directive."""
 
     index: int
-    trigger_type: str  # execute, load, store, load_store
-    addr: str  # symbol or hex literal
-    action: str = "breakpoint"
+    trigger_type: TriggerType  # execute, load, store, load_store, icount, itrigger, etrigger
+    addr: str  # symbol or hex literal; empty for icount; tdata2 value for itrigger/etrigger
+    action: TriggerAction = TriggerAction.BREAKPOINT
     size: int = 4
     chain: int = 0
+    match: TriggerMatch = TriggerMatch.EQUAL  # mcontrol6 match type
+    priv_mode: Tuple[str, ...] = ("m", "s", "u")  # privilege modes in which trigger is active
+    count: int = 0  # icount: instruction count
+    pending: int = 0  # icount: pending bit
     trigger_id: int = 0
     csr_ids: Tuple[int, int, int] = (0, 0, 0)  # tselect, tdata1, tdata2
 

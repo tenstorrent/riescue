@@ -83,6 +83,8 @@ class Action(ABC):
             value = getattr(self, field, None)
             if isinstance(value, str) and value in id_map:
                 setattr(self, field, id_map[value])
+            elif isinstance(value, tuple) and isinstance(value[0], str) and value[0] in id_map:
+                setattr(self, field, (id_map[value[0]], value[1]))
 
     def expand(self, ctx: LoweringContext) -> Optional[list["Action"]]:
         """

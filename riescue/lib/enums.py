@@ -192,6 +192,7 @@ class AddressQualifiers(MyEnum):
     ADDRESS_SECURE = auto()
     ADDRESS_GUEST_PHYSICAL = auto()
     ADDRESS_RESERVED = auto()
+    ADDRESS_CUSTOM = auto()
 
 
 class DataType(MyEnum):
@@ -499,6 +500,20 @@ class RiscvPagingModes(MyEnum):
             pass
 
         return pagesizes
+
+    @classmethod
+    def next_pt_level_pagesize(cls, mode: RiscvPagingModes, pagesize: RiscvPageSizes) -> RiscvPageSizes:
+        """
+        Return the next larger page table level pagesize for the given mode, skipping
+        Svnapot sizes (S64KB) since they don't correspond to page table levels.
+        If already at the largest, returns the largest.
+        """
+        all_pagesizes = cls.supported_pagesizes(mode)
+        idx = all_pagesizes.index(pagesize) if pagesize in all_pagesizes else len(all_pagesizes) - 1
+        next_idx = idx + 1
+        while next_idx < len(all_pagesizes) and all_pagesizes[next_idx] == RiscvPageSizes.S64KB:
+            next_idx += 1
+        return all_pagesizes[min(next_idx, len(all_pagesizes) - 1)]
 
     @classmethod
     def linear_addr_bits(cls, mode: RiscvPagingModes, gstage: bool = False) -> int:

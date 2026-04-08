@@ -186,7 +186,58 @@ class DramRange(BaseMem):
             raise ValueError(f"size {size} is greater than the size of the range {self.size}")
         if not self.configurable:
             raise ValueError(f"range {self.name} is not configurable")
-        return DramRange(self.start, size, self.secure, self.cacheable, self.configurable), DramRange(self.start + size, self.size - size, self.secure, self.cacheable, self.configurable)
+        return (
+            DramRange(self.start, size, self.secure, self.cacheable, self.configurable),
+            DramRange(
+                self.start + size,
+                self.size - size,
+                self.secure,
+                self.cacheable,
+                self.configurable,
+            ),
+        )
+
+
+@dataclass
+class CustomRange(BaseMem):
+    """
+    User-defined memory region at a fixed address, referenced by name from tests and testbench.
+
+    PMA configuration for this region is the user's responsibility.
+
+    Construct with ``from_dict(cfg, name)`` using a Memory Map entry structured as:
+
+    .. code-block:: JSON
+
+        {
+            "address": "0x6000_0000",
+            "size": "0x100_0000"
+        }
+
+    ``address`` and ``size`` are required. ``permissions`` is optional (defaults to ``"rwx"``).
+    """
+
+    start: int = 0
+    size: int = 0
+    name: str = ""
+    permissions: RV.PmpAttributes = RV.PmpAttributes.R_W_X
+
+    @classmethod
+    def from_dict(cls, cfg: Mapping[str, Union[str, int, bool]], name: str = "") -> CustomRange:
+        start, size = cls.range_from_dict(cfg)
+        cfg_permissions = cfg.get("permissions", "rwx")
+        if not isinstance(cfg_permissions, str):
+            raise ValueError(f"permissions must be a string in {cfg=}")
+        permissions = RV.PmpAttributes.from_str(cfg_permissions)
+        return cls(name=name, start=start, size=size, permissions=permissions)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "address": self.start,
+            "size": self.size,
+            "permissions": self.permissions.value,
+        }
 
 
 @dataclass
@@ -283,6 +334,7 @@ class Memory:
     io_ranges: list[IoRange] = field(default_factory=lambda: [IoRange(0x0, 0x8000_0000)])
     secure_ranges: list[DramRange] = field(default_factory=list)
     reserved_ranges: list[BaseMem] = field(default_factory=list)
+    custom_ranges: list[CustomRange] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -293,6 +345,7 @@ class Memory:
             "io": [io.to_dict() for io in self.io_ranges],
             "secure": [secure.to_dict() for secure in self.secure_ranges],
             "reserved": [reserved.to_dict() for reserved in self.reserved_ranges],
+            "custom": [custom.to_dict() for custom in self.custom_ranges],
         }
 
     @classmethod
@@ -325,6 +378,8 @@ class Memory:
         all_io_ranges = [IoRange.from_dict(value, name) for name, value in cfg.get("io", {}).items()]
         io_ranges, reserved_ranges = cls._split_io_ranges_by_test_access(all_io_ranges)
         log.debug(f"IO ranges: {io_ranges}")
+        custom_ranges = [CustomRange.from_dict(value, name) for name, value in cfg.get("custom", {}).items()]
+        log.debug(f"Custom ranges: {custom_ranges}")
 
         all_ranges = dram_ranges + io_ranges + secure_ranges
         if not all_ranges:
@@ -336,6 +391,7 @@ class Memory:
             io_ranges=io_ranges,
             secure_ranges=secure_ranges,
             reserved_ranges=reserved_ranges,
+            custom_ranges=custom_ranges,
         )
 
     @staticmethod

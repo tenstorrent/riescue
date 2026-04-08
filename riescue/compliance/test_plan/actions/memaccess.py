@@ -50,12 +50,12 @@ class MemAccessAction(Action):
         """
         if TYPE_CHECKING:
             assert isinstance(step.step, MemAccess)
-        memory = None
-        src2 = None
+        memory: Optional[str] = None
+        src2: Optional[Union[str, int]] = None
         for index, src in enumerate(step.inputs):
             if isinstance(src, str) and src.startswith("m"):
                 memory = src
-            else:
+            elif isinstance(src, (str, int)):
                 if index == 0:
                     continue  # skip the first input, it's the mandatory offset
                 src2 = src

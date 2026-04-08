@@ -166,6 +166,54 @@ Establishes page table entries mapping virtual addresses to physical addresses.
 - ``pagesize`` (optional) - Page size list: ``['4kb']``, ``['2mb']``, ``['1gb']``, ``['512gb']``, ``['256tb']``, ``['any']``
 - ``page_maps`` (optional) - Page map list: ``['map_os']``, ``['map_hyp']``, ``['custom_map']``
 - ``modify_pt`` (optional) - Allow page table modification (``1`` or ``0``, default: ``0``)
+- ``modify_leaf_pt`` (optional) - Allow modification of PTEs in the final G-stage walk (``1`` or ``0``, default: ``0``)
+- ``modify_nonleaf_pt`` (optional) - Allow modification of PTEs in the leaf VS-stage PTEs' G-stage walk (``1`` or ``0``, default: ``0``)
+
+**Non-leaf Permission Variants:**
+
+Control permission bits specifically on non-leaf page table entries:
+
+- ``v_nonleaf`` - Valid bit for non-leaf entries (default: ``1``)
+- ``a_nonleaf`` - Accessed bit for non-leaf entries (default: ``1``)
+- ``d_nonleaf`` - Dirty bit for non-leaf entries (default: ``1``)
+- ``r_nonleaf`` - Read permission for non-leaf entries (default: ``1``)
+- ``w_nonleaf`` - Write permission for non-leaf entries
+- ``x_nonleaf`` - Execute permission for non-leaf entries
+- ``u_nonleaf`` - User bit for non-leaf entries
+- ``g_nonleaf`` - Global bit for non-leaf entries (default: ``0``)
+- ``pbmt_nonleaf`` - PBMT value for non-leaf entries (default: ``0``)
+
+**Level-Specific Bits:**
+
+Set page table bits at specific levels (0 through 4):
+
+- ``v_level0`` .. ``v_level4`` - Valid bit per level (default: ``1``)
+- ``g_level0`` .. ``g_level4`` - Global bit per level (default: ``0``)
+- ``rsw_level0`` .. ``rsw_level4`` - RSW (reserved for software) field per level (default: ``0``)
+- ``reserved_level0`` .. ``reserved_level4`` - Reserved bits per level (default: ``0``)
+- ``pbmt_level0`` .. ``pbmt_level4`` - PBMT value per level (default: ``0``)
+
+**G-stage (Two-Stage Paging) Variants:**
+
+For hypervisor two-stage address translation, permission bits can be set independently for each combination of VS-stage and G-stage leaf/non-leaf entries:
+
+- ``{v,a,d,r,w,x,u,g}_nonleaf_gnonleaf`` - VS non-leaf, G-stage non-leaf
+- ``{v,a,d,r,w,x,u,g}_nonleaf_gleaf`` - VS non-leaf, G-stage leaf
+- ``{v,a,d,r,w,x,u,g}_leaf_gnonleaf`` - VS leaf, G-stage non-leaf
+- ``{v,a,d,r,w,x,u,g}_leaf_gleaf`` - VS leaf, G-stage leaf
+
+G-stage page size control:
+
+- ``gstage_vs_leaf_pagesize`` - Page size list for G-stage translations of VS leaf entries
+- ``gstage_vs_nonleaf_pagesize`` - Page size list for G-stage translations of VS non-leaf entries
+
+**Other Parameters:**
+
+- ``g`` (optional) - Global bit (default: ``0``)
+- ``u`` (optional) - User-mode accessible bit
+- ``n`` (optional) - Napot (Naturally Aligned Power-of-Two) bit
+- ``secure`` (optional) - Secure mapping (default: ``0``)
+- ``in_private_map`` (optional) - Place mapping in a private page map (default: ``0``)
 
 **Page Size Options:**
 

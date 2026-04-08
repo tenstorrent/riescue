@@ -292,6 +292,12 @@ class RiescueD(CliBase):
         log.info(f"test_config: paging: {featmgr.paging_mode}")
         log.info(f"test_config: paging_g: {featmgr.paging_g_mode}")
 
+        # Resolve rvmodel_macros path; default to built-in HTIF macros
+        if featmgr.rvmodel_macros is not None:
+            featmgr.rvmodel_macros = self._resolve_path(featmgr.rvmodel_macros)
+        else:
+            featmgr.rvmodel_macros = self.package_path / "dtest_framework/lib/rvmodel_macros_htif.h"
+
         # Call various generators
         test_gen = Generator(rng=self.rng, pool=self.pool, featmgr=featmgr, run_dir=self.run_dir)
         test_gen.generate(file_in=self.testfile, generated_files=self.generated_files)

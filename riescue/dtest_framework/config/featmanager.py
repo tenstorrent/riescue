@@ -12,6 +12,7 @@ import riescue.lib.enums as RV
 from riescue.lib.feature_discovery import FeatureDiscovery
 from .cpu_config import CpuConfig
 from .memory import Memory
+from riescue.dtest_framework.trap_context import TrapContext, TrapHookable
 
 log = logging.getLogger(__name__)
 
@@ -88,8 +89,8 @@ class FeatMgr:
     feature: FeatureDiscovery = field(default_factory=lambda: FeatureDiscovery({}))
     hooks: dict[RV.HookPoint, list[Hookable]] = field(default_factory=lambda: defaultdict(list))
     # Per-vector default interrupt handler overrides registered via register_default_handler().
-    # Maps vec_num -> (label, assembly_fn) where assembly_fn(featmgr) -> str.
-    interrupt_handler_overrides: dict[int, tuple[str, Hookable]] = field(default_factory=dict)
+    # Maps vec_num -> (label, assembly_fn) where assembly_fn(TrapContext) -> str.
+    interrupt_handler_overrides: dict[int, tuple[str, TrapHookable]] = field(default_factory=dict)
 
     # Run options
     tohost_nonzero_terminate: bool = False
@@ -117,10 +118,6 @@ class FeatMgr:
     io_imsic_sfile_stride: Optional[int] = None
     eot_pass_value: int = 1
     eot_fail_value: int = 3
-    #: When True, Riescue-D injects RVCP FAIL lines (with banners) via HTIF tohost putchar before ;#test_failed().
-    eot_print_htif_console: bool = False
-    #: When True, Riescue-D injects RVCP PASSED lines via HTIF tohost putchar before ;#test_passed() and at final ALL PASSED.
-    print_rvcp_passes: bool = False
 
     # MP mode
     mp: RV.RiscvMPEnablement = RV.RiscvMPEnablement.MP_ON
@@ -148,6 +145,11 @@ class FeatMgr:
     save_restore_gprs: bool = False
     log_test_execution: bool = False
 
+    # RVCP pass/fail message printing
+    print_rvcp_failed: bool = False  # Print RVCP messages on test_failed via HTIF console
+    print_rvcp_passed: bool = False  # Print RVCP messages on test_passed via HTIF console
+    rvmodel_macros: Optional[Path] = None  # Path to rvmodel_macros.h, None = use built-in HTIF default
+
     # bringup mode
     fe_tb: bool = False
     wysiwyg: bool = False
@@ -174,9 +176,6 @@ class FeatMgr:
     # CSR R/W handling
     machine_mode_jump_table_for_csr_rw: str = "csr_machine_0"
     supervisor_mode_jump_table_for_csr_rw: str = "csr_super_0"
-
-    # PTE handling (unified read/write)
-    machine_mode_jump_table_for_pte: str = "pte_machine_0"
 
     # PMA / PMP
     setup_pmp: bool = False
@@ -298,6 +297,10 @@ class FeatMgr:
     def mp_mode_on(self) -> bool:
         return self.mp == RV.RiscvMPEnablement.MP_ON
 
+    def rvcp_print_enabled(self) -> bool:
+        """Check if RVCP pass/fail message printing is enabled."""
+        return self.print_rvcp_failed or self.print_rvcp_passed
+
     #  Legacy methods for backward compatibility - delegate to FeatureDiscovery
     def is_feature_supported(self, feature: str) -> bool:
         """Check if a feature is supported - delegate to FeatureDiscovery"""
@@ -343,7 +346,7 @@ class FeatMgr:
         """Generate a compiler march string from enabled features"""
         return self.cpu_config.features.get_compiler_march_string()
 
-    def register_default_handler(self, vec: int, label: str, assembly: Hookable) -> None:
+    def register_default_handler(self, vec: int, label: str, assembly: TrapHookable) -> None:
         """
         Override the default interrupt handler for a vector.
 
@@ -351,29 +354,42 @@ class FeatMgr:
         assembly body for the **entire test**.  The handler is active for all discrete_tests
         that do not install a per-segment handler via ``add_custom_intr_handler()``.
 
-        Called from :meth:`riescue.dtest_framework.config.conf.Conf.add_hooks`.
-
-        :param vec: Interrupt vector number (e.g. 1 for SSI, 3 for MSI, 25 for ZKR).
-        :param label: Assembly label for the handler (must be unique in the test).
-        :param assembly: Callable ``(featmgr: FeatMgr) -> str`` returning the handler body.
-            The body should end with the appropriate ``xret`` (``mret`` for M-mode vectors).
+        The ``assembly`` callable receives a :class:`~riescue.dtest_framework.trap_context.TrapContext`
+        at generation time, which carries the correct CSR names (``xcause``, ``xepc``, ``xret``,
+        ``xtval``, ``xip``, etc.) for the privilege level at which *this vector* is handled.
+        Write a single handler body that works for both M-mode and S-mode delegation:
 
         .. code-block:: python
 
-            from riescue import Conf, FeatMgr
+            from riescue import Conf, FeatMgr, TrapContext
 
-            def my_msi_handler(featmgr: FeatMgr) -> str:
-                return \"\"\"
-                    csrci mip, 8   # clear MSIP
-                    mret
+            def my_ssi_handler(ctx: TrapContext) -> str:
+                return f\"\"\"
+                    csrr t0, {ctx.xip}
+                    li   t1, ~(1 << 1)
+                    and  t0, t0, t1
+                    csrw {ctx.xip}, t0
+                    {ctx.xret}
                 \"\"\"
 
             class MyConf(Conf):
                 def add_hooks(self, featmgr: FeatMgr) -> None:
-                    featmgr.register_default_handler(3, "my_msi_handler", my_msi_handler)
+                    featmgr.register_default_handler(1, "my_ssi_handler", my_ssi_handler)
 
             def setup() -> Conf:
                 return MyConf()
+
+        The framework selects :data:`~riescue.dtest_framework.trap_context.MACHINE_CTX` or
+        :data:`~riescue.dtest_framework.trap_context.SUPERVISOR_CTX` based on the ``mideleg``
+        bit for ``vec``, so the same callable is correct regardless of
+        ``set_vector_delegation()`` / ``;#vector_delegation`` settings.
+
+        Called from :meth:`riescue.dtest_framework.config.conf.Conf.add_hooks`.
+
+        :param vec: Interrupt vector number (e.g. 1 for SSI, 3 for MSI, 25 for ZKR).
+        :param label: Assembly label for the handler (must be unique in the test).
+        :param assembly: Callable ``(ctx: TrapContext) -> str`` returning the handler body.
+            Do **not** hard-code ``mret``/``mip`` etc.; use ``ctx.xret`` / ``ctx.xip`` instead.
         """
         if vec in self.interrupt_handler_overrides:
             existing_label = self.interrupt_handler_overrides[vec][0]

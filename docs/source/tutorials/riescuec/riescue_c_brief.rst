@@ -47,7 +47,7 @@ Run RiescueC Bringup mode with a Bringup Test JSON file:
 
 .. code-block:: bash
 
-   riesceuc --mode bringup --json my_test.json -o my_test
+   riescuec --mode bringup --json my_test.json -o my_test
 
 Example JSON configuration:
 

@@ -15,6 +15,25 @@ from riescue.dtest_framework.config import Memory
 log = logging.getLogger(__name__)
 
 
+def _subtract_inclusive_span(lo: int, hi: int, hole_lo: int, hole_hi: int) -> list[tuple[int, int]]:
+    """
+    Return disjoint inclusive spans covering [lo, hi] minus [hole_lo, hole_hi].
+    Spans that do not overlap the hole are returned unchanged.
+    """
+    if hi < lo:
+        return []
+    hs = max(lo, hole_lo)
+    he = min(hi, hole_hi)
+    if hs > he:
+        return [(lo, hi)]
+    out: list[tuple[int, int]] = []
+    if lo <= hs - 1:
+        out.append((lo, hs - 1))
+    if he + 1 <= hi:
+        out.append((he + 1, hi))
+    return out
+
+
 class AddrGen:
     """
     Address Generator, Facade interface for generating and managing AddressSpace objects.
@@ -53,11 +72,29 @@ class AddrGen:
             log.debug(f"Adding Secure range: 0x{range.start:016x} - 0x{range.end:016x}")
             self._physical_addr_space.define_segment(RV.AddressQualifiers.ADDRESS_SECURE, range.start, range.end)
 
+        custom_holes = [(cr.start, cr.end) for cr in self._mem.custom_ranges]
         for range in self._mem.reserved_ranges:
-            # Reserve physical and linear address space
-            self._physical_addr_space.reserve_memory(range.start, range.end - 1)
-            self._linear_addr_space.reserve_memory(range.start, range.end - 1)
+            # Reserve physical and linear address space (same inclusive bounds as before: [start, end-1]).
+            # Exclude custom regions: they are allocatable as ADDRESS_CUSTOM and must not be pre-marked allocated
+            # because a reserved IO window (e.g. preload) can overlap a custom probe buffer.
+            span_lo, span_hi = range.start, range.end - 1
+            segments: list[tuple[int, int]] = [(span_lo, span_hi)] if span_lo <= span_hi else []
+            for hole_lo, hole_hi in custom_holes:
+                next_segments: list[tuple[int, int]] = []
+                for lo, hi in segments:
+                    next_segments.extend(_subtract_inclusive_span(lo, hi, hole_lo, hole_hi))
+                segments = next_segments
+            for lo, hi in segments:
+                if lo <= hi:
+                    self._physical_addr_space.reserve_memory(lo, hi)
+                    self._linear_addr_space.reserve_memory(lo, hi)
             self._physical_addr_space.define_segment(RV.AddressQualifiers.ADDRESS_RESERVED, range.start, range.end)
+
+        self._custom_regions: dict[str, tuple[int, int]] = {}
+        for region in self._mem.custom_ranges:
+            log.debug(f"Adding Custom range '{region.name}': 0x{region.start:016x} - 0x{region.end:016x}")
+            self._physical_addr_space.define_segment(RV.AddressQualifiers.ADDRESS_CUSTOM, region.start, region.end)
+            self._custom_regions[region.name] = (region.start, region.end)
 
         # Setting up Linear address space
         self._linear_addr_space.define_segment(RV.AddressQualifiers.ADDRESS_LINEAR, 0, pow(2, 57) - 1)
@@ -73,6 +110,18 @@ class AddrGen:
         :rtype: int
         :raises AddrGenError: If address generation fails or restrictions are violated
         """
+
+        # Resolve a named custom region into bounds + qualifier before validation.
+        # This keeps the caller (generator.py) free from knowing about region bounds.
+        if constraint.custom_region is not None:
+            if constraint.custom_region not in self._custom_regions:
+                known = list(self._custom_regions.keys())
+                raise AddrGenError(f"Custom region {constraint.custom_region!r} not found. Defined regions: {known}")
+            start, end = self._custom_regions[constraint.custom_region]
+            constraint.start = start
+            constraint.end = end
+            constraint.qualifiers = {RV.AddressQualifiers.ADDRESS_CUSTOM}
+            log.debug("Resolved custom region %r: [%#x, %#x]", constraint.custom_region, start, end)
 
         constraint.validate_constraints()
         log.debug(f"Generating address with constraints: {constraint}")

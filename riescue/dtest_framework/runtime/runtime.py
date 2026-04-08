@@ -15,7 +15,7 @@ from riescue.dtest_framework.runtime.test_scheduler import TestScheduler
 from riescue.dtest_framework.runtime.syscalls import SysCalls
 from riescue.dtest_framework.runtime.trap_handler import TrapHandler
 from riescue.dtest_framework.runtime.macros import Macros
-from riescue.dtest_framework.runtime.eot import Eot, htif_rvcp_call_lines, rvcp_fail_message_with_banners, rvcp_message
+from riescue.dtest_framework.runtime.eot import Eot
 from riescue.dtest_framework.runtime.selfcheck import Selfcheck
 from riescue.dtest_framework.runtime.test_execution_logger import TestExecutionLogger
 from riescue.dtest_framework.runtime.variable import VariableManager
@@ -43,7 +43,6 @@ class Runtime:
         self.rng = rng
         self.pool = pool
         self.featmgr = featmgr
-        self._htif_msg_counter: int = 0
 
         self.variable_manager = VariableManager(
             data_section_name="hart_context",
@@ -61,6 +60,8 @@ class Runtime:
         self.variable_manager.register_hart_variable("check_excp_expected_htval", 0)
         self.variable_manager.register_hart_variable("check_excp_expected_cause", 0xFF)
         self.variable_manager.register_hart_variable("check_excp_actual_cause", 0xFF)
+        self.variable_manager.register_hart_variable("check_excp_gva_check", 0)
+        self.variable_manager.register_hart_variable("check_excp_expected_mode", 0)
 
         # GPR save area for trap handler (32 registers)
         self.variable_manager.register_hart_variable("gpr_save_area", value=0, element_count=32)
@@ -156,26 +157,6 @@ class Runtime:
             "ld t1, 0(t0)",
             "jr t1",
         ]
-
-    def htif_console_rvcp_asm_lines(self, discrete: str, outcome: str) -> list[str]:
-        """
-        Emit a ``jal ra, htif_rvcp_print`` call with a ``.pushsection``-embedded string for the
-        given RVCP outcome.  Replaces the previous O(message_length) inline sd sequence with two
-        instructions per call site; the ``htif_rvcp_print`` subroutine lives in the runtime section.
-
-        PASSED: only if --print_rvcp_passes. FAILED: only if --eot_print_htif_console.
-        """
-        if outcome == "PASSED":
-            if not self.featmgr.print_rvcp_passes:
-                return []
-            msg = rvcp_message(f"{self.pool.testname}.elf", discrete, outcome)
-        else:
-            if not self.featmgr.eot_print_htif_console:
-                return []
-            msg = rvcp_fail_message_with_banners(f"{self.pool.testname}.elf", discrete)
-        label = f".Lhtif_rvcp_msg_{self._htif_msg_counter}"
-        self._htif_msg_counter += 1
-        return htif_rvcp_call_lines(label, msg)
 
     def generate(self) -> Generator[tuple[str, Generator[str, Any, None]], Any, None]:
         """

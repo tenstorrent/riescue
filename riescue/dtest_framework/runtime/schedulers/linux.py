@@ -72,6 +72,23 @@ scheduler__get_test_offset:
     call os_rng_orig
 
     addi a0, a0, 1 # add num_ignore
+        """
+
+        # Store current test index for RVCP pass/fail messages
+        # a0 contains the index into os_test_sequence (1-based after num_ignore)
+        # Look up the discrete test index from dtest_index_map
+        if self.featmgr.rvcp_print_enabled():
+            code += f"""
+    # Store current test index for RVCP messages
+    # Look up discrete test index from dtest_index_map[a0]
+    la t3, dtest_index_map
+    slli t4, a0, 2  # t4 = a0 * 4 (word size)
+    add t3, t3, t4
+    lw t3, 0(t3)   # t3 = dtest_index_map[a0]
+    {self.current_test_index.store(src_reg="t3")}
+        """
+
+        code += """
     li t0, 8
     mul t0, t0, a0 # Scale by pointer size
 

@@ -44,8 +44,8 @@ class SysCalls(TrapHandler):
         code += self.os_fn_f0001004()  # Switch priv to original test privilege
         code += self.os_fn_f0001005()  # Machine mode jump table for CSR R/W
         code += self.os_fn_f0001006()  # Supervisor mode jump table for CSR R/W
-        code += self.os_fn_f0001007()  # Machine mode jump table for PTE read
-        code += self.os_fn_f0001008()  # Machine mode jump table for PTE write
+        code += self.os_fn_f0001007()  # Loop-based PTE read walk (inline in handler)
+        code += self.os_fn_f0001008()  # Loop-based PTE write walk (inline in handler)
         code += self.os_get_hart_context()  # Used to get hartid
         if self.featmgr.cfiles is not None:
             code += self.os_fn_70003001()  # Memory allocation API
@@ -323,56 +323,180 @@ class SysCalls(TrapHandler):
 
     def os_fn_f0001007(self) -> str:
         """
-        f0001007 : Machine mode jump table for PTE read
-        Does not return to syscall invocation
+        f0001007 : Read PTE via loop-based page table walk
         """
         code = f"""
             {self.label_prefix}os_fn_f0001007:
-                # f0001007 : Machine mode jump table for PTE read
-            """
-
-        # Decide the page used for transferring control back to test
-        switch_page = self.featmgr.machine_mode_jump_table_for_pte
-
-        if self.test_priv == RV.RiscvPrivileges.MACHINE:
-            code += f"""
-                # If already in machine mode, do nothing
-                li t0, {switch_page}
-                j {self.label_prefix}ret_from_os_fn
-            """
-        else:
-            code += self.mstatus_mpp_mpv_update(switch_to_priv="machine")
-            code += f"""
-                li t0, {switch_page}
-                j {self.label_prefix}ret_from_os_fn
-            """
+                # f0001007 : Read PTE via page table walk
+        """
+        code += self._generate_pte_walk(is_write=False)
         return code
 
     def os_fn_f0001008(self) -> str:
         """
-        f0001008 : Machine mode jump table for PTE write
-        Does not return to syscall invocation
+        f0001008 : Write PTE via loop-based page table walk
         """
         code = f"""
             {self.label_prefix}os_fn_f0001008:
-                # f0001008 : Machine mode jump table for PTE write
+                # f0001008 : Write PTE via page table walk
+        """
+        code += self._generate_pte_walk(is_write=True)
+        return code
+
+    def _generate_pte_walk(self, is_write: bool) -> str:
+        """
+        Generate a loop-based page table walk inline in the syscall handler.
+
+        Parameters are passed via shared memory (pte_access_flags):
+          [0] = virtual address
+          [1] = target level (0 = root, increasing toward leaf)
+          [2] = g_level (-1 = no g-stage walk; >= 0 = walk g-stage to this level)
+
+        When g_level >= 0, the walk proceeds in two stages:
+          1. Walk v-stage (satp) to the specified level to find the PTE address (a GPA)
+          2. Walk g-stage (hgatp) from that GPA to g_level to find the final PTE
+
+        Registers clobbered: t0-t6, x31
+        For write, t2 must contain the value to write (set by caller before ecall).
+        After the walk, saves epc+4 and jumps to os_fn_f0001004.
+
+        Register contract for the shared walk loop:
+          pte_access_flags[0] = address to translate (reloaded each iteration)
+          t0  = target level
+          t1  = current PT base physical address
+          t3  = g_level (-1 = no g-stage walk; consumed after v-stage walk)
+          t4  = current VPN shift
+          t5  = current level counter
+        """
+        rw = "write" if is_write else "read"
+        pte_access_flags = self.variable_manager.get_variable("pte_access_flags")
+        loop_label = f"{self.label_prefix}pte_walk_loop_{rw}"
+        done_label = f"{self.label_prefix}pte_walk_done_{rw}"
+        gstage_label = f"{self.label_prefix}pte_walk_gstage_{rw}"
+        final_label = f"{self.label_prefix}pte_walk_final_{rw}"
+        fail_label = f"{self.label_prefix}pte_walk_fail_{rw}"
+        final_op = "sd t2, 0(t1)" if is_write else "ld t2, 0(t1)"
+
+        is_virtualized = self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED
+        paging_disabled = self.paging_mode == RV.RiscvPagingModes.DISABLE
+        g_paging_disabled = self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE
+
+        code = f"""
+            # Load parameters from shared memory
+            {pte_access_flags.load(dest_reg="x31", index=0)}
+            {pte_access_flags.load(dest_reg="t0", index=1)}
+            {pte_access_flags.load(dest_reg="t3", index=2)}
+        """
+
+        # Validate paging mode / g-stage / virtualization combinations
+        if paging_disabled and not is_virtualized:
+            # Non-virtualized with paging disabled: fail if target_level != 0
+            code += f"""
+        {self.label_prefix}pte_walk_check_paging_disabled_nonvirt_target_level_{rw}:
+            bne t0, zero, {fail_label}  # paging disabled + not virtualized: target_level must be 0
+            """
+        if not is_virtualized or g_paging_disabled:
+            # g_level must be -1 when not virtualized or g-stage paging is disabled
+            code += f"""
+        {self.label_prefix}pte_walk_check_glevel_without_gstage_{rw}:
+            li t6, -1
+            bne t3, t6, {fail_label}   # g_level specified but g-stage walk not available
+            """
+        if paging_disabled and is_virtualized:
+            if g_paging_disabled:
+                # Both paging modes disabled: unconditional fail
+                code += f"""
+        {self.label_prefix}pte_walk_check_both_stages_disabled_{rw}:
+            j {fail_label}              # both v-stage and g-stage paging disabled
+                """
+            else:
+                # V-stage disabled but g-stage enabled: skip v-stage, go directly to g-stage
+                # Set t1 = address (GPA) from x31 so gstage_label can store it
+                code += f"""
+            mv t1, x31                  # address is already a GPA when v-stage disabled
+            j {gstage_label}            # v-stage paging disabled, skip to g-stage walk
+                """
+
+        if not paging_disabled:
+            code += """
+            # V-stage setup: read satp, extract root PT and compute initial shift
+            csrr t1, satp
+            srli t4, t1, 60            # t4 = MODE (8=sv39, 9=sv48, 10=sv57)
+            slli t1, t1, 20
+            srli t1, t1, 20
+            slli t1, t1, 12            # t1 = root PT physical address
+
+            # Compute initial VPN shift: 9*(MODE-8) + 30
+            addi t4, t4, -8            # MODE offset (0=sv39, 1=sv48, 2=sv57)
+            slli t5, t4, 3             # t5 = offset * 8
+            add t4, t5, t4             # t4 = offset * 9
+            addi t4, t4, 30            # t4 = initial shift (30, 39, or 48)
+
+            li t5, 0                   # t5 = current level counter
             """
 
-        # Decide the page used for transferring control back to test
-        switch_page = self.featmgr.machine_mode_jump_table_for_pte
+        code += f"""
+        {loop_label}:
+            # Extract VPN index for current level
+            # NOTE: t6 IS x31 in RISC-V, so we must reload the address each
+            # iteration from memory rather than keeping it in x31.
+            {pte_access_flags.load(dest_reg="t6", index=0)}
+            srl t6, t6, t4             # shift right by current shift amount
+            andi t6, t6, 0x1ff         # mask 9 VPN bits
+            slli t6, t6, 3             # * 8 (PTE entry size in bytes)
+            add t1, t1, t6             # t1 = address of PTE entry
 
-        if self.test_priv == RV.RiscvPrivileges.MACHINE:
-            code += f"""
-                # If already in machine mode, do nothing
-                li t0, {switch_page}
-                j {self.label_prefix}ret_from_os_fn
-            """
-        else:
-            code += self.mstatus_mpp_mpv_update(switch_to_priv="machine")
-            code += f"""
-                li t0, {switch_page}
-                j {self.label_prefix}ret_from_os_fn
-            """
+            beq t5, t0, {done_label}  # reached target level?
+
+            # Intermediate level: load PTE, verify not a leaf, follow pointer
+            ld t6, 0(t1)               # load PTE
+
+            srli t6, t6, 10            # extract PPN from PTE
+            slli t1, t6, 12            # convert PPN to physical address
+
+            addi t5, t5, 1             # level++
+            addi t4, t4, -9            # shift -= 9
+            j {loop_label}
+
+        {done_label}:
+            # Check if g-stage walk is needed
+            li t6, -1
+            beq t3, t6, {final_label}  # g_level == -1 -> skip to final op
+
+        {gstage_label}:
+            # G-stage setup: use v-stage PTE address as GPA for hgatp walk
+            # Store GPA to pte_access_flags[0] so loop reloads it each iteration
+            {pte_access_flags.store("t1", index=0)}
+            mv t0, t3                  # target level = g_level
+            li t3, -1                  # clear g_level so we don't loop again
+
+            csrr t1, hgatp             # read g-stage root PT
+            srli t4, t1, 60            # t4 = MODE (8=sv39, 9=sv48, 10=sv57)
+            slli t1, t1, 20
+            srli t1, t1, 20
+            slli t1, t1, 12            # t1 = root PT physical address
+
+            # Compute initial VPN shift for g-stage
+            addi t4, t4, -8            # MODE offset (0=sv39, 1=sv48, 2=sv57)
+            slli t5, t4, 3             # t5 = offset * 8
+            add t4, t5, t4             # t4 = offset * 9
+            addi t4, t4, 30            # t4 = initial shift (30, 39, or 48)
+
+            li t5, 0                   # t5 = current level counter
+            j {loop_label}             # reuse the same walk loop
+
+        {final_label}:
+            {final_op}                 # read PTE into t2 / write t2 to PTE
+
+            # Save ecall return address (epc+4) and return to test mode
+            csrr t0, {self.xepc}
+            addi t0, t0, 4
+            {self.os_save_ecall_fn_epc.store("t0")}
+            j {self.label_prefix}os_fn_f0001004
+
+        {fail_label}:
+            j test_failed
+        """
         return code
 
     def os_get_hart_context(self) -> str:

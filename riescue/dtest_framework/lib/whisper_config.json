@@ -21,10 +21,10 @@
 
     "csr" : {
 	    "misa" : {
-	        "reset-comment" : "imabfcvsu",
+	        "reset-comment" : "imafdcvsu",
 	        "reset" : "0x403411af",
-	        "mask-comment" : "Misa is not writable by CSR instructions",
-	        "mask" : "0x0"
+	        "mask" : "0x00000000002010a9",
+			"poke_mask" : "0x00000000002010a9"
 	    },
 		"mcounteren": {
 			"mcounteren-comment" : "FIXME: Hardwired to 2 to enable time csr access. Temporary until wfi/imsic is implemented",
@@ -33,6 +33,11 @@
 
 		"scounteren": {
 			"scounteren-comment" : "Hardwired to 2 to enable time csr access. Temporary until wfi/imsic is implemented",
+			"reset" : "0x2"
+		},
+
+		"hcounteren": {
+			"hcounteren-comment" : "Hardwired to 2 to enable time csr access. Temporary until wfi/imsic is implemented",
 			"reset" : "0x2"
 		},
 
@@ -342,6 +347,14 @@
         "poke_mask" : ["0xf800000007ffffc7", "0xff", 0, 0]
       }
     ],
+
+    "uart" : {
+      "address" : "0x02000000",
+      "size"    : "0x20",
+      "type"    : "uart8250",
+      "channel" : "stdio",
+      "reg_shift" : 2
+    },
 
 	"auto_increment_timer" : true,
     "time_down_sample": 2,

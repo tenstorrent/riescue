@@ -8,27 +8,34 @@ Registers a custom default handler for Supervisor Software Interrupt (vec 1) via
 FeatMgr.register_default_handler().  The handler clears SSIP and writes 0xCAFE
 to test_marker so the test body can verify it ran.
 
+The handler uses TrapContext so the same callable works regardless of whether
+vec 1 is delegated to S-mode (sip/sret) or handled in M-mode (mip/mret).
+
 Usage:
     riescued.py -t riescue/dtest_framework/tests/non_instr_tests/default_handler_override.s \\
                 --conf riescue/dtest_framework/tests/non_instr_tests/default_handler_override_conf.py \\
                 --seed 1 --run_iss
 """
 
-from riescue import Conf, FeatMgr
+from riescue import Conf, FeatMgr, TrapContext
 
 
-def my_ssi_handler(featmgr: FeatMgr) -> str:
+def my_ssi_handler(ctx: TrapContext) -> str:
     """Handler body for Supervisor Software Interrupt (vec 1).
 
-    Clears SSIP, writes 0xCAFE to test_marker, then returns with mret.
+    Clears SSIP (via ctx.xip so the correct CSR is used for the active delegation
+    level), writes 0xCAFE to test_marker, then returns with ctx.xret.
     test_marker is a random_addr equate; use li (not la) to load its address.
     """
-    return """
-    csrci mip, 2          # clear SSIP (bit 1)
+    return f"""
+    csrr  t0, {ctx.xip}
+    li    t1, ~(1 << 1)
+    and   t0, t0, t1
+    csrw  {ctx.xip}, t0   # clear SSIP (bit 1)
     li    t0, test_marker
     li    t1, 0xCAFE
     sd    t1, 0(t0)
-    mret
+    {ctx.xret}
 """
 
 

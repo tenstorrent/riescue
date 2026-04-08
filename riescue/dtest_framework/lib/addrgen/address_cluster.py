@@ -92,6 +92,7 @@ class AddressCluster:
         """
         qualifiers = list(constraint.qualifiers)
         # 1) Figure out common overlapping addresses of all qualifiers
+        # 1b) If constraint has explicit start/end bounds, intersect with those
         # 2) Remove addresses which overlap with allocated_addresses
         # 3) Remove addresses which are less than constraint.size
         # 4) Remove addresses which don't comply with mask
@@ -106,6 +107,14 @@ class AddressCluster:
             if log.isEnabledFor(logging.DEBUG):
                 log.debug(f"Calling get_intersection for {cluster_range} and {self.super_cluster[q]}")
             cluster_range = self._get_intersection(cluster_range, self.super_cluster[q])
+
+        # Do (1b) - Intersect with explicit bounds when set (used by custom regions)
+        if constraint.start != 0 or constraint.end != 0:
+            bounds: AddressRangeSet = address_range_set()
+            bounds.add((constraint.start, constraint.end))
+            cluster_range = self._get_intersection(cluster_range, bounds)
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug(f"After bounds intersection [{constraint.start:#x}, {constraint.end:#x}]: {cluster_range}")
 
         if log.isEnabledFor(logging.DEBUG):
             log.debug(f"common overlapping addresses: {str(cluster_range)}")

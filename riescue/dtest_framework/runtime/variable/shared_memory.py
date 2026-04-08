@@ -51,7 +51,8 @@ class SharedMemory(BaseMemory):
 
         for variable in self._variables.values():
             shared_variables.append(f"{variable.name}_mem:")
-            shared_variables.append(f".{self.swap_type:<8} {variable.value}")
+            for _ in range(variable.element_count):
+                shared_variables.append(f".{self.swap_type:<8} {variable.value}")
 
         return intial_context + "\n".join(shared_variables)
 

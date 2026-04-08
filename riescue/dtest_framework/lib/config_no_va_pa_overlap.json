@@ -5,7 +5,7 @@
             "dram": {
                 "address": "0x8000000000000",
                 "size": "0x8000000000000",
-                "cachable": true,
+                "cacheable": true,
                 "configurable": true
             }
         },

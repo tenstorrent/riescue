@@ -13,6 +13,7 @@ from typing import Optional
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
+from riescue.dtest_framework.trap_context import MACHINE_CTX, SUPERVISOR_CTX
 
 
 class InterruptServiceRoutine:
@@ -96,6 +97,7 @@ class InterruptHandler:
         test_fail_label: str = "test_failed",
         xlen: RV.Xlen = RV.Xlen.XLEN64,
         label_prefix: str = "",
+        use_pa: bool = True,
     ):
         self.privilege_mode = privilege_mode
         if self.privilege_mode not in [RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER]:
@@ -111,6 +113,7 @@ class InterruptHandler:
 
         self.vector_table: dict[int, InterruptServiceRoutine] = {}  # Maps vector_num -> ISR
         self.label_prefix = label_prefix
+        self.use_pa = use_pa
 
         # Macro and Label names
         self.trap_entry_label = trap_entry
@@ -272,10 +275,12 @@ class InterruptHandler:
 
         :param custom_vectors: Set of vector numbers that have per-segment custom handlers.
             For these vectors the .dword pointer lives in .os_data (emitted by OpSys).
-            The stub uses ``li t0, intr_handler_ptr_N_pa`` (PA equate) so it works from
-            the M-mode trap handler regardless of paging mode.
+            For M-mode (bare, no paging) the stub uses ``li t0, intr_handler_ptr_N_pa`` (PA equate).
+            For S-mode (paging enabled) the stub uses ``li t0, intr_handler_ptr_N`` (VA equate)
+            so the load goes through the page tables correctly.
             Non-custom indirect vectors keep the inline .dword in .runtime.
         """
+        equate_suffix = "_pa" if self.use_pa else ""
         jump_table = []
         for v_num, vector in self.vector_table.items():
             if vector.indirect:
@@ -284,7 +289,7 @@ class InterruptHandler:
                         "\n".join(
                             [
                                 f"{vector.jump_table_label}:",
-                                f"    li t0, intr_handler_ptr_{v_num}_pa",
+                                f"    li t0, intr_handler_ptr_{v_num}{equate_suffix}",
                                 f"    ld t0, 0(t0)",
                                 f"    jr t0",
                             ]
@@ -372,6 +377,7 @@ class TrapHandler(AssemblyGenerator):
             default_trap_handler=self.trap_handler_label,
             label_prefix=self.label_prefix,
             test_fail_label=self.test_fail_label,
+            use_pa=(deleg_mode == RV.RiscvPrivileges.MACHINE),
         )
 
         self.env = self.featmgr.env
@@ -426,10 +432,13 @@ class TrapHandler(AssemblyGenerator):
         self.register_equate(self.panic_cause, "11")
 
         # Register FeatMgr-level default handler overrides (set via Conf.add_hooks()).
-        # These replace the framework's built-in clear-and-return for the given vector.
-        # Only the M-mode TrapHandler emits these; S-mode handler overrides are not yet supported.
-        if self.deleg_mode == RV.RiscvPrivileges.MACHINE:
-            for vec, (label, _) in self.featmgr.interrupt_handler_overrides.items():
+        # Each vector is routed to the TrapHandler whose privilege level matches its
+        # mideleg bit: delegated vectors (bit set) go to the S-mode TrapHandler;
+        # non-delegated vectors go to the M-mode TrapHandler.
+        for vec, (label, _) in self.featmgr.interrupt_handler_overrides.items():
+            vec_delegated = bool((self.featmgr.mideleg >> vec) & 1)
+            vec_mode = RV.RiscvPrivileges.SUPER if vec_delegated else RV.RiscvPrivileges.MACHINE
+            if vec_mode == self.deleg_mode:
                 self.interrupt_handler.register_vector(vec, label)
 
         for interrupts in self.pool.parsed_vectored_interrupts:
@@ -455,11 +464,17 @@ class TrapHandler(AssemblyGenerator):
         section_name = "runtime" if self.deleg_mode == RV.RiscvPrivileges.MACHINE else "runtime_s"
         custom_macros = self._generate_custom_handler_macros()
 
-        # Emit handler bodies for FeatMgr-level default handler overrides (M-mode only).
+        # Emit handler bodies for FeatMgr-level default handler overrides.
+        # Each override is emitted by the TrapHandler whose privilege level matches the
+        # vector's mideleg bit; the TrapContext passed to the callable carries the
+        # correct CSR names (xip, xret, etc.) for that privilege level.
         override_handlers = ""
-        if self.deleg_mode == RV.RiscvPrivileges.MACHINE:
-            for vec, (label, assembly_fn) in self.featmgr.interrupt_handler_overrides.items():
-                override_handlers += f"\n.align 2\n{label}:\n{assembly_fn(self.featmgr)}\n"
+        for vec, (label, assembly_fn) in self.featmgr.interrupt_handler_overrides.items():
+            vec_delegated = bool((self.featmgr.mideleg >> vec) & 1)
+            vec_mode = RV.RiscvPrivileges.SUPER if vec_delegated else RV.RiscvPrivileges.MACHINE
+            if vec_mode == self.deleg_mode:
+                ctx = SUPERVISOR_CTX if vec_delegated else MACHINE_CTX
+                override_handlers += f"\n.align 2\n{label}:\n{assembly_fn(ctx)}\n"
 
         code = f"""
         .section .{section_name}, "ax"
@@ -603,10 +618,7 @@ class TrapHandler(AssemblyGenerator):
         - if using c_used save all registers. This assumes the stack is loaded into sp already
         """
         save_context = ""
-        if self.featmgr.c_used:
-            save_context += self._save_regs()
-        else:
-            save_context += self.variable_manager.enter_hart_context(scratch=self.scratch_reg)
+        save_context += self.variable_manager.enter_hart_context(scratch=self.scratch_reg)
         if self.featmgr.save_restore_gprs:
             save_context += "\n\t" + self.save_gprs(self.scratch_reg)
 
@@ -623,8 +635,6 @@ class TrapHandler(AssemblyGenerator):
         - restores tvec to trap_entry label
         """
         restore_context = ""
-        if self.featmgr.c_used:
-            restore_context += self._restore_regs()
 
         restore_context += f"""
             la t1, {self.trap_entry_label}
@@ -809,18 +819,24 @@ class TrapHandler(AssemblyGenerator):
         """
         # Hart-local variables
         check_excp = self.variable_manager.get_variable("check_excp")
+        check_excp_expected_mode = self.variable_manager.get_variable("check_excp_expected_mode")
         check_excp_expected_cause = self.variable_manager.get_variable("check_excp_expected_cause")
         check_excp_skip_pc_check = self.variable_manager.get_variable("check_excp_skip_pc_check")
         check_excp_expected_pc = self.variable_manager.get_variable("check_excp_expected_pc")
         check_excp_actual_pc = self.variable_manager.get_variable("check_excp_actual_pc")
         check_excp_expected_tval = self.variable_manager.get_variable("check_excp_expected_tval")
         check_excp_expected_htval = self.variable_manager.get_variable("check_excp_expected_htval")
+        check_excp_gva_check = self.variable_manager.get_variable("check_excp_gva_check")
 
         # label to jump to if invalid exception is encountered
         if self.featmgr.skip_instruction_for_unexpected:
             unexpected_exception = f"{self.label_prefix}count_ignored_excp"
         else:
             unexpected_exception = self.test_fail_label
+
+        # Derive current_mode from deleg_mode_str (set in __init__)
+        # matches CHECK_EXCP_MODE_* equates: m=1, hs=2, s=3
+        current_mode = {"m": 1, "hs": 2, "s": 3}[self.deleg_mode_str]
 
         code = f"""
             # Check if check_exception is enabled
@@ -833,6 +849,13 @@ class TrapHandler(AssemblyGenerator):
             j {return_label}
 
          {self.label_prefix}check_excp:
+            # Check expected handler mode (0 = any)
+            {check_excp_expected_mode.load_and_clear(dest_reg="t0"):<35}  # check_excp_expected_mode
+            beqz t0, {self.label_prefix}skip_mode_check
+            li t2, {current_mode}
+            bne t0, t2, {unexpected_exception}
+         {self.label_prefix}skip_mode_check:
+
             # Check for correct exception code
             {check_excp_expected_cause.load_and_clear(dest_reg="t0"):<35}  # check_excp_expected_cause
             bne t1, t0, {unexpected_exception}
@@ -857,17 +880,38 @@ class TrapHandler(AssemblyGenerator):
          {self.label_prefix}skip_nonzero_tval_check:
         """
 
-        if self.deleg_mode == RV.RiscvPrivileges.SUPER and not self.deleg_virtualized:
+        if not self.deleg_virtualized:
             # compare expected and actual htval values
             code += f"""
             {check_excp_expected_htval.load_and_clear(dest_reg="t0"):<35}  # check_excp_expected_htval
             beqz t0, {self.label_prefix}skip_nonzero_htval_check
 
          {self.label_prefix}nonzero_htval_check:
-            csrr t1, htval
+            csrr t1, {'htval' if self.deleg_mode == RV.RiscvPrivileges.SUPER else 'mtval2'}
             bne t1, t0, {unexpected_exception}
 
          {self.label_prefix}skip_nonzero_htval_check:
+            """
+
+            if self.deleg_mode == RV.RiscvPrivileges.SUPER:
+                gva_csr = "hstatus"
+                gva_bit = 6
+            else:
+                gva_csr = "mstatus"
+                gva_bit = 38
+            code += f"""
+            {check_excp_gva_check.load_and_clear(dest_reg="t0"):<35}  # check_excp_gva_check
+            beqz t0, {self.label_prefix}skip_gva_check
+
+         {self.label_prefix}gva_check:
+            csrr t1, {gva_csr}
+            srli t1, t1, {gva_bit}
+            andi t1, t1, 1
+            beqz t1, {unexpected_exception}
+            li t1, (1 << {gva_bit})
+            csrc {gva_csr}, t1
+
+         {self.label_prefix}skip_gva_check:
             """
 
         code += f"""
@@ -933,47 +977,3 @@ class TrapHandler(AssemblyGenerator):
                 li x31, 0xf0000003  # End test without failure
                 ecall
             """
-
-    # helper methods
-    def _save_regs(self) -> str:
-        """
-        save all registers to stack
-        """
-        # need to save all registers to stack
-        # assuming stack is already loaded from c code.
-        reg_size_bytes = self.xlen.value // 8
-        allocate_size = reg_size_bytes * 32
-        save_regs = [f"add sp, sp, -{allocate_size}"]
-
-        if self.xlen == RV.Xlen.XLEN64:
-            save_reg_instr = "sd"
-        elif self.xlen == RV.Xlen.XLEN32:
-            save_reg_instr = "sw"
-        else:
-            raise ValueError(f"Unsupported xlen: {self.xlen}")
-        save_regs.append(f"{save_reg_instr} x1, 8(sp)")  # skip x2/sp
-        for i in range(3, 32):
-            save_regs.append(f"{save_reg_instr} x{i}, {i*reg_size_bytes}(sp)")
-        save_regs.append("mv x30, sp")  # original code had this after saving all registers. Not sure if it's used
-        return "\n\t".join(save_regs)
-
-    def _restore_regs(self) -> str:
-        """
-        restore all registers from stack
-        """
-        reg_size_bytes = self.xlen.value // 8
-        allocate_size = reg_size_bytes * 32
-        restore_regs = []
-
-        if self.xlen == RV.Xlen.XLEN64:
-            restore_reg_instr = "ld"
-        elif self.xlen == RV.Xlen.XLEN32:
-            restore_reg_instr = "lw"
-        else:
-            raise ValueError(f"Unsupported xlen: {self.xlen}")
-
-        restore_regs.append(f"{restore_reg_instr} x1, 8(sp)")  # skip x2/sp
-        for i in range(3, 32):
-            restore_regs.append(f"{restore_reg_instr} x{i}, {i*reg_size_bytes}(sp)")
-        restore_regs += [f"add sp, sp, {allocate_size}"]
-        return "\n\t".join(restore_regs)

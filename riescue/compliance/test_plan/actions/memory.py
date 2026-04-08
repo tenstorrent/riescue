@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from coretp import Instruction, StepIR
 from coretp.isa import Label
@@ -23,13 +23,31 @@ class MemoryAction(Action):
     def __init__(
         self,
         size: int,
-        page_size: PageSize,
+        page_size: Union[PageSize, tuple[PageSize, ...]],
         flags: PageFlags,
         exclude_flags: Optional[PageFlags] = None,
         modify: bool = False,
+        modify_leaf: bool = False,
+        modify_nonleaf: bool = False,
         page_cross_en: bool = False,
         num_pages: int = 1,
         or_mask: str = "",
+        nonleaf_flags: Optional[PageFlags] = None,
+        nonleaf_exclude_flags: Optional[PageFlags] = None,
+        # G-stage attributes: VS-leaf × G-leaf
+        leaf_gleaf_flags: Optional[PageFlags] = None,
+        leaf_gleaf_exclude_flags: Optional[PageFlags] = None,
+        vleaf_page_size: Optional[Union[PageSize, tuple[PageSize, ...]]] = None,
+        # G-stage attributes: VS-nonleaf × G-leaf
+        nonleaf_gleaf_flags: Optional[PageFlags] = None,
+        nonleaf_gleaf_exclude_flags: Optional[PageFlags] = None,
+        vnonleaf_page_size: Optional[Union[PageSize, tuple[PageSize, ...]]] = None,
+        # G-stage attributes: VS-leaf × G-nonleaf
+        leaf_gnonleaf_flags: Optional[PageFlags] = None,
+        leaf_gnonleaf_exclude_flags: Optional[PageFlags] = None,
+        # G-stage attributes: VS-nonleaf × G-nonleaf
+        nonleaf_gnonleaf_flags: Optional[PageFlags] = None,
+        nonleaf_gnonleaf_exclude_flags: Optional[PageFlags] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -42,7 +60,25 @@ class MemoryAction(Action):
         self.page_cross_en = page_cross_en
         self.data: list[Any] = [".dword 0xc001c0de"]
         self.modify = modify
+        self.modify_leaf = modify_leaf
+        self.modify_nonleaf = modify_nonleaf
         self.or_mask = or_mask
+
+        # VS-stage non-leaf attributes
+        self.nonleaf_flags = nonleaf_flags
+        self.nonleaf_exclude_flags = nonleaf_exclude_flags
+
+        # G-stage attributes
+        self.leaf_gleaf_flags = leaf_gleaf_flags
+        self.leaf_gleaf_exclude_flags = leaf_gleaf_exclude_flags
+        self.vleaf_page_size = vleaf_page_size
+        self.nonleaf_gleaf_flags = nonleaf_gleaf_flags
+        self.nonleaf_gleaf_exclude_flags = nonleaf_gleaf_exclude_flags
+        self.vnonleaf_page_size = vnonleaf_page_size
+        self.leaf_gnonleaf_flags = leaf_gnonleaf_flags
+        self.leaf_gnonleaf_exclude_flags = leaf_gnonleaf_exclude_flags
+        self.nonleaf_gnonleaf_flags = nonleaf_gnonleaf_flags
+        self.nonleaf_gnonleaf_exclude_flags = nonleaf_gnonleaf_exclude_flags
 
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "MemoryAction":
@@ -55,21 +91,37 @@ class MemoryAction(Action):
             num_pages = 1
         else:
             num_pages = step.step.num_pages
+        # Default size to 0x1000 (4KB) if not specified
+        size = step.step.size if step.step.size is not None else 0x1000
         return cls(
             step_id=step_id,
-            size=step.step.size,
+            size=size,
             page_size=step.step.page_size,
             flags=step.step.flags,
             exclude_flags=step.step.exclude_flags,
+            nonleaf_flags=step.step.nonleaf_flags,
+            nonleaf_exclude_flags=step.step.nonleaf_exclude_flags,
+            leaf_gleaf_flags=step.step.leaf_gleaf_flags,
+            leaf_gleaf_exclude_flags=step.step.leaf_gleaf_exclude_flags,
+            vleaf_page_size=step.step.vleaf_page_size,
+            nonleaf_gleaf_flags=step.step.nonleaf_gleaf_flags,
+            nonleaf_gleaf_exclude_flags=step.step.nonleaf_gleaf_exclude_flags,
+            vnonleaf_page_size=step.step.vnonleaf_page_size,
+            leaf_gnonleaf_flags=step.step.leaf_gnonleaf_flags,
+            leaf_gnonleaf_exclude_flags=step.step.leaf_gnonleaf_exclude_flags,
+            nonleaf_gnonleaf_flags=step.step.nonleaf_gnonleaf_flags,
+            nonleaf_gnonleaf_exclude_flags=step.step.nonleaf_gnonleaf_exclude_flags,
             page_cross_en=step.step.page_cross_en,
             num_pages=num_pages,
             or_mask=step.step.or_mask or "",
             modify=step.step.modify,
+            modify_leaf=step.step.modify_leaf,
+            modify_nonleaf=step.step.modify_nonleaf,
             **kwargs,
         )
 
     def repr_info(self) -> str:
-        return f"[size=0x{self.size:x}]"
+        return f"[size=0x{self.size:x}]" if self.size is not None else "[size=None]"
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
         "Not used here, instead this is handled by MemoryRegistry.allocate_data"
@@ -156,10 +208,21 @@ class CodePageAction(MemoryAction, CodeMixin):
         self._code = code
 
     def repr_info(self) -> str:
+        repr_parts = []
+
+        if self.size is not None:
+            repr_parts.append(f"size=0x{self.size:x}")
+
+        if self.page_size is not None:
+            if isinstance(self.page_size, tuple):
+                repr_parts.append(f"page_size=({', '.join(ps.name for ps in self.page_size)})")
+            else:
+                repr_parts.append(f"page_size={self.page_size.name}")
+
         if self.code:
-            return f"[size=0x{self.size:x}, {len(self.code)} instrs]"
-        else:
-            return f"[size=0x{self.size:x}]"
+            repr_parts.append(f"{len(self.code)} instrs")
+
+        return f'"{", ".join(repr_parts)}"'
 
     def expand(self, ctx: LoweringContext) -> Optional[list[Action]]:
         """
