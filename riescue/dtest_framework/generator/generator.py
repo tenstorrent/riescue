@@ -181,6 +181,9 @@ class Generator:
             if isinstance(range, IoRange) and (range.name == "htif" or range in memory.io_ranges):
                 self.pool.pmp_regions.add_region(range=range)
 
+        for range in memory.custom_ranges:
+            self.pool.pmp_regions.add_region(range=range)
+
         # Generate PMA regions from hints and configuration
         self._generate_pma_from_hints(memory)
 
@@ -194,18 +197,6 @@ class Generator:
 
         # Set the linear and physical address bits
         self.linear_addr_bits = RV.RiscvPagingModes.linear_addr_bits(self.featmgr.paging_mode)
-        # If we are in virtualized mode, then we need to use the g-mode if vs-stage is disabled for linear address bits
-        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-            if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-                self.linear_addr_bits = min(
-                    52,
-                    RV.RiscvPagingModes.linear_addr_bits(self.featmgr.paging_g_mode, gstage=True),
-                )
-            else:
-                self.linear_addr_bits = min(
-                    self.linear_addr_bits,
-                    RV.RiscvPagingModes.linear_addr_bits(self.featmgr.paging_g_mode, gstage=True),
-                )
         # Set linear address bits in feature manager
         self.featmgr.linear_addr_bits = self.linear_addr_bits
         log.debug(f"Using linear address bits: {self.linear_addr_bits}")
@@ -217,7 +208,7 @@ class Generator:
         # if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
         if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
             if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                self.physical_addr_bits = min(self.linear_addr_bits, self.physical_addr_bits)
+                self.physical_addr_bits = min(RV.RiscvPagingModes.linear_addr_bits(self.featmgr.paging_g_mode), self.physical_addr_bits)
         # Set physical address bits in feature manager
         self.featmgr.physical_addr_bits = self.physical_addr_bits
         log.debug(f"Using physical address bits: {self.physical_addr_bits}")
@@ -614,10 +605,12 @@ class Generator:
                     page_maps += [map.name]
 
         self.randomize_pagesize(page_mapping)
-        phys_addr_size = address_size = page_mapping.address_size
+        address_size = page_mapping.address_size
+        address_mask = page_mapping.address_mask
+        phys_addr_size = page_mapping.phys_address_size
+        phys_addr_mask = page_mapping.phys_address_mask
         if self.featmgr.reserve_partial_phys_memory:
-            phys_addr_size = address_size = 0x1000
-        phys_addr_mask = address_mask = page_mapping.address_mask
+            phys_addr_size = 0x1000
         # If g-stage s enabled, this physical address becomes GPA. It means that the alignment of
         # this address should be at least the size of gstage_vs_leaf pagesize
         if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
@@ -772,10 +765,12 @@ class Generator:
         self.randomize_pagesize(page_mapping)
 
         phys_addr_bits = min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps(page_maps))
-        phys_addr_size = address_size = max(page_mapping.address_size, lin_parsed_addr.size)
+        address_size = max(page_mapping.address_size, lin_parsed_addr.size)
+        address_mask = min(page_mapping.address_mask, lin_parsed_addr.and_mask)
+        phys_addr_size = max(page_mapping.phys_address_size, lin_parsed_addr.size)
+        phys_addr_mask = min(page_mapping.phys_address_mask, lin_parsed_addr.and_mask)
         if self.featmgr.reserve_partial_phys_memory:
-            phys_addr_size = address_size = 0x1000
-        phys_addr_mask = address_mask = min(page_mapping.address_mask, lin_parsed_addr.and_mask)
+            phys_addr_size = 0x1000
 
         if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
             phys_addr_bits = min(lin_parsed_addr.addr_bits, phys_addr_bits)
@@ -905,8 +900,17 @@ class Generator:
         phys_address_mask = address_mask = random_addr.and_mask
         secure = False
 
-        log.debug(f"handle_random_addr: name={addr_name}, type={addr_type}, phys_address_size=0x{phys_address_size:x}, phys_address_mask=0x{phys_address_mask:x}")
-        if self.pool.parsed_page_mapping_with_lin_name_exists(addr_name) and self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE:
+        log.debug(
+            "handle_random_addr: name=%s, type=%s, phys_address_size=0x%x, phys_address_mask=0x%x",
+            addr_name,
+            addr_type,
+            phys_address_size,
+            phys_address_mask,
+        )
+        lin_in_page_mapping = self.pool.parsed_page_mapping_with_lin_name_exists(addr_name)
+        paging_enabled = self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE
+        no_custom_region = random_addr.custom_region is None
+        if lin_in_page_mapping and paging_enabled and no_custom_region:
             log.debug(f"Random Address {addr_name} already exists in a page mapping")
             for map_key in self.pool.get_parsed_page_mapping_with_lin_name(addr_name):
                 parsed_page_mapping = self.pool.get_parsed_page_mapping(addr_name, map_key)
@@ -924,8 +928,11 @@ class Generator:
                 if self.pool.parsed_random_addr_exists(addr_name=parsed_page_mapping.phys_name):
                     log.debug(f"parsed_random_addr_exists: {parsed_page_mapping.phys_name}. Using it for {addr_name}")
                     phys_random_addr = self.pool.get_parsed_addr(parsed_page_mapping.phys_name)
-                    phys_random_addr.size = address_size
-                    phys_random_addr.align = address_mask
+                    # Linear random_addr can be 2MB while partner physical uses a small custom region;
+                    # do not overwrite custom phys size/align with the linear request.
+                    if phys_random_addr.custom_region is None:
+                        phys_random_addr.size = max(phys_address_size, phys_random_addr.size)
+                        phys_random_addr.and_mask = phys_address_mask & phys_random_addr.and_mask
 
         # FIXME: The type should be cast to an enum already
         if addr_type == RV.AddressType.NONE:
@@ -942,7 +949,10 @@ class Generator:
                 or_mask=random_addr.or_mask,
             )
             log.debug(f"Adding addr: {addr_name}, constraint: {address_contstaint}")
-            address_orig = self.addrgen.generate_address(constraint=address_contstaint)
+            try:
+                address_orig = self.addrgen.generate_address(constraint=address_contstaint)
+            except Exception as e:
+                raise Exception(f"Encountered exception generating linear address for {addr_name}") from e
             address = self.canonicalize_lin_addr(address_orig)
             log.debug(f"Adding addr: {addr_name}, addr: {address:016x}")
 
@@ -969,6 +979,8 @@ class Generator:
             if random_addr.io:
                 addr_q = [RV.AddressQualifiers.ADDRESS_MMIO]
                 marked_secure = False
+            if random_addr.custom_region:
+                marked_secure = False
             address_contstaint = addrgen.AddressConstraint(
                 type=RV.AddressType.PHYSICAL,
                 qualifiers=addr_q,
@@ -977,6 +989,7 @@ class Generator:
                 size=phys_address_size,
                 mask=phys_address_mask,
                 or_mask=random_addr.or_mask,
+                custom_region=random_addr.custom_region,
             )
             log.debug(f"Adding addr: {addr_name}, addr_c: {address_contstaint}")
 
@@ -1000,8 +1013,7 @@ class Generator:
                 try:
                     address = self.addrgen.generate_address(constraint=address_contstaint)
                 except Exception as e:
-                    log.error(f"Error generating address for {addr_name}")
-                    raise e
+                    raise Exception(f"Encountered exception generating physical address for {addr_name}") from e
 
                 # If we have a pre-allocated region (but no address yet), update it
                 if addr_name in self._pre_allocated_pma_regions:
@@ -1120,10 +1132,12 @@ class Generator:
             specified_pagesizes=specified_pagesizes,
             paging_mode=self.featmgr.paging_mode,
             page_mapping=page_mapping,
+            exclude_largest=self._has_vs_nonleaf_constraints(page_mapping) or page_mapping.modify_nonleaf_pt,
         )
         log.debug(f"lin_name: {lin_name}, final_pagesize: {final_pagesize}, addr_size: {addr_size:x}, addr_mask: {addr_mask:x}")
 
         if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
+            exclude_largest_gstage = self._has_gstage_nonleaf_constraints(page_mapping)
             if not page_mapping.gstage_vs_leaf_pagesizes:
                 # Not specified — use the exact same pagesize as the VS-stage page
                 gstage_vs_leaf_final_pagesize = final_pagesize
@@ -1141,6 +1155,7 @@ class Generator:
                     specified_pagesizes=specified_pagesizes,
                     paging_mode=self.featmgr.paging_g_mode,
                     page_mapping=page_mapping,
+                    exclude_largest=exclude_largest_gstage or page_mapping.modify_leaf_pt,
                 )
             log.debug(f"lin_name_nonleaf: {lin_name}, specified_pagesizes: {specified_pagesizes}")
             specified_pagesizes = page_mapping.gstage_vs_nonleaf_pagesizes
@@ -1152,7 +1167,16 @@ class Generator:
                 specified_pagesizes=specified_pagesizes,
                 paging_mode=self.featmgr.paging_g_mode,
                 page_mapping=page_mapping,
+                exclude_largest=exclude_largest_gstage or page_mapping.modify_nonleaf_pt,
             )
+
+        # When VS-stage is disabled but G-stage is active, the only page table
+        # walk is G-stage. Override the 4KB fallback from pick_pagesize(DISABLE)
+        # with the G-stage leaf pagesize.
+        if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE and self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
+            final_pagesize = gstage_vs_leaf_final_pagesize
+            addr_size = gstage_vs_leaf_addr_size
+            addr_mask = gstage_vs_leaf_addr_mask
 
         # Generally, we want to use main paging mode, but in virtualization if vs-stage is BARE then use g-mode paging
         paging_mode = self.featmgr.paging_mode
@@ -1273,11 +1297,33 @@ class Generator:
             #  This means that if a page is part of page_maps in modes sv39 and sv48, it would need to reserve more memory than what's available in
             #  in the sv39 mode and that would fail. So, we will not support this case for now.
 
+        if page_mapping.modify_nonleaf_pt == 1:
+            # Reserve VA covering the lowest-level non-leaf PTE slot to ensure exclusive ownership
+            leaf_level = RV.RiscvPageSizes.pt_leaf_level(final_pagesize)
+            nonleaf_level = leaf_level + 1
+            nonleaf_addr_size = 2 ** ((RV.RiscvPagingModes.index_bits(paging_mode, nonleaf_level))[1])
+            nonleaf_addr_mask = 0xFFFFFFFFFFFFFFFF << (common.msb(nonleaf_addr_size)) & 0xFFFFFFFFFFFFFFFF
+            addr_size = max(addr_size, nonleaf_addr_size)
+            addr_mask = addr_mask & nonleaf_addr_mask
+            log.debug(f"modify_nonleaf_pt: name: {page_mapping.lin_name}, addr_size: {addr_size:x}")
+
         # At the end, we need to only have the final pagesize set to True in the page mapping
         # log.debug(f'randomize pagesize for page: {page_mapping.lin_name}, {gstage_vs_leaf_final_pagesize}, {gstage_vs_nonleaf_final_pagesize}')
         page_mapping.final_pagesize = final_pagesize
         page_mapping.address_size = addr_size
         page_mapping.address_mask = addr_mask
+        if page_mapping.modify_pt == 1:
+            page_mapping.phys_address_size = RV.RiscvPageSizes.memory(final_pagesize)
+            page_mapping.phys_address_mask = RV.RiscvPageSizes.address_mask(final_pagesize)
+        else:
+            page_mapping.phys_address_size = page_mapping.address_size
+            page_mapping.phys_address_mask = page_mapping.address_mask
+        if page_mapping.modify_leaf_pt == 1:
+            # Reserve one G-stage pagesize larger than final_pagesize in physical address space
+            target_pagesize = RV.RiscvPagingModes.next_pt_level_pagesize(self.featmgr.paging_g_mode, final_pagesize)
+            log.debug(f"modify_leaf_pt: name: {page_mapping.lin_name}, phys_addr_size: {RV.RiscvPageSizes.memory(target_pagesize):x}")
+            page_mapping.phys_address_size = RV.RiscvPageSizes.memory(target_pagesize)
+            page_mapping.phys_address_mask = RV.RiscvPageSizes.address_mask(target_pagesize)
         if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
             log.debug(f"adding for {page_mapping.lin_name} gstage_vs_leaf_final_pagesize: {gstage_vs_leaf_final_pagesize}, gstage_vs_nonleaf_final_pagesize: {gstage_vs_nonleaf_final_pagesize}")
             page_mapping.gstage_vs_nonleaf_final_pagesize = gstage_vs_nonleaf_final_pagesize
@@ -1286,6 +1332,16 @@ class Generator:
             page_mapping.gstage_vs_leaf_address_size = gstage_vs_leaf_addr_size
             page_mapping.gstage_vs_nonleaf_address_mask = gstage_vs_nonleaf_addr_mask
             page_mapping.gstage_vs_leaf_address_mask = gstage_vs_leaf_addr_mask
+        if page_mapping.modify_nonleaf_pt == 1:
+            # Override gstage_vs_nonleaf constraints to use one G-stage pagesize larger than gstage_vs_nonleaf_final_pagesize
+            # This constrains generate_pt_constraints(leaf=False) in pagetables.py so the
+            # lowest-level non-leaf VS PT page gets a PA aligned to the next larger G-stage page size
+            gstage_vs_nonleaf_final_pagesize = page_mapping.gstage_vs_nonleaf_final_pagesize
+            target_pagesize = RV.RiscvPagingModes.next_pt_level_pagesize(self.featmgr.paging_g_mode, gstage_vs_nonleaf_final_pagesize)
+            log.debug(f"modify_nonleaf_pt: name: {page_mapping.lin_name}, gstage_vs_nonleaf phys_addr_size: {RV.RiscvPageSizes.memory(target_pagesize):x}")
+            page_mapping.gstage_vs_nonleaf_address_size = RV.RiscvPageSizes.memory(target_pagesize)
+            page_mapping.gstage_vs_nonleaf_address_mask = RV.RiscvPageSizes.address_mask(target_pagesize)
+        if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
             # If the vs-stage size is less than the gstage_vs_leaf_address_size then we need to make it match the bigger size
             if page_mapping.address_size < page_mapping.gstage_vs_leaf_address_size:
                 page_mapping.address_size = page_mapping.gstage_vs_leaf_address_size
@@ -1295,8 +1351,8 @@ class Generator:
         # So, make sure we update the address_size/mask in the random_address instance as well
         if self.pool.parsed_random_addr_exists(page_mapping.phys_name):
             phys_random_addr = self.pool.get_parsed_addr(page_mapping.phys_name)
-            phys_random_addr.size = max(page_mapping.address_size, phys_random_addr.size)
-            phys_random_addr.and_mask = min(page_mapping.address_mask, phys_random_addr.and_mask)
+            phys_random_addr.size = max(page_mapping.phys_address_size, phys_random_addr.size)
+            phys_random_addr.and_mask = min(page_mapping.phys_address_mask, phys_random_addr.and_mask)
 
     def setup_uwrx_bit(
         self,
@@ -1472,10 +1528,10 @@ class Generator:
             # if paging_mode_vs == RV.RiscvPagingModes.DISABLE:
             #     return (addr_size_leaf, addr_mask_leaf, addr_size_nonleaf, addr_mask_nonleaf)
             map_max_levels = RV.RiscvPagingModes.max_levels(paging_mode_g)
-            levels_this_page = RV.RiscvPageSizes.pt_leaf_level(final_pagesize_gleaf)
-            log.debug(f"{page_mapping.lin_name}, map_max_levels: {map_max_levels}, final_pagesize_gleaf: {final_pagesize_gleaf}, {levels_this_page}")
-            # if '_leaf_' in attr:
-            #     levels_this_page = RV.RiscvPageSizes.pt_leaf_level(final_pagesize_gleaf)
+            # Use the g-stage pagesize matching the VS page type: gnonleaf for VS non-leaf, gleaf for VS leaf
+            gnonleaf_pagesize = final_pagesize_gnonleaf if "_nonleaf_" in attr else final_pagesize_gleaf
+            levels_this_page = RV.RiscvPageSizes.pt_leaf_level(gnonleaf_pagesize)
+            log.debug(f"{page_mapping.lin_name}, map_max_levels: {map_max_levels}, gnonleaf_pagesize: {gnonleaf_pagesize}, {levels_this_page}")
             available_pt_levels = map_max_levels - levels_this_page
             log.debug(f"{map_max_levels}, {available_pt_levels}, {final_pagesize_gnonleaf}")
             if available_pt_levels == 1:
@@ -1493,8 +1549,8 @@ class Generator:
             # Now there's a case when rbd_pt_level is more than available levels for vs-stage. This matters because currently
             # we have gpa=gva, so we need to make sure that the g-stage level is not more than the vs-stage level
             if rnd_pt_level > vslevel_to_randomize:
-                # In this case, pick the lowest level available in g-stage
-                rnd_pt_level = levels_this_page
+                # In this case, pick the lowest non-leaf level available in g-stage
+                rnd_pt_level = levels_range[0]
             # 5% of times pick other levels
             if self.rng.with_probability_of(0):
                 rnd_pt_level = self.rng.random_entry_in(levels_range)
@@ -1693,7 +1749,67 @@ class Generator:
 
         return (addr_size, addr_mask)
 
-    def pick_pagesize(self, specified_pagesizes, paging_mode, page_mapping):
+    # Insignificant (default) values for VS-stage nonleaf attributes.
+    # Mirrors the logic in randomize_pt_attrs / pt_attrs_helper.
+    _VS_NONLEAF_CHECKS = [
+        ("v_nonleaf", True),
+        ("a_nonleaf", True),
+        ("d_nonleaf", True),
+        ("r_nonleaf", True),
+        ("w_nonleaf", None),  # default is None — any explicit value is significant
+        ("x_nonleaf", None),
+        ("u_nonleaf", None),
+        ("g_nonleaf", False),  # insignificant_value for g is 0 (False)
+        ("pbmt_nonleaf", 0),
+        ("n_nonleaf", 0),
+    ]
+
+    # Insignificant (default) values for G-stage nonleaf attributes.
+    # Mirrors the logic in randomize_gstage_pt_attrs.
+    _GSTAGE_NONLEAF_CHECKS = [
+        ("v_leaf_gnonleaf", True),
+        ("v_nonleaf_gnonleaf", True),
+        ("a_leaf_gnonleaf", True),
+        ("a_nonleaf_gnonleaf", True),
+        ("d_leaf_gnonleaf", True),
+        ("d_nonleaf_gnonleaf", True),
+        ("r_leaf_gnonleaf", True),
+        ("r_nonleaf_gnonleaf", True),
+        ("w_leaf_gnonleaf", None),
+        ("w_nonleaf_gnonleaf", None),
+        ("x_leaf_gnonleaf", None),
+        ("x_nonleaf_gnonleaf", None),
+        ("u_leaf_gnonleaf", None),
+        ("u_nonleaf_gnonleaf", None),
+        ("g_leaf_gnonleaf", False),
+        ("g_nonleaf_gnonleaf", False),
+        ("n_leaf_gnonleaf", 0),
+        ("n_nonleaf_gnonleaf", 0),
+        ("pbmt_leaf_gnonleaf", 0),
+        ("pbmt_nonleaf_gnonleaf", 0),
+    ]
+
+    @staticmethod
+    def _has_significant_constraints(page_mapping, attr_checks) -> bool:
+        """Return True if any attribute in attr_checks has a significant (non-default) value."""
+        for attr, insignificant in attr_checks:
+            val = page_mapping.__getattribute__(attr)
+            if insignificant is None:
+                # Any explicit (non-None) value is significant
+                if val is not None:
+                    return True
+            else:
+                if val is not None and val != insignificant:
+                    return True
+        return False
+
+    def _has_vs_nonleaf_constraints(self, page_mapping) -> bool:
+        return self._has_significant_constraints(page_mapping, self._VS_NONLEAF_CHECKS)
+
+    def _has_gstage_nonleaf_constraints(self, page_mapping) -> bool:
+        return self._has_significant_constraints(page_mapping, self._GSTAGE_NONLEAF_CHECKS)
+
+    def pick_pagesize(self, specified_pagesizes, paging_mode, page_mapping, exclude_largest=False):
         # Check what pagesizes are specified and pick one and set the address size
         # Generally, we want to use main paging mode, but in virtualization if vs-stage is BARE then use g-mode paging
         # paging_mode = self.featmgr.paging_mode
@@ -1710,6 +1826,12 @@ class Generator:
             if RV.RiscvPageSizes.S256TB in valid_pagesizes:
                 # Delete 256TB from valid_pagesizes
                 valid_pagesizes.remove(RV.RiscvPageSizes.S256TB)
+        if exclude_largest:
+            # When nonleaf_* constraints are specified, the largest pagesize has its leaf PTE
+            # at the root level (pt_leaf_level == max_levels - 1), meaning zero non-leaf PTEs
+            # exist in the walk, so nonleaf_* attributes cannot be applied.
+            max_levels = RV.RiscvPagingModes.max_levels(paging_mode)
+            valid_pagesizes = [ps for ps in valid_pagesizes if RV.RiscvPageSizes.pt_leaf_level(ps) != max_levels - 1]
         allowed_pagesizes = dict()
         # Find out if any of the _<pagesize>page specified
         for pagesize in specified_pagesizes:
@@ -1754,14 +1876,30 @@ class Generator:
         Randomize the pagesize for the given page mapping. Also calculate memory needed for linear and physical
         addresses associated with the page mapping
         """
+        phys_rand_addr = self.pool.get_parsed_addr(key=page_mapping.phys_name)
+
         # Randomize the pagesize for the given page mapping
         self.randomize_pagesize(page_mapping=page_mapping)
+
+        # If the physical address is bound to a custom region, verify the chosen page size fits.
+        # We do not silently clamp — the user must specify a compatible pagesize= explicitly.
+        if phys_rand_addr.custom_region is not None:
+            region_start, region_end = self.addrgen._custom_regions[phys_rand_addr.custom_region]
+            region_size = region_end - region_start + 1
+            if page_mapping.address_size > region_size:
+                raise ValueError(
+                    f"Page size {page_mapping.address_size:#x} chosen for page mapping "
+                    f"{page_mapping.lin_name!r}/{page_mapping.phys_name!r} exceeds custom region "
+                    f"{phys_rand_addr.custom_region!r} size {region_size:#x}. "
+                    f"Add pagesize= to the page_mapping() call with a size that fits the region "
+                    f"(e.g. pagesize=['2mb'] for a 16 MB region, pagesize=['4kb'] for smaller ones)."
+                )
 
         # The above function also updates the page_mapping.address_size, so update the size of the linear and physical
         lin_rand_addr = self.pool.get_parsed_addr(key=page_mapping.lin_name)
         lin_rand_addr.size = max(page_mapping.address_size, lin_rand_addr.size)
-        phys_rand_addr = self.pool.get_parsed_addr(key=page_mapping.phys_name)
-        phys_rand_addr.size = max(page_mapping.address_size, phys_rand_addr.size)
+        phys_rand_addr.size = max(page_mapping.phys_address_size, phys_rand_addr.size)
+        phys_rand_addr.and_mask = page_mapping.phys_address_mask & phys_rand_addr.and_mask
         has_linked_pages = False
         map_key = "map_os"
         if page_mapping.in_private_map:
@@ -2089,21 +2227,16 @@ class Generator:
         num_c_text_pages = 30 if self.featmgr.c_used else 0
 
         # Also add some default super and user code pages
-        num_super_code_pages = 8
-        num_user_code_pages = 8
-        num_machine_code_pages = 8
+        num_super_code_pages = 128
+        num_user_code_pages = 128
+        num_machine_code_pages = 128
 
         # csr pages
         num_machine_csr_pages = 1
         num_super_csr_pages = 1
 
-        # pte pages
-        # Each pte machine code entry generates at most ~256 bytes (sv57 worst case: ~58 instructions
-        # of page-table walk code + 2 dispatch instructions). With alloc_size=0x1000, that is at most
-        # 16 entries per page. Compute the number of pages dynamically so the section never overflows
-        # into the adjacent page-table section.
-        _pte_entry_count = len(self.pool.get_parsed_read_ptes()) + len(self.pool.get_parsed_write_ptes())
-        num_machine_pte_pages = max(1, (_pte_entry_count + 15) // 16)
+        # pte pages (walk is now inline in syscall handler, no separate page needed)
+        num_machine_pte_pages = 0
 
         if section == "runtime":
             alloc_size = 0x1000
@@ -2209,18 +2342,7 @@ class Generator:
                 (lin_addr, phys_addr) = self.add_section_handler(
                     name="code",
                     # +1 at the end to account for loader code
-                    size=alloc_size
-                    * (
-                        num_code_pages
-                        + num_super_code_pages
-                        + num_user_code_pages
-                        + num_machine_code_pages
-                        + num_machine_csr_pages
-                        + num_super_csr_pages
-                        + num_machine_pte_pages
-                        + num_c_text_pages
-                        + 1
-                    ),
+                    size=alloc_size * (num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages + num_machine_csr_pages + num_super_csr_pages + num_c_text_pages + 1),
                     iscode=True,
                     start_addr=self.featmgr.reset_pc,
                     phys_name="__section_code",
@@ -2230,8 +2352,7 @@ class Generator:
                 # First allocate space for ALL the code pages. Then add all the individual pages
                 (lin_addr, phys_addr) = self.add_section_handler(
                     name="code",
-                    size=alloc_size
-                    * (num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages + num_machine_csr_pages + num_super_csr_pages + num_machine_pte_pages + num_c_text_pages),
+                    size=alloc_size * (num_code_pages + num_super_code_pages + num_user_code_pages + num_machine_code_pages + num_machine_csr_pages + num_super_csr_pages + num_c_text_pages),
                     iscode=True,
                     phys_name="__section_code",
                     skip_page_map=code_skip_page_map,
@@ -2276,6 +2397,32 @@ class Generator:
                 alloc_phys_addr += alloc_size
             # Every call to add_section_handler already adds the sections to the pool
             # self.pool.add_section(section_name="code")
+
+            # If C code is used, allocate .text section immediately after the test .code pages
+            # so that jal calls from .code into .text stay within range (JAL has ±1 MiB limit).
+            # This must come before the privileged code pages which can be numerous.
+            if self.featmgr.c_used:
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name="text",
+                    size=alloc_size,
+                    iscode=True,
+                    start_addr=alloc_phys_addr,
+                    start_lin_addr=alloc_lin_addr,
+                    phys_name="__section_text",
+                )
+                alloc_lin_addr = lin_addr + alloc_size
+                alloc_phys_addr = phys_addr + alloc_size
+                for i in range(1, num_c_text_pages):
+                    (lin_addr, phys_addr) = self.add_section_handler(
+                        name=f"__section__text_{i}",
+                        size=alloc_size,
+                        iscode=True,
+                        start_addr=alloc_phys_addr,
+                        start_lin_addr=alloc_lin_addr,
+                        phys_name="",
+                    )
+                    alloc_lin_addr += alloc_size
+                    alloc_phys_addr += alloc_size
 
             # Add super pages with name starting code_super
             for i in range(num_super_code_pages):
@@ -2365,47 +2512,6 @@ class Generator:
                 )
                 alloc_lin_addr += alloc_size
                 alloc_phys_addr += alloc_size
-
-            # PTE pages for machine mode
-            for i in range(num_machine_pte_pages):
-                page_name = f"pte_machine_{i}"
-                page_phys_name = f"__section_{page_name}"
-                (lin_addr, phys_addr) = self.add_section_handler(
-                    name=page_name,
-                    size=alloc_size,
-                    iscode=True,
-                    start_addr=alloc_phys_addr,
-                    start_lin_addr=alloc_lin_addr,
-                    phys_name=page_phys_name,
-                    skip_page_map=True,
-                )
-                alloc_lin_addr += alloc_size
-                alloc_phys_addr += alloc_size
-
-            # If C code is used, allocate .text section immediately after .code
-            # so that jal calls from .code into .text stay within range
-            if self.featmgr.c_used:
-                (lin_addr, phys_addr) = self.add_section_handler(
-                    name="text",
-                    size=alloc_size,
-                    iscode=True,
-                    start_addr=alloc_phys_addr,
-                    start_lin_addr=alloc_lin_addr,
-                    phys_name="__section_text",
-                )
-                alloc_lin_addr = lin_addr + alloc_size
-                alloc_phys_addr = phys_addr + alloc_size
-                for i in range(1, num_c_text_pages):
-                    (lin_addr, phys_addr) = self.add_section_handler(
-                        name=f"__section__text_{i}",
-                        size=alloc_size,
-                        iscode=True,
-                        start_addr=alloc_phys_addr,
-                        start_lin_addr=alloc_lin_addr,
-                        phys_name="",
-                    )
-                    alloc_lin_addr += alloc_size
-                    alloc_phys_addr += alloc_size
 
         elif section == "data" or section == "os_data":
             data_page_size = 0x1000
@@ -2534,9 +2640,12 @@ class Generator:
                 )
 
         elif section == "io_htif":
+            # The .io_htif section contains two .align 6 directives (64-byte alignment)
+            # plus two .dword values (tohost, fromhost), resulting in 0x48 bytes when
+            # 64-byte aligned. Reserve 0x80 to safely cover alignment padding.
             (lin_addr, phys_addr) = self.add_section_handler(
                 name="io_htif",
-                size=0x10,
+                size=0x80,
                 iscode=False,
                 identity_map=True,
                 start_addr=self.featmgr.io_htif_addr,
@@ -2655,6 +2764,8 @@ class Generator:
         """
         if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE and self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE:
             skip_page_map = True
+        if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
+            identity_map = True
 
         # When identity_map is requested, normalize so that the start_addr-only path handles it
         if identity_map:
@@ -2668,8 +2779,23 @@ class Generator:
 
         if skip_page_map:
             # No page tables: allocate only PA, use it for both linker LMA and VMA
-            if start_addr is not None:
+            if start_addr is not None and start_lin_addr is not None:
+                # Both PA and VA explicitly specified
                 phys_addr = start_addr
+                lin_addr = start_lin_addr
+                self.addrgen.reserve_memory(
+                    address_type=RV.AddressType.PHYSICAL,
+                    start_address=start_addr,
+                    size=size,
+                )
+                self.addrgen.reserve_memory(
+                    address_type=RV.AddressType.LINEAR,
+                    start_address=start_lin_addr,
+                    size=size,
+                )
+            elif start_addr is not None:
+                phys_addr = start_addr
+                lin_addr = phys_addr
                 self.addrgen.reserve_memory(
                     address_type=RV.AddressType.PHYSICAL,
                     start_address=start_addr,
@@ -2685,6 +2811,7 @@ class Generator:
             elif start_lin_addr is not None:
                 # Paging disabled: use the provided VA as PA (VA == PA)
                 phys_addr = start_lin_addr
+                lin_addr = phys_addr
                 self.addrgen.reserve_memory(
                     address_type=RV.AddressType.PHYSICAL,
                     start_address=start_lin_addr,
@@ -2698,6 +2825,9 @@ class Generator:
                 )
             else:
                 phys_addr_bits = min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps())
+                if identity_map:
+                    lin_addr_bits = min(self.linear_addr_bits, self.pool.get_min_linear_addr_bits_for_page_maps())
+                    phys_addr_bits = min(phys_addr_bits, lin_addr_bits - 1)
                 address_mask = common.address_mask_from_size(size)
                 phys_addr_c = addrgen.AddressConstraint(
                     type=RV.AddressType.PHYSICAL,
@@ -2710,7 +2840,13 @@ class Generator:
                 if phys_addr is None:
                     raise ValueError(f"Failed to generate address for {name}")
                 log.debug(f"phys_addr_constraints, {phys_name}: {phys_addr_c}, phys_addr: {phys_addr:016x}")
-            lin_addr = phys_addr
+                lin_addr = phys_addr
+                if identity_map:
+                    self.addrgen.reserve_memory(
+                        address_type=RV.AddressType.LINEAR,
+                        start_address=phys_addr,
+                        size=size,
+                    )
         elif start_addr is not None and start_lin_addr is not None:
             # Both PA and VA explicitly specified (contiguous non-identity-mapped sections)
             phys_addr = start_addr
@@ -2733,7 +2869,7 @@ class Generator:
                 start_address=start_addr,
                 size=size,
             )
-            if (self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE) or identity_map:
+            if identity_map:
                 # Identity map: VA = PA (paging off, or caller explicitly requests it)
                 lin_addr = phys_addr
                 self.addrgen.reserve_memory(
@@ -2754,23 +2890,31 @@ class Generator:
                 lin_addr_orig = self.addrgen.generate_address(constraint=lin_addr_c)
                 lin_addr = self.canonicalize_lin_addr(lin_addr_orig)
         elif start_lin_addr is not None:
-            # Only VA specified — fix VA, generate PA randomly
+            # Only VA specified — fix VA, generate PA randomly (or PA == VA if identity_map)
             lin_addr = start_lin_addr
             self.addrgen.reserve_memory(
                 address_type=RV.AddressType.LINEAR,
                 start_address=start_lin_addr,
                 size=size,
             )
-            phys_addr_bits = min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps())
-            address_mask = common.address_mask_from_size(size)
-            phys_addr_c = addrgen.AddressConstraint(
-                type=RV.AddressType.PHYSICAL,
-                qualifiers={RV.AddressQualifiers.ADDRESS_DRAM},
-                bits=phys_addr_bits,
-                mask=address_mask,
-                size=size,
-            )
-            phys_addr = self.addrgen.generate_address(constraint=phys_addr_c)
+            if identity_map:
+                phys_addr = start_lin_addr
+                self.addrgen.reserve_memory(
+                    address_type=RV.AddressType.PHYSICAL,
+                    start_address=start_lin_addr,
+                    size=size,
+                )
+            else:
+                phys_addr_bits = min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps())
+                address_mask = common.address_mask_from_size(size)
+                phys_addr_c = addrgen.AddressConstraint(
+                    type=RV.AddressType.PHYSICAL,
+                    qualifiers={RV.AddressQualifiers.ADDRESS_DRAM},
+                    bits=phys_addr_bits,
+                    mask=address_mask,
+                    size=size,
+                )
+                phys_addr = self.addrgen.generate_address(constraint=phys_addr_c)
         else:
             # Calculate mask, addr_bits from size
             # Sections are mapped across all page_maps. So we need the min address bits of all page maps for address selection.
@@ -2780,7 +2924,7 @@ class Generator:
             # If we are paging_disabled or identity_mapped, we generate physical address and assign it to linear address
             # So, we need to constraint the physical address to the same size as linear address. In addition we cannot use all bits of
             # linear address as then we need to canonicalize it. So we restrict to min of physical and linear address bits-1
-            if (self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE) or identity_map:
+            if identity_map:
                 phys_addr_bits = min(phys_addr_bits, lin_addr_bits - 1)
 
             # address_mask = 0xfffffffffffff000
@@ -2799,7 +2943,7 @@ class Generator:
                 raise ValueError(f"Failed to generate address for {name}")
             log.debug(f"phys_addr_constraints, {phys_name}: {phys_addr_c}, phys_addr: {phys_addr:016x}")
 
-            if (self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE) or identity_map:
+            if identity_map:
                 lin_addr = phys_addr
                 self.addrgen.reserve_memory(
                     address_type=RV.AddressType.LINEAR,
@@ -2914,9 +3058,10 @@ class Generator:
             self.pool.add_parsed_sections(val=section)
         for section in self.io_sections:
             self.pool.add_parsed_sections(val=section)
-        for section in self.pool.get_parsed_sections():
-            self.handle_sections(section)
 
+        sections = self.pool.get_parsed_sections()
         if self.featmgr.c_used:
-            for section_name in self.c_used_sections:
-                self.handle_sections(section_name)
+            sections += self.c_used_sections
+        sections = list(dict.fromkeys(sections))
+        for section_name in sections:
+            self.handle_sections(section_name)

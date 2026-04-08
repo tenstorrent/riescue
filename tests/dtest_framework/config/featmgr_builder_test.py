@@ -385,7 +385,6 @@ class TestFeatMgrBuilderVirtualization(FeatMgrBuilderBase):
         """
         header = ParsedTestHeader(
             priv="supervisor",
-            env="any",
         )
 
         args = self.parse_args([])
@@ -426,7 +425,7 @@ class TestFeatMgrBuilderVirtualization(FeatMgrBuilderBase):
         self.builder = self.builder.with_test_header(header).with_args(args)
         featmgr = self.builder.build(rng=self.rng)
 
-        self.assertNotEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED, "virtualized should only be picked when --test_env=virtualized is specified or --test_env_any is set")
+        self.assertEqual(featmgr.env, RiscvTestEnv.TEST_ENV_VIRTUALIZED, "virtualized should only be picked when --test_env=virtualized is specified or --test_env_any is set")
 
     def test_virtualized_header_virtualized_with_args(self):
         """

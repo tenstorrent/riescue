@@ -7,12 +7,12 @@
 
 import logging
 
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING, Union
 
 from coretp import StepIR, Instruction
 from coretp.step import Arithmetic
 from coretp.rv_enums import Category
-from riescue.compliance.test_plan.actions import Action
+from riescue.compliance.test_plan.actions import Action, LiAction
 from riescue.compliance.test_plan.context import LoweringContext
 
 log = logging.getLogger(__name__)
@@ -62,48 +62,53 @@ class ArithmeticAction(Action):
         if TYPE_CHECKING:
             assert isinstance(step.step, Arithmetic)
 
-        src1 = None
-        src2 = None
-        imm = None
-        inputs = step.inputs
+        src1: Optional[str] = None
+        src2: Optional[str] = None
+        imm: Optional[int] = None
+        # Filter inputs to only str and int (tuples are not supported for arithmetic)
+        # step.inputs comes from untyped coretp module - it's list[str | int | tuple[str, int]]
+        inputs: list[Union[str, int]] = [i for i in step.inputs if isinstance(i, (str, int))]  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportUnknownArgumentType]
         if len(inputs) > 2:
             raise ValueError(f"Arithmetic action {step} has more than 2 inputs, which isn't supported")
         # Naively assume that the first input is the src1 and the second is the src2
         elif len(inputs) == 2:
-            if isinstance(inputs[0], int) and isinstance(inputs[1], int):
+            input0 = inputs[0]
+            input1 = inputs[1]
+            if isinstance(input0, int) and isinstance(input1, int):
                 raise ValueError(f"Arithmetic action {step} has two immediate operands {inputs}")
-            elif isinstance(inputs[0], int):
-                if inputs[0] == 0:
+            elif isinstance(input0, int):
+                if input0 == 0:
                     src1 = "zero"
-                    src2 = inputs[1] if isinstance(inputs[1], str) else None
+                    src2 = input1 if isinstance(input1, str) else None
                     imm = 0
                 else:
-                    imm = inputs[0]
-                    if not isinstance(inputs[1], str):
-                        raise ValueError(f"Arithmetic action {step} has an immediate operand and a non-register source operand {type(inputs[1])=}")
-                    src1 = inputs[1]
-                    # src2 = inputs[1]
-            elif isinstance(inputs[1], int):
-                if inputs[1] == 0:
-                    src1 = inputs[0] if isinstance(inputs[0], str) else None
+                    imm = input0
+                    if not isinstance(input1, str):
+                        raise ValueError(f"Arithmetic action {step} has an immediate operand and a non-register source operand {type(input1)=}")
+                    src1 = input1
+                    # src2 = input1
+            elif isinstance(input1, int):
+                if input1 == 0:
+                    src1 = input0 if isinstance(input0, str) else None
                     src2 = "zero"
                     imm = 0
                 else:
-                    imm = inputs[1]
-                    if not isinstance(inputs[0], str):
-                        raise ValueError(f"Arithmetic action {step} has an immediate operand and a non-register source operand {type(inputs[1])=}")
-                    src1 = inputs[0]
+                    imm = input1
+                    if not isinstance(input0, str):
+                        raise ValueError(f"Arithmetic action {step} has an immediate operand and a non-register source operand {type(input1)=}")
+                    src1 = input0
             else:
-                src1 = inputs[0]
-                src2 = inputs[1]
+                src1 = input0
+                src2 = input1
         # Assume that the first input is the src1 and the second is the imm
         elif len(inputs) == 1:
-            if isinstance(inputs[0], int):
-                imm = inputs[0]
-            elif isinstance(inputs[0], str):
-                src1 = inputs[0]
+            input0 = inputs[0]
+            if isinstance(input0, int):
+                imm = input0
+            elif isinstance(input0, str):
+                src1 = input0
 
-        variables = {"src1": src1, "src2": src2}
+        variables: dict[str, Optional[str]] = {"src1": src1, "src2": src2}
         for field, value in variables.items():
             if value is not None and not isinstance(value, str):
                 raise TypeError(f"Expected {field} to be a string or None but got {type(value)}\n{inputs=}")
@@ -114,6 +119,24 @@ class ArithmeticAction(Action):
             imm=imm,
             op=step.step.op,
         )
+
+    def expand(self, ctx: LoweringContext) -> "Optional[list[Action]]":
+        new_actions: list[Action] = []
+
+        if self.src1 is not None and ctx.mem_reg.is_memory_label(self.src1):
+            src1_li = LiAction(step_id=ctx.new_value_id(), immediate=self.src1)
+            self.src1 = src1_li.step_id
+            new_actions.append(src1_li)
+
+        if self.src2 is not None and ctx.mem_reg.is_memory_label(self.src2):
+            src2_li = LiAction(step_id=ctx.new_value_id(), immediate=self.src2)
+            self.src2 = src2_li.step_id
+            new_actions.append(src2_li)
+
+        if new_actions:
+            new_actions.append(self)
+            return new_actions
+        return None
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
         constraints: dict[str, Any] = {"category": Category.ARITHMETIC}

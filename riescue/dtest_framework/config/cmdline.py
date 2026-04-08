@@ -102,19 +102,18 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         type=lambda x: int(x, 0),
     )
     eot_args.add_argument(
-        "--eot_print_htif_console",
+        "--print_rvcp_failed",
         action="store_true",
-        default=False,
-        help="Emit RVCP FAIL lines via HTIF tohost putchar (64-bit sd per byte, device 1 cmd 1; Whisper-compatible) "
-        "for each ;#test_failed() in Riescue-D generated tests. "
-        "FAIL line is wrapped with ============ lines. Does not emit PASSED lines; use --print_rvcp_passes for those.",
+        default=None,
+        help="Print RVCP FAILED message when discrete test fails",
     )
     eot_args.add_argument(
-        "--print_rvcp_passes",
+        "--print_rvcp_passed",
         action="store_true",
-        default=False,
-        help="Emit RVCP PASSED lines via HTIF tohost putchar for ;#test_passed() and final ALL PASSED summary line. " "Off by default; independent of --eot_print_htif_console.",
+        default=None,
+        help="Print RVCP PASSED message when discrete test passes",
     )
+    eot_args.add_argument("--rvmodel_macros", type=Path, default=None, help="Path to rvmodel_macros.h")
 
     mp_args = parser.add_argument_group("Multiprocessor", "Arguments for multiprocessor tests")
     mp_args.add_argument(

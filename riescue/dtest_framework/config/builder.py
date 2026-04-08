@@ -78,7 +78,7 @@ class FeatMgrBuilder:
         )
     )
     paging_g_mode: Candidate[RV.RiscvPagingModes] = field(default_factory=lambda: Candidate(RV.RiscvPagingModes.DISABLE))
-    env: Candidate[RV.RiscvTestEnv] = field(default_factory=lambda: Candidate.from_enum(RV.RiscvTestEnv))
+    env: Candidate[RV.RiscvTestEnv] = field(default_factory=lambda: Candidate(RV.RiscvTestEnv.TEST_ENV_BARE_METAL))
     arch: Candidate[RV.RiscvBaseArch] = field(default_factory=lambda: Candidate(RV.RiscvBaseArch.ARCH_RV64I))
     secure_mode: Candidate[RV.RiscvSecureModes] = field(default_factory=lambda: Candidate(RV.RiscvSecureModes.NON_SECURE))
 
@@ -165,9 +165,6 @@ class FeatMgrBuilder:
         if featmgr.wysiwyg:
             self.priv_mode = Candidate(RV.RiscvPrivileges.MACHINE)  # Always run in Machine mode for wysiwyg mode
 
-        if self.paging_g_mode == RV.RiscvPagingModes.SV39:
-            self.paging_mode = Candidate(RV.RiscvPagingModes.SV39, RV.RiscvPagingModes.DISABLE)
-
         # validate priv_mode, only use priv_modes supported by platform
         priv_mode_candiadtes: list[RV.RiscvPrivileges] = []
         for priv_mode in self.priv_mode:
@@ -191,9 +188,17 @@ class FeatMgrBuilder:
 
         # Randomization
         featmgr.priv_mode = self.priv_mode.choose(rng)
+
+        # Machine mode cannot be virtualized — constrain env candidates before choosing
+        valid_envs = self.env
+        if featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
+            filtered = [e for e in self.env if e != RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED]
+            if filtered:
+                valid_envs = Candidate(*filtered)
+
         featmgr.paging_mode = self.paging_mode.choose(rng)
         featmgr.paging_g_mode = self.paging_g_mode.choose(rng)
-        featmgr.env = self.env.choose(rng)
+        featmgr.env = valid_envs.choose(rng)
         featmgr.secure_mode = self.secure_mode.choose(rng)
         featmgr.arch = self.arch.choose(rng)
         featmgr.mp = self.mp.choose(rng)

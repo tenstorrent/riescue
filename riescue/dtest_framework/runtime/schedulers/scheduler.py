@@ -36,6 +36,11 @@ class Scheduler(AssemblyGenerator, ABC):
         if self.featmgr.vs_randomization > 0:
             self.variable_manager.register_hart_variable("vs_rr_index", 0)
 
+        # Register hart-local variable for current test index (for RVCP pass/fail messages)
+        # Special values: 0xFFFFFFFE = test_setup, 0xFFFFFFFF = test_cleanup
+        if self.featmgr.rvcp_print_enabled():
+            self.current_test_index = self.variable_manager.register_hart_variable("current_test_index", value=0xFFFFFFFF)
+
         self.dtests_sequence: list[str]
         if self.featmgr.repeat_times == -1 or self.mp_parallel:
             self.dtests_sequence = [test for test in dtests]  # Schedule is randomized at runtime for linux mode and for parallel mp mode.
@@ -59,14 +64,12 @@ class Scheduler(AssemblyGenerator, ABC):
         return f"""
 .section .runtime, "ax"
 
-# Scheduler initialization; only ran once (4-byte align for long-range JAL from loader)
-.balign 4
+# Scheduler initialization; only ran once
 {self.scheduler_init_label}:
     {self._init_setup()}
     {self.scheduler_init()}
 
-# Entry point for scheduling next test (4-byte align: R_RISCV_JAL requires even PC offset)
-.balign 4
+# Entry point for scheduling next test
 {self.scheduler_dispatch_label}:
     {self._dispatch_setup()}
     {self.featmgr.call_hook(RV.HookPoint.PRE_DISPATCH)}
@@ -107,11 +110,19 @@ scheduler__test_cleanup_ptr:
         default behavior is to load test_setup into t1 and jump to scheduler__execute_test.
         Schedulers shouldn't include test_setup as part of the dispatch logic.
         """
-        return """
+        code = ""
+        # Set current test index to test_setup special value (0xFFFFFFFE)
+        if self.featmgr.rvcp_print_enabled():
+            code += f"""
+    li t0, 0xFFFFFFFE  # test_setup special index
+    {self.current_test_index.store(src_reg='t0')}
+"""
+        code += """
     la t1, scheduler__test_setup_ptr
     ld t1, (t1)
     j scheduler__execute_test
 """
+        return code
 
     def scheduler_finished(self) -> str:
         """
@@ -229,6 +240,36 @@ scheduler__test_cleanup_ptr:
         for test in self.dtests_sequence:
             code += f"    .dword {test}\n"
         code += self._fs_vs_rr_tables_section()
+        code += self._generate_test_descriptor_table()
+        return code
+
+    def _generate_test_descriptor_table(self) -> str:
+        """Generate descriptor table mapping test indices to test name strings for RVCP messages."""
+        if not self.featmgr.rvcp_print_enabled():
+            return ""
+
+        code = "\n.align 3\ndtest_descriptor_table:\n"
+        for i, test in enumerate(self.dtests):
+            code += f"    .dword dtest_name_{i}\n"
+
+        # String data for each discrete test
+        code += "\n# Test name strings\n"
+        for i, test in enumerate(self.dtests):
+            code += f'dtest_name_{i}: .asciz "{test}"\n'
+
+        # Generate lookup table mapping os_test_sequence position to discrete test index
+        # This is needed because with repeat_times > 1, the same test appears multiple times
+        # in os_test_sequence, but we need the discrete test index (0-N) for dtest_descriptor_table
+        code += "\n# Lookup table: os_test_sequence position -> discrete test index\n"
+        code += ".align 2\ndtest_index_map:\n"
+        code += "    .word 0xFFFFFFFF  # Position 0 = test_cleanup\n"
+
+        # Create mapping from test label to discrete test index
+        label_to_index = {test: i for i, test in enumerate(self.dtests)}
+        for test in self.dtests_sequence:
+            idx = label_to_index.get(test, 0xFFFFFFFF)
+            code += f"    .word {idx}  # {test}\n"
+
         return code
 
     def _fs_vs_rr_tables_section(self) -> str:

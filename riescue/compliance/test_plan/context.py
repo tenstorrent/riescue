@@ -71,8 +71,15 @@ class LoweringContext:
     featmgr: FeatMgr
 
     def __post_init__(self):
+        from coretp import Instruction
+
         self.id_tracker = _IDTracker()
         self.global_function_clobbers: dict[str, list[Register]] = {}  # maps function name to list of clobbered registers
+        self.privilege_block_instructions: dict[str, dict[int, list[Instruction]]] = {
+            "machine": {},
+            "supervisor": {},
+            "user": {},
+        }
         self._built = False
         self._csr_manager: Optional["CsrManagerInterface"] = None
 

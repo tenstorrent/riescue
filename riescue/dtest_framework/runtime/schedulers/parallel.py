@@ -92,7 +92,23 @@ class ParallelScheduler(Scheduler):
             scheduler__update_lock_status:
                 # Store the lock address we have not released
                 sd t2, 0(a0)
+        """
 
+        # Store current test index for RVCP pass/fail messages
+        # t0 = offset from os_test_sequence in bytes (index * 8)
+        # Look up the discrete test index from dtest_index_map
+        if self.featmgr.rvcp_print_enabled():
+            code += f"""
+            # Store current test index for RVCP messages
+            # t0 = offset in bytes, convert to word offset for dtest_index_map lookup
+            srli t3, t0, 1  # t3 = t0 / 2 (convert byte offset to word offset: t0/8 * 4)
+            la t4, dtest_index_map
+            add t3, t4, t3
+            lw t3, 0(t3)   # t3 = dtest_index_map[position]
+            {self.current_test_index.store(src_reg="t3")}
+        """
+
+        code += """
         # t1 = os_test_sequence + ((--num_runs) * 8])
         # or os_test_sequence[--num_runs]
         scheduler__load_test_addr:
@@ -254,10 +270,20 @@ class ParallelScheduler(Scheduler):
     ld t1, 0(t0)
     bnez t1, scheduler__cleanup_was_ran
 
-    # if not set, set it and run test_cleanup
+    # when not set, set it and run test_cleanup
     li t1, 1
     sd t1, 0(t0)
+        """
 
+        # Set current test index to test_cleanup special value
+        if self.featmgr.rvcp_print_enabled():
+            code += f"""
+    # Set test_cleanup index for RVCP messages
+    li t3, 0xFFFFFFFF  # test_cleanup special index
+    {self.current_test_index.store(src_reg="t3")}
+        """
+
+        code += """
     ld t1, (scheduler__test_cleanup_ptr)
     j scheduler__execute_test
 
@@ -371,7 +397,7 @@ scheduler__cleanup_was_ran:
         # The work_reg_2 isn't necessary. this can be done with a single work_reg_1.
 
         # The end result of it is that s9 = first nonzero value in num_runs.
-        # if there are none (end of array length), goto scheduler__finished.
+        # when there are none (end of array length), goto scheduler__finished.
         scheduler__next_test__find_first_nonzero_in_num_runs:
             addi t0, t0, -1 # Decrement num attempts
             mv s9, a2 # Copy additional offset

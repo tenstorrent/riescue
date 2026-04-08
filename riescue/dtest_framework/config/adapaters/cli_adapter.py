@@ -43,7 +43,7 @@ class CliAdapter(Adapter):
             featmgr.inc_path = cmdline.inc_path
         if cmdline.selfcheck is not None:
             featmgr.selfcheck = cmdline.selfcheck
-        if featmgr.selfcheck or featmgr.cfiles is not None:
+        if featmgr.selfcheck or featmgr.cfiles is not None or featmgr.c_used:
             featmgr.save_restore_gprs = True
         if cmdline.compiler_include_dir is not None:
             featmgr.compiler_include_dir = cmdline.compiler_include_dir
@@ -112,10 +112,12 @@ class CliAdapter(Adapter):
             featmgr.eot_pass_value = cmdline.eot_pass_value
         if cmdline.eot_fail_value is not None:
             featmgr.eot_fail_value = cmdline.eot_fail_value
-        if cmdline.eot_print_htif_console:
-            featmgr.eot_print_htif_console = True
-        if cmdline.print_rvcp_passes:
-            featmgr.print_rvcp_passes = True
+        if cmdline.print_rvcp_failed is not None:
+            featmgr.print_rvcp_failed = cmdline.print_rvcp_failed
+        if cmdline.print_rvcp_passed is not None:
+            featmgr.print_rvcp_passed = cmdline.print_rvcp_passed
+        if cmdline.rvmodel_macros is not None:
+            featmgr.rvmodel_macros = cmdline.rvmodel_macros
         if cmdline.switch_to_user_page is not None:
             featmgr.switch_to_user_page = cmdline.switch_to_user_page
         if cmdline.switch_to_super_page is not None:
@@ -255,8 +257,6 @@ class CliAdapter(Adapter):
             builder.env = to_candidate(RV.RiscvTestEnv.str_to_enum(cmdline.test_env))
         elif cmdline.test_env_any:
             builder.env = to_candidate([RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED, RV.RiscvTestEnv.TEST_ENV_BARE_METAL])
-        else:
-            builder.env = to_candidate(RV.RiscvTestEnv.TEST_ENV_BARE_METAL)
 
         if cmdline.supported_priv_modes:
             # cmdline restricts choices to MSU, M, MS, MU

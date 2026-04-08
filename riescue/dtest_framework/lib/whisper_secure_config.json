@@ -63,10 +63,10 @@
 	},
     "csr" : {
 	    "misa" : {
-	        "reset-comment" : "imabfcvsu",
+	        "reset-comment" : "imafdcvsu",
 	        "reset" : "0x403411af",
-	        "mask-comment" : "Misa is not writable by CSR instructions",
-	        "mask" : "0x0"
+	        "mask" : "0x00000000002010a9",
+			"poke_mask" : "0x00000000002010a9"
 	    },
 
 

@@ -34,25 +34,29 @@ class CallAction(Action):
             assert isinstance(step, Call)
         if not len(step.inputs) == 1:
             raise ValueError(f"Expected a single memory reference as input, got {len(step.inputs)}, {step.inputs}")
-        target_id = step.inputs[0]
-        if not isinstance(target_id, str):
-            raise ValueError(f"Expected a memory label as input, got {target_id}")
+        raw_target = step.inputs[0]
+        target_id = raw_target if isinstance(raw_target, str) else str(raw_target)
         return cls(step_id=step_id, target=target_id, **kwargs)
 
     def expand(self, ctx: LoweringContext) -> Optional[list["Action"]]:
         """
-        Expand call to a `li reg, addr` + `jalr rd, 0(reg)`
+        Expand call to a `li reg, addr` + `jalr rd, 0(reg)`.
+
+        If the target is a memory label, load its address via li.
+        Otherwise it's already a register value — use it directly.
         """
 
         if self.expanded:
             return None
         self.expanded = True
-        li_id = ctx.new_value_id()
-        # create a li for target address
-        li_action = LiAction(step_id=li_id, immediate=self.target)
-        # re-wire rs1 to li_action's register
-        self.rs1 = li_id
-        return [li_action, self]
+
+        if ctx.mem_reg.is_memory_label(self.target):
+            li_action = LiAction(step_id=ctx.new_value_id(), immediate=self.target)
+            self.rs1 = li_action.step_id
+            return [li_action, self]
+        else:
+            self.rs1 = self.target
+            return [self]
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
         selected_instruction = ctx.instruction_catalog.get_instruction("jalr_ra")

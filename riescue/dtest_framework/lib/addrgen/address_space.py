@@ -202,6 +202,13 @@ class AddressSpace:
             if len(clusters) == 0:
                 raise AddrGenError(f"No compatible clusters found for {constraint}")
 
+        # 3b. If constraint has explicit start/end bounds, keep only clusters that overlap
+        if constraint.start != 0 or constraint.end != 0:
+            bounds_start_cluster, bounds_end_cluster = self._address_to_cluster(constraint.start, constraint.end)
+            bounds_clusters = SortedSet(range(bounds_start_cluster, bounds_end_cluster + 1))
+            clusters = clusters.intersection(bounds_clusters)
+            log.debug(f"filtered clusters with bounds [{constraint.start:#x}, {constraint.end:#x}]: {clusters}")
+
         log.debug(f"filtered clusters with qualifiers {qualifiers}: {clusters}")
         cluster_list2 = []
         if log.isEnabledFor(logging.DEBUG):

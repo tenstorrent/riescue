@@ -10,6 +10,7 @@ from coretp.isa import Instruction, Label, Register, get_register, Operand
 from coretp.rv_enums import RegisterClass, OperandType, Xlen, Extension, Category
 
 from riescue.compliance.test_plan.context import LoweringContext
+from riescue.compliance.test_plan.actions.privilege_mode import PrivilegeBlockMarkerInstruction
 from .register_pool import RegisterPool
 from .types import BasicBlock
 
@@ -108,6 +109,33 @@ class LinearScan:
         self.ctx = ctx
         self.bytes_per_spill = self.ctx.env.reg_width // 8
         self.xlen = Xlen.XLEN32 if self.ctx.env.reg_width == 32 else Xlen.XLEN64
+        self.privilege_block_ranges = self._build_privilege_block_ranges()
+
+    def _build_privilege_block_ranges(self) -> dict[int, tuple[str, int]]:
+        """Build mapping from instruction index to (mode, block_index) for instructions inside privilege blocks."""
+        privilege_ranges: dict[int, tuple[str, int]] = {}
+        current_block: Optional[tuple[str, int]] = None
+        block_start_index: Optional[int] = None
+
+        for i, instr in enumerate(self.instructions):
+            if isinstance(instr, PrivilegeBlockMarkerInstruction):
+                if instr.marker_type == "start":
+                    current_block = (instr.mode, instr.block_index)
+                    block_start_index = i
+                elif instr.marker_type == "end" and current_block is not None and block_start_index is not None:
+                    for idx in range(block_start_index + 1, i):
+                        privilege_ranges[idx] = current_block
+                    current_block = None
+                    block_start_index = None
+
+        return privilege_ranges
+
+    def _check_privilege_block_spill(self, interval: Interval) -> None:
+        """Check if spilling the given interval would require spill code inside a privilege block."""
+        for instr_idx in range(interval.start, interval.end + 1):
+            if instr_idx in self.privilege_block_ranges:
+                mode, block_index = self.privilege_block_ranges[instr_idx]
+                raise Exception(f"Register spilling required inside {mode} mode privilege block {block_index}. " f"Variable '{interval.reg_name}' at instruction index {instr_idx} requires spilling.")
 
     def allocate(self) -> list[Instruction]:
         """
@@ -170,9 +198,10 @@ class LinearScan:
                 li = instr_map[rs1.val]
                 call_label = li.immediate_operand()
                 if not call_label or not isinstance(call_label.val, str):
-                    raise Exception(f"jalr's load immediate is not a label {instr}")
+                    continue  # raw address (e.g. from LoadImmediateStep) — no subroutine clobbers
 
-                clobbered_registers[i] = [r.name for r in self.ctx.global_function_clobbers[call_label.val]]
+                if call_label.val in self.ctx.global_function_clobbers:
+                    clobbered_registers[i] = [r.name for r in self.ctx.global_function_clobbers[call_label.val]]
             elif instr.clobbers:
                 clobbered_registers[i] = instr.clobbers
 
@@ -218,6 +247,12 @@ class LinearScan:
                 last_active_interval = next(revered_active)
                 while last_active_interval.reg_type != interval.reg_type:
                     last_active_interval = next(revered_active)
+
+                # Determine which interval would be spilled and check privilege block
+                if last_active_interval.end > interval.end:
+                    self._check_privilege_block_spill(last_active_interval)
+                else:
+                    self._check_privilege_block_spill(interval)
 
                 # spill register that lives longer
                 stack_slot = self.spill_manager.get_slot(interval)

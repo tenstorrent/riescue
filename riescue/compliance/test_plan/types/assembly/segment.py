@@ -52,3 +52,23 @@ class TextSegment(Segment):
 
     section_header: str = '.section .code, "ax"'
     blocks: list[TestCase]
+
+
+class MachineCodeSegment(Segment):
+    """
+    Container for Machine Code Segment where machine mode code lives.
+    Contains a jump table that dispatches based on block index in t0.
+    """
+
+    section_header: str = '.section .code_machine_0, "ax"'
+    blocks: list[TestCase]
+
+
+class SupervisorCodeSegment(Segment):
+    """
+    Container for Supervisor Code Segment where supervisor mode code lives.
+    Contains a jump table that dispatches based on block index in t0.
+    """
+
+    section_header: str = '.section .code_super_0, "ax"'
+    blocks: list[TestCase]

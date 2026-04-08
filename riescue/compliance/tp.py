@@ -46,7 +46,7 @@ class TpMode(BaseMode[TpCfg]):
 
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--isa", type=str, default="rv64imfda_zicsr_zk_zicond_zicbom_zicbop_zicboz_svadu_svinval_zawrs_zihintpause_zihintntl", help="ISA to use")
+        parser.add_argument("--isa", type=str, default="rv64imfdah_zicsr_zk_zicond_zicbom_zicbop_zicboz_svadu_svinval_zawrs_zihintpause_zihintntl", help="ISA to use")
         parser.add_argument("--test_plan", dest="test_plan_name", type=str, default="zicond", help="Test plan to use")
 
     def run(self, seed: int, toolchain: Toolchain, cl_args: Optional[argparse.Namespace] = None) -> Path:
@@ -201,7 +201,20 @@ class TpMode(BaseMode[TpCfg]):
         def virtualized_check(env: TestEnv) -> bool:
             return env.virtualized == (featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED)
 
+        def g_paging_check(env: TestEnv) -> bool:
+            if featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE:
+                return env.g_paging_mode == PagingMode.DISABLED
+            elif featmgr.paging_g_mode == RV.RiscvPagingModes.SV39:
+                return env.g_paging_mode == PagingMode.SV39
+            elif featmgr.paging_g_mode == RV.RiscvPagingModes.SV48:
+                return env.g_paging_mode == PagingMode.SV48
+            elif featmgr.paging_g_mode == RV.RiscvPagingModes.SV57:
+                return env.g_paging_mode == PagingMode.SV57
+            else:
+                raise ValueError(f"Invalid g-stage paging mode: {featmgr.paging_g_mode}")
+
         predicates.append(priv_check)
         predicates.append(paging_check)
         predicates.append(virtualized_check)
+        predicates.append(g_paging_check)
         return predicates

@@ -207,6 +207,9 @@ loader__done:
         # Enable paging, must be in M / S to enable paging
         if self.paging_mode != RV.RiscvPagingModes.DISABLE:
             code += self.enable_paging()
+
+        code += "RVMODEL_IO_INIT(t0, t1, t2)\n"
+
         return code
 
     # env setup code

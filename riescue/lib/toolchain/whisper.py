@@ -148,24 +148,30 @@ class Whisper(Tool):
         extra_args.extend([str(elf_file)])
         self.log_file = output_file
         extra_args.extend(["--logfile", str(self.log_file)])
+        # Capture console output (HTIF and UART) by piping process stdout to file
+        self.console_file = output_file.parent / (output_file.stem + "_stdout.log")
         whisper_config_json_path = str(self.check_filepath(self.whisper_config_json))  # resolve relative path
         extra_args.extend(["--configfile", whisper_config_json_path])
-        return super().run(output_file=None, cwd=cwd, timeout=timeout, args=extra_args)
+        return super().run(output_file=self.console_file, cwd=cwd, timeout=timeout, args=extra_args)
 
     def _classify(self, process: subprocess.CompletedProcess, output_file: Optional[Path]):
-        print(f"process.stderr={process.stderr}")
+        # stdout+stderr are merged into console_file; read it back for error classification
+        stderr = process.stderr or ""
+        if not stderr and self.console_file and self.console_file.exists():
+            stderr = self.console_file.read_text()
+        print(f"process.stderr={stderr}")
 
         if process.returncode != 0:
-            if "Reached instruction limit" in process.stderr:
-                raise ToolchainError(tool_name=self.__class__.__name__, cmd=process.args, kind=ToolFailureType.MAX_INSTRUCTION_LIMIT, returncode=process.returncode, error_text=process.stderr)
-            elif "Failed to load ELF" in process.stderr:
-                failed_to_load_message = process.stderr.split("Error:")[-1].strip()
+            if "Reached instruction limit" in stderr:
+                raise ToolchainError(tool_name=self.__class__.__name__, cmd=process.args, kind=ToolFailureType.MAX_INSTRUCTION_LIMIT, returncode=process.returncode, error_text=stderr)
+            elif "Failed to load ELF" in stderr:
+                failed_to_load_message = stderr.split("Error:")[-1].strip()
                 self._raise_toolchain_error(process, ToolFailureType.ELF_FAILURE, failed_to_load_message)
-            elif "No program file specified" in process.stderr:
+            elif "No program file specified" in stderr:
                 self._raise_toolchain_error(process, ToolFailureType.ELF_FAILURE, "No program file specified", log_path=self.log_file)
-            elif "consecutive illegal instructions" in process.stderr:
+            elif "consecutive illegal instructions" in stderr:
                 error_line = "consecutive illegal instructions"
-                for line in process.stderr.split("\n"):
+                for line in stderr.split("\n"):
                     if "consecutive illegal instructions" in line:
                         error_line = line
                         break
@@ -175,14 +181,14 @@ class Whisper(Tool):
                 with open(self.log_file, "r") as f:
                     log_lines = f.readlines()
                 if log_lines == []:
-                    self._raise_toolchain_error(process, ToolFailureType.BAD_CONFIG, "\t" + process.stderr.replace("\n", "\n\t"))
+                    self._raise_toolchain_error(process, ToolFailureType.BAD_CONFIG, "\t" + stderr.replace("\n", "\n\t"))
                 else:
                     last_write = self._find_tohost_write(log_lines)
                     tohost_value = int(last_write.split()[7], 16)
-                    self._raise_toolchain_error(process, ToolFailureType.TOHOST_FAIL, process.stderr, fail_code=tohost_value, log_path=self.log_file)
+                    self._raise_toolchain_error(process, ToolFailureType.TOHOST_FAIL, stderr, fail_code=tohost_value, log_path=self.log_file)
             else:
                 log.error(f"Couldn't find a log file at {self.log_file}")
-            self._raise_toolchain_error(process, ToolFailureType.NONZERO_EXIT, process.stderr)
+            self._raise_toolchain_error(process, ToolFailureType.NONZERO_EXIT, stderr)
 
     def _find_tohost_write(self, log_lines: list[str]):
         "Assumes the last line is a write to the tohost address, doesn't check what the tohost address is"

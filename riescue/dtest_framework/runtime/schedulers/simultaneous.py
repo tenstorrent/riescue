@@ -79,7 +79,22 @@ class SimultaneousScheduler(Scheduler):
 
         scheduler__calc_test_pointer:
             slli s11, s10, 3     # s11 = (--num_runs) * 8
+        """
 
+        # Store current test index for RVCP pass/fail messages
+        # s10 contains the decremented num_runs - look up discrete test index from dtest_index_map
+        if self.featmgr.rvcp_print_enabled():
+            code += f"""
+        # Store current test index for RVCP messages
+        # Look up discrete test index from dtest_index_map[s10]
+        la t3, dtest_index_map
+        slli t4, s10, 2  # t4 = s10 * 4 (word size)
+        add t3, t3, t4
+        lw t3, 0(t3)   # t3 = dtest_index_map[s10]
+        {self.current_test_index.store(src_reg="t3")}
+        """
+
+        code += """
         # s11 = os_test_sequence + ((--num_runs) * 8])
         # or os_test_sequence[--num_runs]
         scheduler__load_test_addr:

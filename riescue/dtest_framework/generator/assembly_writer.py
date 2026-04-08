@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import logging
+import shutil
 from pathlib import Path
 from typing import Any, cast
 
@@ -16,9 +17,16 @@ import riescue.lib.enums as RV
 from riescue.lib.rand import RandNum
 from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
 from riescue.dtest_framework.lib.dtest_instruction_helper import DtestInstructionHelper
-from riescue.dtest_framework.lib.sdtrig import build_tdata1_mcontrol6
+from riescue.dtest_framework.lib.sdtrig import (
+    TriggerType,
+    build_tdata1_mcontrol6,
+    build_tdata1_icount,
+    build_tdata1_itrigger,
+    build_tdata1_etrigger,
+)
 from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.parser import Parser, ParsedPageMapping
+from riescue.dtest_framework.lib.page_map import Page
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.runtime import Runtime
 from riescue.dtest_framework.artifacts import GeneratedFiles
@@ -100,7 +108,7 @@ class AssemblyWriter:
 
     def create_c_files(self, generated_files: GeneratedFiles) -> None:
         """
-        Create C files - for example aplic includes
+        Create C files - for example aplic includes and rvmodel_macros.h
         """
         aplic_header_file = self.run_dir / "riescue_aplic_mmr.h"
         aplic_header = "".join(self._generate_aplic_header())
@@ -108,6 +116,10 @@ class AssemblyWriter:
             with open(aplic_header_file, "w") as f:
                 f.write(aplic_header + "\n")
             f.close()
+
+        # Stage rvmodel_macros.h into run_dir (resolved by riescued.py)
+        assert self.featmgr.rvmodel_macros is not None, "rvmodel_macros must be set before assembly generation"
+        shutil.copy(self.featmgr.rvmodel_macros, self.run_dir / "rvmodel_macros.h")
 
     def create_assembly_files(self, rasm: Path, generated_files: GeneratedFiles) -> None:
         """
@@ -122,11 +134,16 @@ class AssemblyWriter:
         runtime_sections = self.generate_runtime_sections()
         equates_section = self.generate_equates_section()
         data_section = self.generate_data_section()
+
+        # Prepend #include for rvmodel_macros.h so I/O macros are always available
+        # This must come before equates so macros are available in the opsys #include
+        rvmodel_include: list[str] = ['#include "rvmodel_macros.h"\n']
+
         if self.pool.init_aplic_interrupts:
             aplic_imsic_assembly = self.generate_aplic_imsic_assembly()
-            assembly_content = header_section + equates_section + aplic_imsic_assembly + runtime_sections + test_section + data_section
+            assembly_content = header_section + rvmodel_include + equates_section + aplic_imsic_assembly + runtime_sections + test_section + data_section
         else:
-            assembly_content = header_section + equates_section + runtime_sections + test_section + data_section
+            assembly_content = header_section + rvmodel_include + equates_section + runtime_sections + test_section + data_section
 
         # apply find and replace to all code
         all_assembly = "".join(assembly_content)
@@ -212,7 +229,6 @@ class AssemblyWriter:
         trigger_config_idx = 0
         trigger_disable_idx = 0
         trigger_enable_idx = 0
-        rvcp_discrete: str | None = None
         for line in assembly_content.split("\n"):
             # Filter out PMA hint directives - they are processed by parser and should not appear in output
             # Handle multi-line directives
@@ -225,11 +241,6 @@ class AssemblyWriter:
                 if ")" in stripped and not stripped.startswith("#"):
                     in_pma_hint = False
                 continue
-
-            if stripped.startswith(";#discrete_test(test=") and not stripped.startswith(";#discrete_debug_test"):
-                m_dt = re.match(r"^;#discrete_test\(test=([^)]+)\)", stripped)
-                if m_dt:
-                    rvcp_discrete = cast(str, m_dt.group(1)).strip()
 
             # replace .section .code, with .section .code, "ax" or "aw"
             if ".section .code," in line and not section_code_found:
@@ -279,23 +290,45 @@ class AssemblyWriter:
                 configs = self.pool.get_parsed_trigger_configs()
                 if trigger_config_idx < len(configs) and self.featmgr.get_summary().get("SDTRIG_SUPPORTED", 0):
                     cfg = configs[trigger_config_idx]
-                    tdata1_val = build_tdata1_mcontrol6(cfg.trigger_type, cfg.action, cfg.size, cfg.chain)
                     tselect_id, tdata1_id, tdata2_id = cfg.csr_ids
                     flag_name = "machine_csr_jump_table_flags"
                     sys_call = "0xf0001005"
-                    addr = cfg.addr
-                    # Use li for numeric, equate (random_addr), or random_addr+offset; la for labels
-                    base = addr.split("+")[0].strip() if "+" in addr else addr
-                    if addr.startswith("0x") or addr.isdigit() or self.pool.parsed_random_addr_exists(addr) or self.pool.parsed_random_addr_exists(base):
-                        addr_insn = f"li t2, {addr}"
+
+                    # Build tdata1 and determine whether tdata2 is needed
+                    if cfg.trigger_type == TriggerType.ICOUNT:
+                        tdata1_val = build_tdata1_icount(cfg.count, cfg.action, cfg.priv_mode, cfg.pending)
+                        needs_tdata2 = False
+                    elif cfg.trigger_type == TriggerType.ITRIGGER:
+                        tdata1_val = build_tdata1_itrigger(cfg.action, cfg.priv_mode)
+                        needs_tdata2 = True  # tdata2 = interrupt cause bitmask (cfg.addr)
+                    elif cfg.trigger_type == TriggerType.ETRIGGER:
+                        tdata1_val = build_tdata1_etrigger(cfg.action, cfg.priv_mode)
+                        needs_tdata2 = True  # tdata2 = exception cause bitmask (cfg.addr)
                     else:
-                        addr_insn = f"la t2, {addr}"
-                    code = f"# ;#trigger_config(index={cfg.index}, type={cfg.trigger_type}, addr={addr})\n"
+                        tdata1_val = build_tdata1_mcontrol6(
+                            cfg.trigger_type,
+                            cfg.action,
+                            cfg.size,
+                            cfg.chain,
+                            cfg.match,
+                            cfg.priv_mode,
+                        )
+                        needs_tdata2 = True
+
+                    code = f"# ;#trigger_config(index={cfg.index}, type={cfg.trigger_type.value})\n"
                     code += f"li t2, {cfg.index}\n"
                     code += f"li x31, {flag_name}\nli t0, {tselect_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
                     code += f"li t2, 0\nli x31, {flag_name}\nli t0, {tdata1_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
-                    code += f"{addr_insn}\nli x31, {flag_name}\nli t0, {tdata2_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
-                    code += f"li t2, {tdata1_val}\nli x31, {flag_name}\nli t0, {tdata1_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
+                    if needs_tdata2:
+                        addr = cfg.addr
+                        # Use li for numeric, equate (random_addr), or random_addr+offset; la for labels
+                        base = addr.split("+")[0].strip() if "+" in addr else addr
+                        if addr.startswith("0x") or addr.isdigit() or self.pool.parsed_random_addr_exists(addr) or self.pool.parsed_random_addr_exists(base):
+                            addr_insn = f"li t2, {addr}"
+                        else:
+                            addr_insn = f"la t2, {addr}"
+                        code += f"{addr_insn}\nli x31, {flag_name}\n" f"li t0, {tdata2_id}\nsd t0, 0(x31)\n" f"li x31, {sys_call}\necall\n"
+                    code += f"li t2, 0x{tdata1_val:x}\nli x31, {flag_name}\n" f"li t0, {tdata1_id}\nsd t0, 0(x31)\n" f"li x31, {sys_call}\necall\n"
                     line = line + "\n" + code
                 trigger_config_idx += 1
                 parsed_lines.append(line)
@@ -331,12 +364,31 @@ class AssemblyWriter:
                     tdata1_acc = csr_acc.get("tdata1", {}).get("write")
                     tselect_acc = csr_acc.get("tselect", {}).get("write")
                     if prev_cfg and tdata1_acc and tselect_acc:
-                        tdata1_val = build_tdata1_mcontrol6(prev_cfg.trigger_type, prev_cfg.action, prev_cfg.size, prev_cfg.chain)
+                        if prev_cfg.trigger_type == TriggerType.ICOUNT:
+                            tdata1_val = build_tdata1_icount(
+                                prev_cfg.count,
+                                prev_cfg.action,
+                                prev_cfg.priv_mode,
+                                prev_cfg.pending,
+                            )
+                        elif prev_cfg.trigger_type == TriggerType.ITRIGGER:
+                            tdata1_val = build_tdata1_itrigger(prev_cfg.action, prev_cfg.priv_mode)
+                        elif prev_cfg.trigger_type == TriggerType.ETRIGGER:
+                            tdata1_val = build_tdata1_etrigger(prev_cfg.action, prev_cfg.priv_mode)
+                        else:
+                            tdata1_val = build_tdata1_mcontrol6(
+                                prev_cfg.trigger_type,
+                                prev_cfg.action,
+                                prev_cfg.size,
+                                prev_cfg.chain,
+                                prev_cfg.match,
+                                prev_cfg.priv_mode,
+                            )
                         flag_name = "machine_csr_jump_table_flags"
                         sys_call = "0xf0001005"
                         code = f"# ;#trigger_enable(index={cfg.index})\n"
                         code += f"li t2, {cfg.index}\nli x31, {flag_name}\nli t0, {tselect_acc.csr_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
-                        code += f"li t2, {tdata1_val}\nli x31, {flag_name}\nli t0, {tdata1_acc.csr_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
+                        code += f"li t2, 0x{tdata1_val:x}\nli x31, {flag_name}\n" f"li t0, {tdata1_acc.csr_id}\nsd t0, 0(x31)\n" f"li x31, {sys_call}\necall\n"
                         line = line + "\n" + code
                 trigger_enable_idx += 1
                 parsed_lines.append(line)
@@ -349,7 +401,7 @@ class AssemblyWriter:
                     csr_spec = match.group(1).strip()
                     read_write_set_clear = match.group(2).strip().rstrip(")")
                     direct_rw = "false"
-                    force_machine_rw_line = False
+                    force_machine_rw_line: bool = False
                     if "," in parsed_line:
                         rest = parsed_line[parsed_line.index(read_write_set_clear) + len(read_write_set_clear) :].strip()
                         if rest.startswith(","):
@@ -367,10 +419,31 @@ class AssemblyWriter:
                                         if k.strip() == "force_machine":
                                             force_machine_rw_line = v.strip().lower() == "true"
 
+                    directive_value: int | str | None = None
+                    directive_bit: int | None = None
+                    directive_field: str | None = None
+                    for kv in re.findall(r"(\w+)=([^,)\s]+)", parsed_line):
+                        k, v = kv
+                        if k == "value":
+                            try:
+                                directive_value = int(v, 0)
+                            except ValueError:
+                                directive_value = v
+                        elif k == "bit":
+                            try:
+                                directive_bit = int(v, 0)
+                            except (ValueError, TypeError):
+                                pass
+                        elif k == "field":
+                            directive_field = v
+
+                    # For write_subfield/read_subfield, validate field is present
+                    if read_write_set_clear in ("write_subfield", "read_subfield") and not directive_field:
+                        raise ValueError(f";#csr_rw({csr_spec}, {read_write_set_clear}) requires field= parameter")
                     try:
-                        parsed_csr_val = self.pool.get_parsed_csr_access(csr_spec, read_write_set_clear)
+                        parsed_csr_val = self.pool.get_parsed_csr_access(csr_spec, read_write_set_clear, field=directive_field, force_machine_rw=force_machine_rw_line)
                     except KeyError:
-                        log.warning(f"Could not find parsed csr access for {csr_spec}, {read_write_set_clear}")
+                        log.warning(f"Could not find parsed csr access for {csr_spec}, {read_write_set_clear}, field={directive_field}")
                         continue
 
                     priv_mode = "super" if parsed_csr_val.priv_mode == "supervisor" else parsed_csr_val.priv_mode
@@ -397,35 +470,31 @@ class AssemblyWriter:
                     else:
                         csr_config = csr_mgr.lookup_csr_by_name(str(csr_spec))
 
-                    csr_name = list(cast(dict[str, Any], csr_config).keys())[0] if csr_config else str(csr_spec)
+                    csr_name = list(csr_config.keys())[0] if csr_config else str(csr_spec)
 
                     # Map set_bit/clear_bit to set/clear with value=1<<bit
                     access_type = read_write_set_clear
-                    raw_value = parsed_csr_val.value
+                    raw_value = directive_value
                     value: int | None = int(raw_value, 0) if isinstance(raw_value, str) else raw_value
-                    if read_write_set_clear == "set_bit" and parsed_csr_val.bit is not None:
+                    if read_write_set_clear == "set_bit" and directive_bit is not None:
                         access_type = "set"
-                        value = 1 << parsed_csr_val.bit
-                    elif read_write_set_clear == "clear_bit" and parsed_csr_val.bit is not None:
+                        value = 1 << directive_bit
+                    elif read_write_set_clear == "clear_bit" and directive_bit is not None:
                         access_type = "clear"
-                        value = 1 << parsed_csr_val.bit
+                        value = 1 << directive_bit
 
                     subfield = {}
-                    if read_write_set_clear in ("write_subfield", "read_subfield") and parsed_csr_val.field:
-                        subfield = {parsed_csr_val.field: str(parsed_csr_val.value or 0)}
+                    if read_write_set_clear in ("write_subfield", "read_subfield") and directive_field:
+                        subfield = {directive_field: str(directive_value or 0)}
 
                     use_syscall = (force_machine_rw_line and test_priv_mode != "machine") or ((priv_mode_prio < csr_prio or no_virtualized_on_hypervisor) and direct_rw != "true")
 
                     if use_syscall:
                         code_to_replace = ""
-                        if read_write_set_clear == "set_bit" and parsed_csr_val.bit is not None:
-                            code_to_replace += f"li t2, {1 << parsed_csr_val.bit}\n"
-                        elif read_write_set_clear == "clear_bit" and parsed_csr_val.bit is not None:
-                            code_to_replace += f"li t2, {1 << parsed_csr_val.bit}\n"
-                        elif read_write_set_clear == "write_subfield" and parsed_csr_val.value is not None:
-                            code_to_replace += f"li t2, {parsed_csr_val.value}\n"
-                        elif read_write_set_clear == "write" and parsed_csr_val.value is not None:
-                            code_to_replace += f"li t2, {parsed_csr_val.value}\n"
+                        if read_write_set_clear in ("set_bit", "clear_bit") and directive_bit is not None:
+                            code_to_replace += f"li t2, {1 << directive_bit}\n"
+                        elif read_write_set_clear in ("write_subfield", "write", "set", "clear") and directive_value is not None:
+                            code_to_replace += f"li t2, {directive_value}\n"
                         flag_name = "machine_csr_jump_table_flags" if priv_mode == "machine" or force_machine_rw_line else "super_csr_jump_table_flags"
                         code_to_replace += f"li x31, {flag_name}\n"
                         code_to_replace += f"li t5, {parsed_csr_val.csr_id}\n"
@@ -454,117 +523,62 @@ class AssemblyWriter:
                         else:
                             line = self._emit_direct_csr(line, csr_name, access_type)
 
-            # replace ;#read_pte with syscall to jump table
+            # replace ;#read_pte with syscall to walk handler
             parsed_line = line.strip()
             if parsed_line.startswith(";#read_pte"):
-                pattern = r"^;#read_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+),\s*(?P<level>\d+)\)"
+                pattern = r"^;#read_pte\((?P<lin_name>\w+),\s*(?P<level>\d+|leaf|nonleaf|final)(?:,\s*(?P<g_level>\d+|leaf|nonleaf))?\)"
                 match = re.match(pattern, parsed_line)
                 if match:
                     lin_name = match.group("lin_name")
-                    paging_mode = match.group("paging_mode")
-                    level = int(match.group("level"))
+                    level, g_level = self._resolve_pte_levels(lin_name, match.group("level"), match.group("g_level"))
 
-                    # Validate paging mode
-                    paging_mode_upper = paging_mode.upper()
-                    if paging_mode_upper == "DISABLE":
-                        raise ValueError(f"read_pte: paging_mode cannot be DISABLE for {lin_name}. Use sv39, sv48, or sv57.")
+                    # Generate code to store VA, level, and g_level into pte_access_flags, then ecall
+                    g_level_value = g_level if g_level is not None else -1
+                    code_to_replace = "li x31, pte_access_flags\n"
+                    code_to_replace += f"li t0, {lin_name}\n"
+                    code_to_replace += "sd t0, 0(x31)\n"  # [0] = VA
+                    code_to_replace += f"li t0, {level}\n"
+                    code_to_replace += "sd t0, 8(x31)\n"  # [1] = level
+                    code_to_replace += f"li t0, {g_level_value}\n"
+                    code_to_replace += "sd t0, 16(x31)\n"  # [2] = g_level (-1 = no g-stage)
+                    code_to_replace += "li x31, 0xf0001007\n"
+                    code_to_replace += "ecall\n"
 
-                    # Validate level bounds based on paging mode
-                    paging_mode_lower = paging_mode.lower()
-                    if paging_mode_lower == "sv39":
-                        max_level = 2  # Levels 0, 1, 2
-                    elif paging_mode_lower == "sv48":
-                        max_level = 3  # Levels 0, 1, 2, 3
-                    elif paging_mode_lower == "sv57":
-                        max_level = 4  # Levels 0, 1, 2, 3, 4
-                    else:
-                        raise ValueError(f"read_pte: Invalid paging_mode '{paging_mode}' for {lin_name}. Must be sv39, sv48, or sv57.")
+                    line = line + "\n" + code_to_replace
 
-                    if level < 0 or level > max_level:
-                        raise ValueError(f"read_pte: Level {level} is out of bounds for {paging_mode} (valid range: 0-{max_level}) for {lin_name}.")
-
-                    # Find the parsed read PTE entry using the tuple key
-                    try:
-                        read_pte = self.pool.get_parsed_read_pte(lin_name, paging_mode, level)
-                        pte_id = read_pte.pte_id
-
-                        # Generate code to call the syscall
-                        code_to_replace = "li x31, machine_pte_jump_table_flags\n"
-                        code_to_replace += f"li t0, {pte_id}\n"
-                        code_to_replace += "sd t0, 0(x31)\n"
-                        code_to_replace += "li x31, 0xf0001007\n"
-                        code_to_replace += "ecall\n"
-
-                        line = line + "\n" + code_to_replace
-                    except KeyError:
-                        # If not found, skip replacement (shouldn't happen in normal flow)
-                        pass
-
-            # replace ;#write_pte with syscall to jump table
+            # replace ;#write_pte with syscall to walk handler
             parsed_line = line.strip()
             if parsed_line.startswith(";#write_pte"):
-                pattern = r"^;#write_pte\((?P<lin_name>\w+),\s*(?P<paging_mode>\w+),\s*(?P<level>\d+)\)"
+                pattern = r"^;#write_pte\((?P<lin_name>\w+),\s*(?P<level>\d+|leaf|nonleaf|final)(?:,\s*(?P<g_level>\d+|leaf|nonleaf))?\)"
                 match = re.match(pattern, parsed_line)
                 if match:
                     lin_name = match.group("lin_name")
-                    paging_mode = match.group("paging_mode")
-                    level = int(match.group("level"))
+                    level, g_level = self._resolve_pte_levels(lin_name, match.group("level"), match.group("g_level"))
 
-                    # Validate paging mode
-                    paging_mode_upper = paging_mode.upper()
-                    if paging_mode_upper == "DISABLE":
-                        raise ValueError(f"write_pte: paging_mode cannot be DISABLE for {lin_name}. Use sv39, sv48, or sv57.")
+                    # Generate code to store VA, level, and g_level into pte_access_flags, then ecall
+                    # t2 should already contain the value to write before the ecall
+                    g_level_value = g_level if g_level is not None else -1
+                    code_to_replace = "li x31, pte_access_flags\n"
+                    code_to_replace += f"li t0, {lin_name}\n"
+                    code_to_replace += "sd t0, 0(x31)\n"  # [0] = VA
+                    code_to_replace += f"li t0, {level}\n"
+                    code_to_replace += "sd t0, 8(x31)\n"  # [1] = level
+                    code_to_replace += f"li t0, {g_level_value}\n"
+                    code_to_replace += "sd t0, 16(x31)\n"  # [2] = g_level (-1 = no g-stage)
+                    code_to_replace += "li x31, 0xf0001008\n"
+                    code_to_replace += "ecall\n"
 
-                    # Validate level bounds based on paging mode
-                    paging_mode_lower = paging_mode.lower()
-                    if paging_mode_lower == "sv39":
-                        max_level = 2  # Levels 0, 1, 2
-                    elif paging_mode_lower == "sv48":
-                        max_level = 3  # Levels 0, 1, 2, 3
-                    elif paging_mode_lower == "sv57":
-                        max_level = 4  # Levels 0, 1, 2, 3, 4
-                    else:
-                        raise ValueError(f"write_pte: Invalid paging_mode '{paging_mode}' for {lin_name}. Must be sv39, sv48, or sv57.")
-
-                    if level < 0 or level > max_level:
-                        raise ValueError(f"write_pte: Level {level} is out of bounds for {paging_mode} (valid range: 0-{max_level}) for {lin_name}.")
-
-                    # Find the parsed write PTE entry using the tuple key
-                    try:
-                        write_pte = self.pool.get_parsed_write_pte(lin_name, paging_mode, level)
-                        write_pte_id = write_pte.write_pte_id
-
-                        # Generate code to call the syscall
-                        # Set x31 to the flag address, t2 should already contain the value to write
-                        code_to_replace = "li x31, machine_pte_jump_table_flags\n"
-                        code_to_replace += f"li t0, {write_pte_id}\n"
-                        code_to_replace += "sd t0, 0(x31)\n"
-                        code_to_replace += "li x31, 0xf0001008\n"
-                        code_to_replace += "ecall\n"
-
-                        line = line + "\n" + code_to_replace
-                    except KeyError:
-                        # If not found, skip replacement (shouldn't happen in normal flow)
-                        pass
+                    line = line + "\n" + code_to_replace
 
             parsed_line = line.strip()
             if parsed_line.startswith(";#test_passed"):
-                if rvcp_discrete is None:
-                    log.warning(";#test_passed() reached before any ;#discrete_test(test=...) — HTIF RVCP message will use 'UNKNOWN' as discrete name")
-                replaced_lines = list(self.runtime.test_passed())
-                discrete_rvcp_passed: str = cast(str, rvcp_discrete or "UNKNOWN")  # pyright: ignore[reportUnknownArgumentType]
-                htif_pre = self.runtime.htif_console_rvcp_asm_lines(discrete_rvcp_passed, "PASSED")
-                if htif_pre:
-                    replaced_lines = htif_pre + replaced_lines
+                # runtime should probably be the one generating this code
+                # maybe make a public method on runtime to generate this code.
+                replaced_lines = self.runtime.test_passed()
+
                 line = line + "\n\t" + "\n\t".join(replaced_lines)
             if parsed_line.startswith(";#test_failed"):
-                if rvcp_discrete is None:
-                    log.warning(";#test_failed() reached before any ;#discrete_test(test=...) — HTIF RVCP message will use 'UNKNOWN' as discrete name")
-                replaced_lines = list(self.runtime.test_failed())  # pyright: ignore[reportUnknownArgumentType]
-                discrete_rvcp_failed: str = cast(str, rvcp_discrete or "UNKNOWN")
-                htif_pre = self.runtime.htif_console_rvcp_asm_lines(discrete_rvcp_failed, "FAILED")
-                if htif_pre:
-                    replaced_lines = htif_pre + replaced_lines
+                replaced_lines = self.runtime.test_failed()
                 line = line + "\n\t" + "\n\t".join(replaced_lines)
 
             parsed_lines.append(line)
@@ -603,7 +617,7 @@ class AssemblyWriter:
                 include_file = self.run_dir / f"{self.testname}_{runtime_name}.inc"
                 with open(include_file, "w") as f:
                     f.write(runtime_assembly + "\n")
-                runtime_sections.append(f'.include "{include_file.name}"\n')
+                runtime_sections.append(f'#include "{include_file.name}"\n')
 
         if self.featmgr.c_used:
             runtime_sections.append(
@@ -1141,6 +1155,67 @@ __c__stack:
                     pagetable_content.append("\n".join(map.generate_pagetables_assembly()))
         return pagetable_content
 
+    def _resolve_pte_levels(
+        self,
+        lin_name: str,
+        level_str: str,
+        g_level_str: str | None,
+    ) -> tuple[int, int | None]:
+        """Resolve symbolic 'leaf'/'nonleaf'/'final' level strings to integer PTE level indices.
+
+        :param lin_name: The linear name of the mapping (used to look up pagesize).
+        :param level_str: The level string from the directive: a decimal integer, 'leaf', 'nonleaf', or 'final'.
+        :param g_level_str: The g-level string from the directive: a decimal integer, 'leaf', 'nonleaf', or None.
+        :returns: Tuple of (level, g_level) as integers (g_level is None when not specified).
+        :raises ValueError: On invalid combinations (e.g. 'final' without g_level).
+        """
+        page = self._get_page_for_addr_name(lin_name)
+
+        if level_str in ("leaf", "nonleaf", "final"):
+            if page is None:
+                raise ValueError(f";#read_pte/;#write_pte: cannot resolve '{level_str}' — no page found for '{lin_name}'")
+            paging_mode = self.featmgr.paging_mode
+            pagesize: RV.RiscvPageSizes = page.pagesize
+            leaf_level = RV.RiscvPagingModes.max_levels(paging_mode) - 1 - RV.RiscvPageSizes.pt_leaf_level(pagesize)
+            if level_str == "leaf":
+                level = leaf_level
+            elif level_str == "nonleaf":
+                level = leaf_level - 1  # one level above the leaf
+            else:  # "final"
+                if g_level_str is None:
+                    raise ValueError(f";#read_pte/;#write_pte: level='final' requires a g_level argument for '{lin_name}'")
+                level = leaf_level + 1
+        else:
+            level = int(level_str)
+
+        g_level: int | None = None
+        if g_level_str is not None:
+            if g_level_str in ("leaf", "nonleaf"):
+                if page is None:
+                    raise ValueError(f";#read_pte/;#write_pte: cannot resolve g_level='{g_level_str}' — no page found for '{lin_name}'")
+                g_paging_mode = self.featmgr.paging_g_mode
+                if level_str == "final":
+                    g_pagesize = page.gstage_vs_leaf_pagesize
+                    if g_pagesize is None:
+                        raise ValueError(f";#read_pte/;#write_pte: cannot resolve g_level='{g_level_str}' — gstage_vs_leaf_pagesize not set for '{lin_name}'")
+                else:  # "leaf", "nonleaf", or integer level
+                    g_pagesize = page.gstage_vs_nonleaf_pagesize
+                    if g_pagesize is None:
+                        raise ValueError(f";#read_pte/;#write_pte: cannot resolve g_level='{g_level_str}' — gstage_vs_nonleaf_pagesize not set for '{lin_name}'")
+                g_leaf_level = RV.RiscvPagingModes.max_levels(g_paging_mode) - 1 - RV.RiscvPageSizes.pt_leaf_level(g_pagesize)
+                g_level = g_leaf_level if g_level_str == "leaf" else g_leaf_level - 1
+            else:
+                g_level = int(g_level_str)
+
+        return (level, g_level)
+
+    def _get_page_for_addr_name(self, lin_name: str) -> Page | None:
+        """Return a Page for this lin_name, or None if not found."""
+        map_names = self.pool.get_parsed_page_mapping_with_lin_name(lin_name)
+        if map_names and self.pool.page_exists(lin_name, map_names[0]):
+            return self.pool.get_page(lin_name, map_names[0])
+        return None
+
     def _get_page_mapping_for_addr_name(self, addr_name: str) -> ParsedPageMapping | None:
         """Return a ParsedPageMapping for this equate name if it is a lin_name or phys_name."""
         if self.pool.parsed_page_mapping_with_lin_name_exists(addr_name):
@@ -1159,7 +1234,7 @@ __c__stack:
         return (
             f"# ;#page_mapping(lin_name={ppm.lin_name}, phys_name={ppm.phys_name}, "
             f"pagesize={pagesize_str}, x={int(ppm.x)}, v={int(ppm.v)}, r={int(ppm.r)}, w={int(ppm.w)}, "
-            f"modify_pt={int(ppm.modify_pt)}, g={int(ppm.g)}, a={int(ppm.a) if ppm.a is not None else 1}, "
+            f"modify_pt={int(ppm.modify_pt)}, modify_leaf_pt={int(ppm.modify_leaf_pt)}, modify_nonleaf_pt={int(ppm.modify_nonleaf_pt)}, g={int(ppm.g)}, a={int(ppm.a) if ppm.a is not None else 1}, "
             f"d={int(ppm.d) if ppm.d is not None else 1}, page_maps={page_maps_str})"
         )
 
