@@ -5,10 +5,11 @@
 # Reads features.csv and generates riescuec tp-mode commands for all
 # supported (privilege mode x paging mode x seed) combinations.
 #
-# Usage: ./generate_tp_tests.sh [--batch N] [--test_plan FEATURE] [--seed_count N]
-#   --batch N          Run N commands in parallel at a time (default: 10)
-#   --test_plan FEATURE  Only run the specified feature from features.csv
-#   --seed_count N     Number of seeds to generate per test (default: 2)
+# Usage: ./generate_tp_tests.sh [--batch N] [--test_plan FEATURE] [--seed_count N] [--save_intermediate_files]
+#   --batch N                  Run N commands in parallel at a time (default: 10)
+#   --test_plan FEATURE        Only run the specified feature from features.csv
+#   --seed_count N             Number of seeds to generate per test (default: 2)
+#   --save_intermediate_files  Keep intermediate build files (.o, .ld, .dis, .inc, logs, etc.)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CSV_FILE="${SCRIPT_DIR}/features.csv"
@@ -18,6 +19,7 @@ OUTPUT_FILE="${SCRIPT_DIR}/generated_commands.sh"
 BATCH_SIZE=10
 TEST_PLAN=""
 SEED_COUNT=2
+SAVE_INTERMEDIATE=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --batch)
@@ -32,9 +34,13 @@ while [[ $# -gt 0 ]]; do
             SEED_COUNT="$2"
             shift 2
             ;;
+        --save_intermediate_files)
+            SAVE_INTERMEDIATE=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--batch N] [--test_plan FEATURE] [--seed_count N]"
+            echo "Usage: $0 [--batch N] [--test_plan FEATURE] [--seed_count N] [--save_intermediate_files]"
             exit 1
             ;;
     esac
@@ -227,9 +233,13 @@ failed_files=()
 for stderr_log in $(find testsuite -name "*_stderr.log" -type f 2>/dev/null); do
     if grep -q "PASSED" "$stderr_log"; then
         ((passed++))
-    elif grep -q "FAILED" "$stderr_log"; then
+    else
         ((failed++))
-        failed_files+=("$stderr_log")
+        # Point to the intermediate folder location where the log will be moved
+        log_dir=$(dirname "$stderr_log")
+        log_name=$(basename "$stderr_log")
+        seed_basename="${log_name%_stderr.log}"
+        failed_files+=("${log_dir}/${seed_basename}_intermediate/${log_name}")
     fi
 done
 
@@ -256,3 +266,41 @@ if [[ ${#failed_files[@]} -gt 0 ]]; then
 fi
 
 echo "========================================="
+
+# Organize files: keep only .S and ELF in run_dir, move rest to intermediate subfolder
+echo ""
+echo "Organizing output files..."
+mkdir -p testsuite
+# Build list of unique seed basenames from stderr logs (these always exist for every seed)
+for stderr_log in $(find testsuite -name "*_stderr.log" -type f 2>/dev/null); do
+    log_dir=$(dirname "$stderr_log")
+    log_name=$(basename "$stderr_log")
+    # Strip _stderr.log suffix to get the seed basename (e.g., tp_paging_1)
+    seed_basename="${log_name%_stderr.log}"
+    intermediate_dir="${log_dir}/${seed_basename}_intermediate"
+    mkdir -p "$intermediate_dir"
+    # Move all files matching the seed prefix with extensions, except .S and the ELF
+    for f in "${log_dir}/${seed_basename}".*; do
+        [[ ! -e "$f" ]] && continue
+        [[ "$f" == *.S ]] && continue
+        mv "$f" "$intermediate_dir/"
+    done
+    # Move _suffix files (e.g., tp_paging_1_whisper.log, tp_paging_1_equates.inc)
+    for f in "${log_dir}/${seed_basename}_"*; do
+        [[ ! -e "$f" ]] && continue
+        [[ -d "$f" ]] && continue
+        mv "$f" "$intermediate_dir/"
+    done
+    # Move shared header files if present
+    mv "${log_dir}/rvmodel_macros.h" "$intermediate_dir/" 2>/dev/null
+    mv "${log_dir}/riescue_aplic_mmr.h" "$intermediate_dir/" 2>/dev/null
+    # Keep intermediate files if test failed or --save_intermediate_files was passed
+    test_failed=false
+    if ! grep -q "PASSED" "$intermediate_dir/${seed_basename}_stderr.log" 2>/dev/null; then
+        test_failed=true
+    fi
+    if [[ "$SAVE_INTERMEDIATE" == "false" && "$test_failed" == "false" ]]; then
+        rm -rf "$intermediate_dir"
+    fi
+done
+echo "Done."
