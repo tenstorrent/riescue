@@ -44,19 +44,22 @@ class StoreAction(Action):
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "StoreAction":
         """
-        Create a LoadAction from a StepIR object.
+        Create a StoreAction from a StepIR object.
         """
         if TYPE_CHECKING:
             assert isinstance(step.step, Store)
         memory = None
         value = None
 
-        # Really need a better way to do this
-        for src in step.inputs:
-            if isinstance(src, str) and src.startswith("m"):
-                memory = src
-            elif isinstance(src, str) and not src.startswith("m"):
-                value = src
+        # Use positional ordering from gather_inputs: memory comes before value
+        str_inputs = [src for src in step.inputs if isinstance(src, str)]
+        idx = 0
+        if step.step.memory is not None and idx < len(str_inputs):
+            memory = str_inputs[idx]
+            idx += 1
+        if step.step.value is not None and not isinstance(step.step.value, int) and idx < len(str_inputs):
+            value = str_inputs[idx]
+            idx += 1
 
         return cls(step_id=step_id, offset=step.step.offset, memory=memory, value=value, **kwargs)
 
@@ -80,7 +83,9 @@ class StoreAction(Action):
             self.memory = memory_li.step_id
             new_actions.append(memory_li)
             return new_actions
-        else:
+        elif ctx.mem_reg.is_memory_label(self.memory):
+            # if memory is a label to a page, need to load the page base address
+            # otherwise if it's a register, leave it alone
             memory_li = LiAction(step_id=ctx.new_value_id(), immediate=self.memory)
             self.memory = memory_li.step_id
             new_actions.append(memory_li)

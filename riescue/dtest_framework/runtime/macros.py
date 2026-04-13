@@ -113,7 +113,18 @@ class Macros(AssemblyGenerator):
         """
         name = "OS_SETUP_CHECK_EXCP"
         macro = Macro(name=name)
-        macro.args = ["__expected_cause", "__expected_pc", "__return_pc", "__expected_tval=0", "__expected_htval=0", "__skip_pc_check=0", "__far_expected_pc=0", "__far_return_pc=0"]
+        macro.args = [
+            "__expected_cause",
+            "__expected_pc",
+            "__return_pc",
+            "__expected_tval=0",
+            "__expected_htval=0",
+            "__skip_pc_check=0",
+            "__far_expected_pc=0",
+            "__far_return_pc=0",
+            "__gva_check=0",
+            "__expected_mode=0",
+        ]
 
         check_excp_expected_cause = self.variable_manager.get_variable("check_excp_expected_cause")
         check_excp_expected_pc = self.variable_manager.get_variable("check_excp_expected_pc")
@@ -121,6 +132,8 @@ class Macros(AssemblyGenerator):
         check_excp_expected_htval = self.variable_manager.get_variable("check_excp_expected_htval")
         check_excp_return_pc = self.variable_manager.get_variable("check_excp_return_pc")
         check_excp_skip_pc_check = self.variable_manager.get_variable("check_excp_skip_pc_check")
+        check_excp_gva_check = self.variable_manager.get_variable("check_excp_gva_check")
+        check_excp_expected_mode = self.variable_manager.get_variable("check_excp_expected_mode")
 
         macro.code = f"""
             {self.get_hart_context()}
@@ -155,8 +168,20 @@ class Macros(AssemblyGenerator):
             li t3, \\__skip_pc_check
             {check_excp_skip_pc_check.store(src_reg="t3")}
 
+            # GVA check flag
+            li t3, \\__gva_check
+            {check_excp_gva_check.store(src_reg="t3")}
+
+            # Expected handler mode (0 = any)
+            li t3, \\__expected_mode
+            {check_excp_expected_mode.store(src_reg="t3")}
+
 
         """
+
+        self.register_equate("CHECK_EXCP_MODE_MACHINE", "1")
+        self.register_equate("CHECK_EXCP_MODE_HS", "2")
+        self.register_equate("CHECK_EXCP_MODE_VS", "3")
 
         self.macros.append(macro)
 

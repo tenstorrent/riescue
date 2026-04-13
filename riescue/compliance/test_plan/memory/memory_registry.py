@@ -49,7 +49,22 @@ class MemoryRegistry:
             data=data_memory.data,
             num_pages=data_memory.num_pages,
             modify=data_memory.modify,
+            modify_leaf=data_memory.modify_leaf,
+            modify_nonleaf=data_memory.modify_nonleaf,
             or_mask=data_memory.or_mask,
+            # Pass inline g-stage and nonleaf fields
+            nonleaf_flags=data_memory.nonleaf_flags,
+            nonleaf_exclude_flags=data_memory.nonleaf_exclude_flags,
+            leaf_gleaf_flags=data_memory.leaf_gleaf_flags,
+            leaf_gleaf_exclude_flags=data_memory.leaf_gleaf_exclude_flags,
+            vleaf_page_size=data_memory.vleaf_page_size,
+            nonleaf_gleaf_flags=data_memory.nonleaf_gleaf_flags,
+            nonleaf_gleaf_exclude_flags=data_memory.nonleaf_gleaf_exclude_flags,
+            vnonleaf_page_size=data_memory.vnonleaf_page_size,
+            leaf_gnonleaf_flags=data_memory.leaf_gnonleaf_flags,
+            leaf_gnonleaf_exclude_flags=data_memory.leaf_gnonleaf_exclude_flags,
+            nonleaf_gnonleaf_flags=data_memory.nonleaf_gnonleaf_flags,
+            nonleaf_gnonleaf_exclude_flags=data_memory.nonleaf_gnonleaf_exclude_flags,
             **kwargs,
         )
 
@@ -59,6 +74,25 @@ class MemoryRegistry:
             size=code_page.size,
             page_size=code_page.page_size,
             flags=code_page.flags,
+            exclude_flags=code_page.exclude_flags,
+            num_pages=code_page.num_pages,
+            modify=code_page.modify,
+            modify_leaf=code_page.modify_leaf,
+            modify_nonleaf=code_page.modify_nonleaf,
+            or_mask=code_page.or_mask,
+            # Pass inline g-stage and nonleaf fields
+            nonleaf_flags=code_page.nonleaf_flags,
+            nonleaf_exclude_flags=code_page.nonleaf_exclude_flags,
+            leaf_gleaf_flags=code_page.leaf_gleaf_flags,
+            leaf_gleaf_exclude_flags=code_page.leaf_gleaf_exclude_flags,
+            vleaf_page_size=code_page.vleaf_page_size,
+            nonleaf_gleaf_flags=code_page.nonleaf_gleaf_flags,
+            nonleaf_gleaf_exclude_flags=code_page.nonleaf_gleaf_exclude_flags,
+            vnonleaf_page_size=code_page.vnonleaf_page_size,
+            leaf_gnonleaf_flags=code_page.leaf_gnonleaf_flags,
+            leaf_gnonleaf_exclude_flags=code_page.leaf_gnonleaf_exclude_flags,
+            nonleaf_gnonleaf_flags=code_page.nonleaf_gnonleaf_flags,
+            nonleaf_gnonleaf_exclude_flags=code_page.nonleaf_gnonleaf_exclude_flags,
         )
 
     def request_data(self, name: str, request_memory: "MemoryAction") -> None:

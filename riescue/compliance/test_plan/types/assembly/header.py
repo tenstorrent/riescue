@@ -25,6 +25,7 @@ class Header(AssemblyBase):
     priv: str
     cpus: int
     paging_mode: str
+    g_paging_mode: str
     category: str
     virtualized: str
     features: str = ""
@@ -46,6 +47,7 @@ class Header(AssemblyBase):
             priv=env.priv.long_name(),
             cpus=1,
             paging_mode=str(env.paging_mode),
+            g_paging_mode=str(env.g_paging_mode),
             category="arch compliance",
         )
 
@@ -59,6 +61,7 @@ class Header(AssemblyBase):
                 f";#test.env        {self.virtualized}",
                 f";#test.cpus       {self.cpus}",
                 f";#test.paging     {self.paging_mode}",
+                f";#test.paging_g   {self.g_paging_mode}",
                 f";#test.category   {self.category}",
                 f";#test.class      {self.plan_name}",
                 f";#test.features   {self.features}",

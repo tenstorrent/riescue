@@ -4,7 +4,7 @@
             "dram": {
                 "address": "0x8000_0000",
                 "size": "0xf_ffff_8000_0000",
-                "cachable": true,
+                "cacheable": true,
                 "configurable": true
             }
         },
@@ -13,9 +13,9 @@
             "max_regions": 15,
             "regions": {
                 "predefined_region1": {
-                    "address": "0x90000000",
+                    "base": "0x90000000",
                     "size": "0x1000000",
-                    "attributes": {"memory_type": "memory", "cacheability": "cacheable", "read": true, "write": true, "execute": true, "amo_type": "arithmetic", "routing_to": "coherent"}
+                    "attributes": {"memory_type": "memory", "cacheability": "cacheable", "read": true, "write": true, "execute": true, "amo_type": "arithmetic", "routing": "coherent"}
                 }
             },
             "hints": {"config_hint1": {"memory_types": ["memory"], "cacheability": ["noncacheable"], "rwx_combos": ["rw"], "size": 524288, "adjacent": false}}

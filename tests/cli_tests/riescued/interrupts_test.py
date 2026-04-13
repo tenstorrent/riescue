@@ -46,9 +46,21 @@ class Interrupt_EnabledTests(BaseRiescuedTest):
         """Verify that Conf.add_hooks() / FeatMgr.register_default_handler() replaces the
         test-wide default handler for a given vector.  The conf file registers a custom
         SSI handler that writes 0xCAFE to test_marker; the test fires SSIP and checks the
-        marker to confirm the override ran."""
+        marker to confirm the override ran (M-mode path: vec 1 non-delegated, mip/mret)."""
         testname = "dtest_framework/tests/non_instr_tests/default_handler_override.s"
         args = ["--run_iss", f"--conf={DEFAULT_HANDLER_OVERRIDE_CONF}"]
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+    def test_default_handler_override_s(self):
+        """Verify register_default_handler() with S-mode delegation (TrapContext path).
+
+        The same conf handler (my_ssi_handler) is registered for vec 1, but the test
+        uses ;#vector_delegation(1, supervisor) so the framework routes it to the S-mode
+        TrapHandler and calls assembly_fn(SUPERVISOR_CTX).  The handler body therefore
+        uses sip/sret.  Fires SSIP via csrsi sip, 2 and checks that 0xCAFE was written
+        to test_marker to confirm the S-mode override ran."""
+        testname = "dtest_framework/tests/non_instr_tests/default_handler_override_s.s"
+        args = ["--run_iss", "--deleg_excp_to=super", f"--conf={DEFAULT_HANDLER_OVERRIDE_CONF}"]
         self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
 
 

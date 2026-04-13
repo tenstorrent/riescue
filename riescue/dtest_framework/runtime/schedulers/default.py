@@ -71,7 +71,23 @@ class DefaultScheduler(Scheduler):
         scheduler__decrement_num_runs:
             addi t2, t1, -1
             {self.num_runs.store(src_reg="t2")}
+        """
 
+        # Store current test index for RVCP pass/fail messages
+        # t2 contains the decremented num_runs which is the index into os_test_sequence
+        # Look up the discrete test index from dtest_index_map[t2]
+        if self.featmgr.rvcp_print_enabled():
+            code += f"""
+        # Store current test index for RVCP messages
+        # Look up discrete test index from dtest_index_map[t2]
+        la t3, dtest_index_map
+        slli t4, t2, 2  # t4 = t2 * 4 (word size)
+        add t3, t3, t4
+        lw t3, 0(t3)   # t3 = dtest_index_map[t2]
+        {self.current_test_index.store(src_reg="t3")}
+        """
+
+        code += """
         scheduler__calc_test_pointer:
             slli t0, t2, 3
 

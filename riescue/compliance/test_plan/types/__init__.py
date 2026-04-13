@@ -4,7 +4,22 @@
 from .discrete_test import DiscreteTest
 from .action_block import ActionBlock
 
-from .assembly import Header, AssemblyFile, DataSegment, TextSegment, GlobalFunction, Block, TextBlock, InstructionBlock, FunctionBlock, TestCase, Page, DataPage
+from .assembly import (
+    Header,
+    AssemblyFile,
+    DataSegment,
+    TextSegment,
+    MachineCodeSegment,
+    SupervisorCodeSegment,
+    GlobalFunction,
+    Block,
+    TextBlock,
+    InstructionBlock,
+    FunctionBlock,
+    TestCase,
+    Page,
+    DataPage,
+)
 
 __all__ = [
     "DiscreteTest",
@@ -13,6 +28,8 @@ __all__ = [
     "AssemblyFile",
     "DataSegment",
     "TextSegment",
+    "MachineCodeSegment",
+    "SupervisorCodeSegment",
     "GlobalFunction",
     "Block",
     "TextBlock",

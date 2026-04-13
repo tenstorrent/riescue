@@ -45,18 +45,24 @@ class CsrReadAction(Action):
         )
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
-        priv_modes = ["m", "s", "u"]
+        priv_modes = ["m", "s", "vs", "u"]
         csr_priv_mode = self.csr_name[0]
+        effective_csr_name = self.csr_name
         if csr_priv_mode == "h":
             csr_priv_mode = "s"
         if csr_priv_mode == "v":
-            csr_priv_mode = self.csr_name[1]
+            csr_priv_mode = "vs"
+            if ctx.env.virtualized:
+                effective_csr_name = self.csr_name[1:]
         which_priv_mode = 2  # assume U mode acess
         if csr_priv_mode in priv_modes:
             which_priv_mode = priv_modes.index(csr_priv_mode)
 
         api_access = True
-        ctx_priv_mode = priv_modes.index(ctx.env.priv.name[0].lower())
+        ctx_priv_str = ctx.env.priv.name[0].lower()
+        if ctx_priv_str == "s" and ctx.env.virtualized:
+            ctx_priv_str = "vs"
+        ctx_priv_mode = priv_modes.index(ctx_priv_str)
         if ctx_priv_mode <= which_priv_mode:
             api_access = False
 
@@ -66,7 +72,7 @@ class CsrReadAction(Action):
             csr_operand = selected_instruction.csr_operand()
             if csr_operand is None:
                 raise ValueError(f"No CSR operand available for CSR Read action, with instruction {selected_instruction}")
-            csr_operand.val = self.csr_name
+            csr_operand.val = effective_csr_name
             return selected_instruction
         else:
             instruction_id = ctx.new_value_id()
@@ -121,7 +127,7 @@ class CsrWriteAction(Action):
             return f"'{self.csr_name}', {self.operation}, {self.src}"
 
     @staticmethod
-    def write_value_and_operation(step: CsrWrite, inputs: list[Union[str, int]]) -> tuple[Optional[int], CsrOperation, Optional[str]]:
+    def write_value_and_operation(step: CsrWrite, inputs: "list[Union[str, int, tuple[Any, ...]]]") -> tuple[Optional[int], CsrOperation, Optional[str]]:
         """
         Helper function to get the write value and operation from a CsrWrite step
 
@@ -172,18 +178,24 @@ class CsrWriteAction(Action):
         This will return itself as an action.
         """
 
-        priv_modes = ["m", "s", "u"]
+        priv_modes = ["m", "s", "vs", "u"]
         csr_priv_mode = self.csr_name[0]
         if csr_priv_mode == "h":
             csr_priv_mode = "s"
         if csr_priv_mode == "v":
-            csr_priv_mode = self.csr_name[1]
+            if ctx.env.virtualized:
+                csr_priv_mode = self.csr_name[1]
+            else:
+                csr_priv_mode = "vs"
         which_priv_mode = 2  # assume U mode acess
         if csr_priv_mode in priv_modes:
             which_priv_mode = priv_modes.index(csr_priv_mode)
 
         api_access = True
-        ctx_priv_mode = priv_modes.index(ctx.env.priv.name[0].lower())
+        ctx_priv_str = ctx.env.priv.name[0].lower()
+        if ctx_priv_str == "s" and ctx.env.virtualized:
+            ctx_priv_str = "vs"
+        ctx_priv_mode = priv_modes.index(ctx_priv_str)
         if ctx_priv_mode <= which_priv_mode:
             api_access = False
 
@@ -232,18 +244,24 @@ class CsrWriteAction(Action):
 
         """
 
-        priv_modes = ["m", "s", "u"]
+        priv_modes = ["m", "s", "vs", "u"]
         csr_priv_mode = self.csr_name[0]
+        effective_csr_name = self.csr_name
         if csr_priv_mode == "h":
             csr_priv_mode = "s"
         if csr_priv_mode == "v":
-            csr_priv_mode = self.csr_name[1]
+            csr_priv_mode = "vs"
+            if ctx.env.virtualized:
+                effective_csr_name = self.csr_name[1:]
         which_priv_mode = 2  # assume U mode acess
         if csr_priv_mode in priv_modes:
             which_priv_mode = priv_modes.index(csr_priv_mode)
 
         api_access = True
-        ctx_priv_mode = priv_modes.index(ctx.env.priv.name[0].lower())
+        ctx_priv_str = ctx.env.priv.name[0].lower()
+        if ctx_priv_str == "s" and ctx.env.virtualized:
+            ctx_priv_str = "vs"
+        ctx_priv_mode = priv_modes.index(ctx_priv_str)
         if ctx_priv_mode <= which_priv_mode:
             api_access = False
 
@@ -299,7 +317,7 @@ class CsrWriteAction(Action):
         csr_operand = selected_instruction.csr_operand()
         if csr_operand is None:
             raise ValueError(f"Expected a CSR operand available for CSR Write action, with instruction {selected_instruction}")
-        csr_operand.val = self.csr_name
+        csr_operand.val = effective_csr_name
 
         if use_imm:
             immediate_operand = selected_instruction.immediate_operand()
@@ -517,7 +535,7 @@ class CsrDirectAccessAction(Action):
         }
         accessibility = accessibility_map.get(priv, "Machine")
 
-        is_read_only_op = self.op in ["csrrs", "csrrc", "csrrsi", "csrrci"] and self.src is None and (self.src_value == 0 or self.src_value is None)
+        is_read_only_op = self.op in ["csrrs", "csrrc", "csrrsi", "csrrci"] and (self.src is None or self.src == "zero") and (self.src_value == 0 or self.src_value is None)
 
         names_to_csrs = []
 

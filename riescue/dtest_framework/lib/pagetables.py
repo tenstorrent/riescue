@@ -595,7 +595,10 @@ class Pagetables:
                 phys_addr_bits = min(phys_addr_bits, RV.RiscvPagingModes.linear_addr_bits(self.featmgr.paging_g_mode, gstage=True))
             phys_addr_c = addrgen.AddressConstraint(type=RV.AddressType.PHYSICAL, qualifiers=qualifiers, bits=phys_addr_bits, size=size, mask=mask)
             # print(f'constraints: {phys_addr_c}, page: {self.page.name} {self.page}')
-            base_addr = self.addrgen.generate_address(constraint=phys_addr_c)
+            try:
+                base_addr = self.addrgen.generate_address(constraint=phys_addr_c)
+            except Exception as e:
+                raise Exception(f"Failed to generate physical address for pagetable with constraint {phys_addr_c} for page {self.page.name} at level {pt_level}") from e
             if secure_access_generated:
                 base_addr |= 0x0080000000000000
 

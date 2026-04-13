@@ -3,6 +3,7 @@
 
 import logging
 from dataclasses import dataclass, field
+from typing import Optional
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.lib.addrgen.exceptions import AddrGenError
@@ -25,6 +26,7 @@ class AddressConstraint:
     end: int = 0
     dont_allocate: bool = False
     qualifiers: set[RV.AddressQualifiers] = field(default_factory=set)
+    custom_region: Optional[str] = None  #: Named custom region; bounds/qualifier resolved by AddrGen.generate_address()
 
     def __str__(self) -> str:
         str = "Constraints: \n"

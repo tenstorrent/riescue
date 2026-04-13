@@ -26,52 +26,6 @@ from pathlib import Path
 Convert whisper sim log to standard riscv instruction trace format
 """
 
-# Mnemonics for which the ``m`` resource ``value`` field is the store data. Whisper's ``[a:d]``
-# bracket on the same line is not reliable for Sv57 (``d`` may be a walk / GPA artifact).
-_WHISPER_SCALAR_STORE_MNEMONICS: frozenset[str] = frozenset({"sb", "sh", "sw", "sd", "fsw", "fsd"})
-
-
-def _whisper_instr_is_scalar_store(instr: str) -> bool:
-    t = instr.strip().lower()
-    if t.startswith("c."):
-        t = t[2:]
-    return t in _WHISPER_SCALAR_STORE_MNEMONICS
-
-
-def _whisper_store_stdata_for_post_setup(instr: str, val_hex: str) -> str:
-    """Narrow ``m`` line ``value`` to the width actually written.
-
-    ``StoreSetup.post_setup`` expands ``stdata`` into per-byte ``lbu`` checks. Using a full
-    XLEN ``value`` for ``sh``/``sb`` zero-fills high bytes in the expectation, but only the
-    low 2/1 bytes were stored — upper bytes still hold ``init_memory`` contents.
-    """
-    t = instr.strip().lower()
-    if t.startswith("c."):
-        t = t[2:]
-    v = int(val_hex, 16)
-    if t == "sb":
-        n = v & 0xFF
-        w = 2
-    elif t == "sh":
-        n = v & 0xFFFF
-        w = 4
-    elif t == "sw":
-        n = v & 0xFFFFFFFF
-        w = 8
-    elif t == "sd":
-        n = v & 0xFFFFFFFFFFFFFFFF
-        w = 16
-    elif t == "fsw":
-        n = v & 0xFFFFFFFF
-        w = 8
-    elif t == "fsd":
-        n = v & 0xFFFFFFFFFFFFFFFF
-        w = 16
-    else:
-        return val_hex
-    return f"{n:x}".zfill(w)
-
-
 ix_to_int_reg_name = [
     "zero",
     "ra",
@@ -195,13 +149,7 @@ class RiscvInstructionTraceEntry:
 #         #1 0  M 0000000080000000 00000013 r 0000000000000000 0000000000000000 addi     x0, x0, 0
 # All values except rank are in hexadecimal
 #
-def process_whisper_sim_log(
-    whisper_log: Path,
-    csv: Path,
-    full_trace: int = 1,
-    *,
-    narrow_scalar_store_stdata: bool = False,
-) -> None:
+def process_whisper_sim_log(whisper_log: Path, csv: Path, full_trace: int = 1) -> None:
     """Process Whisper simulation log.
 
     Extract instruction and affected register information from whisper simulation
@@ -217,11 +165,6 @@ def process_whisper_sim_log(
     intentionally ignore ad[1] (the physical address) in all bracket annotations
     because it is never the stored data value — the actual stored value always
     comes from the 'm'-resource line's val field via the fallback below.
-
-    :param narrow_scalar_store_stdata: If True, narrow ``stdata`` for sb/sh/sw/sd to
-        the width actually written (used by compliance second-pass store self-check).
-        If False (default), emit full XLEN hex strings as in the Whisper ``m`` line,
-        matching unit tests and legacy CSV consumers.
     """
     instr_cnt = 0
     records = ["pc,instr,gpr,csr,pa,stdata,binary,mode,instr_str,operand,pad\n"]
@@ -270,10 +213,7 @@ def process_whisper_sim_log(
                     # (overriding anything accumulated from bracket annotations).
                     if len(store_data) == 0:
                         mem_addr = [addr_str]
-                        if narrow_scalar_store_stdata and _whisper_instr_is_scalar_store(rec_instr):
-                            store_data = [_whisper_store_stdata_for_post_setup(rec_instr, val)]
-                        else:
-                            store_data = [val]
+                        store_data = [val]
 
             record = RiscvInstructionTraceEntry()
             record.pc = rec_pc

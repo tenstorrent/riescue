@@ -24,8 +24,6 @@ from riescue.dtest_framework.parser import (
     ParsedCustomHandler,
     ParsedVectorDelegation,
     ParsedCsrAccess,
-    ParsedReadPte,
-    ParsedWritePte,
     ParsedPmaHint,
     ParsedTriggerConfig,
     ParsedTriggerDisable,
@@ -85,8 +83,6 @@ class Pool:
         # EPILOGUE macros and the vector jump stubs can reach them via li (no PC-relative la).
         self._interrupt_handler_pointers: dict[str, str] = {}
         self.parsed_csr_accesses: dict[str, dict[str, ParsedCsrAccess]] = {}
-        self.parsed_read_ptes: dict[tuple[str, str, int], ParsedReadPte] = {}
-        self.parsed_write_ptes: dict[tuple[str, str, int], ParsedWritePte] = {}
         self.parsed_sections: list[str] = []
         self.init_aplic_interrupts = False
         self.ext_aplic_interrupts = dict[int, dict[str, Optional[Union[int, str]]]()]()
@@ -258,17 +254,34 @@ class Pool:
     def add_parsed_csr_access(self, parsed_csr_access: ParsedCsrAccess) -> None:
         csr_name = parsed_csr_access.csr_name
         read_write_set_clear = parsed_csr_access.read_write_set_clear
-        if csr_name in self.parsed_csr_accesses and read_write_set_clear in self.parsed_csr_accesses[csr_name]:
+        # For write_subfield/read_subfield, qualify the key with the field name
+        # so that multiple fields on the same CSR each get their own jump table entry.
+        if read_write_set_clear in ("write_subfield", "read_subfield"):
+            if not parsed_csr_access.field:
+                raise ValueError(f"csr_rw {read_write_set_clear} for {csr_name} requires a field parameter")
+            read_write_set_clear = f"{read_write_set_clear}_{parsed_csr_access.field}"
+            parsed_csr_access.read_write_set_clear = read_write_set_clear
+        # Qualify key with _force_machine so that force_machine and
+        # non-force_machine accesses for the same CSR+operation coexist.
+        key = read_write_set_clear
+        if parsed_csr_access.force_machine_rw:
+            key = f"{read_write_set_clear}_force_machine"
+        if csr_name in self.parsed_csr_accesses and key in self.parsed_csr_accesses[csr_name]:
             return
         if csr_name not in self.parsed_csr_accesses:
-            self.parsed_csr_accesses[parsed_csr_access.csr_name] = {}
-        self.parsed_csr_accesses[parsed_csr_access.csr_name][parsed_csr_access.read_write_set_clear] = parsed_csr_access
+            self.parsed_csr_accesses[csr_name] = {}
+        self.parsed_csr_accesses[csr_name][key] = parsed_csr_access
 
     def get_parsed_csr_accesses(self) -> dict[str, dict[str, ParsedCsrAccess]]:
         return self.parsed_csr_accesses
 
-    def get_parsed_csr_access(self, csr: str, read_write_set_clear: str) -> ParsedCsrAccess:
-        return self.parsed_csr_accesses[csr][read_write_set_clear]
+    def get_parsed_csr_access(self, csr: str, read_write_set_clear: str, field: str | None = None, force_machine_rw: bool = False) -> ParsedCsrAccess:
+        lookup_key = read_write_set_clear
+        if read_write_set_clear in ("write_subfield", "read_subfield") and field:
+            lookup_key = f"{read_write_set_clear}_{field}"
+        if force_machine_rw:
+            lookup_key = f"{lookup_key}_force_machine"
+        return self.parsed_csr_accesses[csr][lookup_key]
 
     def get_next_csr_id(self) -> int:
         max_id = 0
@@ -276,36 +289,6 @@ class Pool:
             for csr in csr_group.values():
                 max_id = max(max_id, csr.csr_id)
         return max_id + 1
-
-    def add_parsed_read_pte(self, parsed_read_pte: ParsedReadPte) -> None:
-        lin_name = parsed_read_pte.lin_name
-        paging_mode = parsed_read_pte.paging_mode
-        level = parsed_read_pte.level
-        key = (lin_name, paging_mode, level)
-        if key in self.parsed_read_ptes:
-            return
-        self.parsed_read_ptes[key] = parsed_read_pte
-
-    def get_parsed_read_ptes(self) -> dict[tuple[str, str, int], ParsedReadPte]:
-        return self.parsed_read_ptes
-
-    def get_parsed_read_pte(self, lin_name: str, paging_mode: str, level: int) -> ParsedReadPte:
-        return self.parsed_read_ptes[(lin_name, paging_mode, level)]
-
-    def add_parsed_write_pte(self, parsed_write_pte: ParsedWritePte) -> None:
-        lin_name = parsed_write_pte.lin_name
-        paging_mode = parsed_write_pte.paging_mode
-        level = parsed_write_pte.level
-        key = (lin_name, paging_mode, level)
-        if key in self.parsed_write_ptes:
-            return
-        self.parsed_write_ptes[key] = parsed_write_pte
-
-    def get_parsed_write_ptes(self) -> dict[tuple[str, str, int], ParsedWritePte]:
-        return self.parsed_write_ptes
-
-    def get_parsed_write_pte(self, lin_name: str, paging_mode: str, level: int) -> ParsedWritePte:
-        return self.parsed_write_ptes[(lin_name, paging_mode, level)]
 
     # parsed_pma_hint setters and getters
     def add_parsed_pma_hint(self, parsed_pma_hint: ParsedPmaHint) -> None:

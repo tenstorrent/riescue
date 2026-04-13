@@ -22,7 +22,7 @@ AssemblyFile
 
 from .header import Header
 from .file import AssemblyFile
-from .segment import DataSegment, TextSegment
+from .segment import DataSegment, TextSegment, MachineCodeSegment, SupervisorCodeSegment
 from .block import Block, InstructionBlock, FunctionBlock, TextBlock
 from .case import TestCase
 from .page import Page, DataPage
@@ -33,6 +33,8 @@ __all__ = [
     "AssemblyFile",
     "DataSegment",
     "TextSegment",
+    "MachineCodeSegment",
+    "SupervisorCodeSegment",
     "Block",
     "InstructionBlock",
     "FunctionBlock",

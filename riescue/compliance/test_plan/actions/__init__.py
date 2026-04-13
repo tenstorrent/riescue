@@ -11,12 +11,13 @@ from .memory import MemoryAction, CodePageAction, StackPageAction, RequestPmpAct
 from .arithmetic import ArithmeticAction
 from .load import LoadAction
 from .store import StoreAction
+from .hload import HLoadAction
+from .hxload import HXLoadAction
+from .hstore import HStoreAction
 from .modify_pte import ModifyPteAction
 from .branch import CallAction
 from .csr import CsrReadAction, CsrWriteAction, CsrDirectAccessAction
 from .pte_actions import (
-    ReadLeafPteAction,
-    WriteLeafPteAction,
     ReadPteAction,
     WritePteAction,
     PteAction,
@@ -24,11 +25,13 @@ from .pte_actions import (
 from .assertions.assert_equal import AssertEqualAction
 from .assertions.assert_nequal import AssertNotEqualAction
 from .assertions.assert_exception import AssertExceptionAction
+from .assertions.assert_fetch_exception import AssertFetchExceptionAction
 from .memaccess import MemAccessAction
 from .system import SystemAction
 from .comment import CommentAction
 from .directive import DirectiveAction
 from .set_wait_timeout import SetWaitTimeoutAction
+from .privilege_mode import MachineCodeAction, SupervisorCodeAction, UserCodeAction
 from .mappings import DEFAULT_MAPPINGS
 
 
@@ -44,6 +47,9 @@ __all__ = [
     "LiAction",
     "LoadAction",
     "StoreAction",
+    "HLoadAction",
+    "HXLoadAction",
+    "HStoreAction",
     "CallAction",
     "ConditionalBlockAction",
     "ArithmeticAction",
@@ -57,16 +63,18 @@ __all__ = [
     "PteAction",
     "ReadPteAction",
     "WritePteAction",
-    "ReadLeafPteAction",
-    "WriteLeafPteAction",
     "AssertEqualAction",
     "AssertNotEqualAction",
     "AssertExceptionAction",
+    "AssertFetchExceptionAction",
     "MemAccessAction",
     "SystemAction",
     "CommentAction",
     "DirectiveAction",
     "ConditionalBlockAction",
     "SetWaitTimeoutAction",
+    "MachineCodeAction",
+    "SupervisorCodeAction",
+    "UserCodeAction",
     "DEFAULT_MAPPINGS",
 ]

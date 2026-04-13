@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 import riescue.lib.enums as RV
 from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
 from riescue.dtest_framework.lib.dtest_instruction_helper import DtestInstructionHelper
+from riescue.dtest_framework.parser import ParsedCsrAccess
 from riescue.dtest_framework.lib.routines import Routines
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 
@@ -54,7 +55,7 @@ class OpSys(AssemblyGenerator):
         # Build OS Data variables
         self.machine_csr_jump_table_flags = self.variable_manager.register_shared_variable("machine_csr_jump_table_flags", 0x0)
         self.super_csr_jump_table_flags = self.variable_manager.register_shared_variable("super_csr_jump_table_flags", 0x0)
-        self.machine_pte_jump_table_flags = self.variable_manager.register_shared_variable("machine_pte_jump_table_flags", 0x0)
+        self.pte_access_flags = self.variable_manager.register_shared_variable("pte_access_flags", 0x0, element_count=3)
 
         if self.mp_active:
             self.variable_manager.register_shared_variable("barrier_arrive_counter", 0x0)
@@ -99,6 +100,15 @@ class OpSys(AssemblyGenerator):
                 csrrc x0, mstatus, t0
             """
 
+        # Generate RVCP pass call for enter_scheduler (syscall path)
+        # Only print for discrete tests (skip test_setup and test_cleanup)
+        enter_scheduler_rvcp = ""
+        if self.featmgr.print_rvcp_passed:
+            enter_scheduler_rvcp = """
+            li a0, 0  # 0 = PASS
+            call rvcp_print_test_result
+            """
+
         code += f"""
         .section .runtime, "ax"
 
@@ -107,9 +117,19 @@ class OpSys(AssemblyGenerator):
             # Check if t0 has a pass or fail condition
             li t1, 0xbaadc0de
             beq t0, t1, test_failed
+            {enter_scheduler_rvcp}
             j {self.scheduler_dispatch_label}
 
         """
+
+        # Generate RVCP pass call for test_passed
+        rvcp_pass_call = ""
+        if self.featmgr.print_rvcp_passed:
+            rvcp_pass_call = """
+                li a0, 0  # 0 = PASS
+                call rvcp_print_test_result
+            """
+
         if self.featmgr.fe_tb:
             code += f"""
             # With FE testbench, we can't jump to failed even in the bad path since they can take that
@@ -118,6 +138,7 @@ class OpSys(AssemblyGenerator):
             test_passed:
             {clear_mprv}
             {self.variable_manager.enter_hart_context(scratch=self.scratch_reg)}
+            {rvcp_pass_call}
             {selfcheck_code}
             j {self.scheduler_dispatch_label}
             os_end_test:
@@ -131,6 +152,7 @@ class OpSys(AssemblyGenerator):
             test_passed:
                 {clear_mprv}
                 {self.variable_manager.enter_hart_context(scratch=self.scratch_reg)}
+                {rvcp_pass_call}
                 {selfcheck_code}
                 j {self.scheduler_dispatch_label}
 
@@ -146,6 +168,9 @@ class OpSys(AssemblyGenerator):
                 li gp, 0x1
                 j eot__end_test
             """
+
+        # Add RVCP print routine if enabled
+        code += self._rvcp_print_routine()
 
         # FIXME: This is linux mode only, and linux mode is mp mode only. Does this need to be in OpSys? Or should it be in LinuxModeScheduler?
         code += "os_rng_orig:\n"
@@ -166,9 +191,85 @@ class OpSys(AssemblyGenerator):
         code += self.append_os_data()
         # Append the to_from_host addresses
         code += self.generate_csr_rw_jump_table()
-        # Append the unified pte_jump_table (handles both read and write)
-        code += self.generate_pte_jump_table()
         return code
+
+    def _rvcp_print_routine(self) -> str:
+        """Generate RVCP print routine that prints pass/fail messages via RVMODEL_IO_WRITE_STR macro.
+
+        This routine is called from enter_scheduler (pass) and eot (fail) to print
+        RVCP-formatted messages that identify which discrete test passed or failed.
+
+        Format: "RVCP: Test File {testname} {discrete_test_name} PASSED/FAILED\\n"
+
+        Entry: a0 = 0 for PASS, 1 for FAIL
+        Uses only t-registers (no stack): t0-t5
+        """
+        if not self.featmgr.rvcp_print_enabled():
+            return ""
+
+        current_test_index = self.variable_manager.get_variable("current_test_index")
+        return f"""
+.section .runtime, "ax"
+.balign 4
+rvcp_print_test_result:
+    # Entry: a0 = 0 for PASS, 1 for FAIL
+    # Format: "RVCP: Test File {{testname}} {{discrete_test}} PASSED/FAILED\\n"
+    # Uses t-registers: t0-t5, a0 preserved as pass/fail flag via t3
+    mv t3, a0  # t3 = pass/fail flag (0=PASS, 1=FAIL)
+
+    # Load current test index from hart-local variable
+    {current_test_index.load(dest_reg='t0')}
+
+    # Check for special indices - should not be called for setup/cleanup
+    li t1, 0xFFFFFFFE
+    beq t0, t1, .Lrvcp_skip_print  # test_setup - skip
+    li t1, 0xFFFFFFFF
+    beq t0, t1, .Lrvcp_skip_print  # test_cleanup - skip
+    bltz t0, .Lrvcp_skip_print     # negative = invalid - skip
+
+    # Get test name from descriptor table
+    # t0 = index, descriptor table has pointers to name strings
+    la t1, dtest_descriptor_table
+    slli t2, t0, 3  # index * 8
+    add t1, t1, t2
+    ld t4, 0(t1)    # t4 = pointer to discrete test name string
+
+    # Print "RVCP: Test File " prefix
+    li t5, rvcp_prefix_str_pa
+    RVMODEL_IO_WRITE_STR(t0, t1, t2, t5)
+
+    # Print testname (test file name)
+    li t5, rvcp_testname_str_pa
+    RVMODEL_IO_WRITE_STR(t0, t1, t2, t5)
+
+    # Print " " separator between testname and discrete test name
+    li t5, rvcp_space_str_pa
+    RVMODEL_IO_WRITE_STR(t0, t1, t2, t5)
+
+    # Print discrete test name (dynamic pointer from t4)
+    mv t5, t4
+    RVMODEL_IO_WRITE_STR(t0, t1, t2, t5)
+
+    # Print " " separator
+    li t5, rvcp_space_str_pa
+    RVMODEL_IO_WRITE_STR(t0, t1, t2, t5)
+
+    # Print PASSED or FAILED
+    bnez t3, .Lrvcp_print_fail_str
+    li t5, rvcp_passed_str_pa
+    j .Lrvcp_print_status_done
+.Lrvcp_print_fail_str:
+    li t5, rvcp_failed_str_pa
+.Lrvcp_print_status_done:
+    RVMODEL_IO_WRITE_STR(t0, t1, t2, t5)
+
+    # Print newline
+    li t5, rvcp_newline_str_pa
+    RVMODEL_IO_WRITE_STR(t0, t1, t2, t5)
+
+.Lrvcp_skip_print:
+    ret
+"""
 
     def test_passed_failed_labels(self) -> str:
         """Generate passed/failed/end_test labels for test code.
@@ -279,6 +380,20 @@ class OpSys(AssemblyGenerator):
                 os_data_section += f"{ptr_equate}_mem:\n"
                 os_data_section += f"    .{var_type} {ptr_label}\n"
 
+        # RVCP strings (for HTIF console output) - before variable manager
+        if self.featmgr.rvcp_print_enabled():
+            os_data_section += f"""
+# RVCP message strings
+# Format: "RVCP: Test File {{testname}} {{discrete_test}} PASSED/FAILED\\n"
+rvcp_prefix_str_data: .asciz "RVCP: Test File "
+rvcp_testname_str_data: .asciz "{self.pool.testname}"
+rvcp_passed_str_data: .asciz "PASSED"
+rvcp_failed_str_data: .asciz "FAILED"
+rvcp_space_str_data: .asciz " "
+rvcp_newline_str_data: .asciz "\\n"
+.balign 8
+"""
+
         os_data_section += self.variable_manager.allocate()
         return os_data_section
 
@@ -327,6 +442,29 @@ class OpSys(AssemblyGenerator):
                 equates += build_text(ptr_equate, offset_adder)
                 offset_adder += os_variable_size
 
+        # RVCP string equates (for M-mode access) - before variable manager
+        if self.featmgr.rvcp_print_enabled():
+            rvcp_prefix = "RVCP: Test File "
+            rvcp_passed = "PASSED"
+            rvcp_failed = "FAILED"
+            rvcp_space = " "
+            rvcp_newline = "\n"
+            equates += "\n# RVCP string equates\n"
+            equates += build_text("rvcp_prefix_str", offset_adder)
+            offset_adder += len(rvcp_prefix) + 1  # string + null
+            equates += build_text("rvcp_testname_str", offset_adder)
+            offset_adder += len(self.pool.testname) + 1  # testname + null
+            equates += build_text("rvcp_passed_str", offset_adder)
+            offset_adder += len(rvcp_passed) + 1  # string + null
+            equates += build_text("rvcp_failed_str", offset_adder)
+            offset_adder += len(rvcp_failed) + 1  # string + null
+            equates += build_text("rvcp_space_str", offset_adder)
+            offset_adder += len(rvcp_space) + 1  # string + null
+            equates += build_text("rvcp_newline_str", offset_adder)
+            offset_adder += len(rvcp_newline) + 1  # string + null
+            # Align to 8 bytes (matches .balign 8 in os_data)
+            offset_adder = (offset_adder + 7) & ~7
+
         equates += self.variable_manager.equates(offset=offset_adder)
 
         # Generate per-hart PA equates for hart context
@@ -335,6 +473,7 @@ class OpSys(AssemblyGenerator):
         if not self.mp_active:
             # need to include variable equates for non-mp mode, that way users can read/write hart variables
             equates += self.variable_manager.single_hart_variable_equates()
+
         return equates
 
     def _get_csr_manager(self) -> CsrManagerInterface:
@@ -362,19 +501,19 @@ class OpSys(AssemblyGenerator):
 
         # Build Machine and Super Jump Tables
         parsed_csr_accesses = self.pool.get_parsed_csr_accesses()
+
+        def _get_entries(entries: dict[str, ParsedCsrAccess], key: str) -> list[ParsedCsrAccess]:
+            """Get both base and _force_machine entries for a key."""
+            return list(filter(None, [entries.get(key), entries.get(f"{key}_force_machine")]))
+
         for csr in parsed_csr_accesses:
-            write_csr = parsed_csr_accesses[csr].get("write", None)
-            read_csr = parsed_csr_accesses[csr].get("read", None)
-            set_csr = parsed_csr_accesses[csr].get("set", None)
-            clear_csr = parsed_csr_accesses[csr].get("clear", None)
-            set_bit_csr = parsed_csr_accesses[csr].get("set_bit", None)
-            clear_bit_csr = parsed_csr_accesses[csr].get("clear_bit", None)
-            write_subfield_csr = parsed_csr_accesses[csr].get("write_subfield", None)
-            read_subfield_csr = parsed_csr_accesses[csr].get("read_subfield", None)
+            # Collect all field-qualified write_subfield_*/read_subfield_* entries
+            write_subfield_csrs = [v for k, v in parsed_csr_accesses[csr].items() if k.startswith("write_subfield")]
+            read_subfield_csrs = [v for k, v in parsed_csr_accesses[csr].items() if k.startswith("read_subfield")]
             csr_config = self._resolve_csr_config(csr)
             csr_name = self._get_csr_name_for_asm(csr, csr_config)
 
-            if write_csr:
+            for write_csr in _get_entries(parsed_csr_accesses[csr], "write"):
                 if write_csr.priv_mode == "machine" or write_csr.force_machine_rw:
                     machine_code += "\n"
                     machine_code += f"\t# Machine Write: {csr_name}, label: {write_csr.label}\n"
@@ -388,7 +527,7 @@ class OpSys(AssemblyGenerator):
                     super_code += f"\tcsrw {csr_name}, t2\n"
                     super_code += f"\tj {end_super_label}\n"
 
-            if read_csr:
+            for read_csr in _get_entries(parsed_csr_accesses[csr], "read"):
                 if read_csr.priv_mode == "machine" or read_csr.force_machine_rw:
                     machine_code += "\n"
                     machine_code += f"\t# Machine Read: {csr_name}, label: {read_csr.label}\n"
@@ -402,7 +541,7 @@ class OpSys(AssemblyGenerator):
                     super_code += f"\tcsrr t2, {csr_name}\n"
                     super_code += f"\tj {end_super_label}\n"
 
-            if set_csr:
+            for set_csr in _get_entries(parsed_csr_accesses[csr], "set"):
                 if set_csr.priv_mode == "machine" or set_csr.force_machine_rw:
                     machine_code += "\n"
                     machine_code += f"\t# Machine Set: {csr_name}, label: {set_csr.label}\n"
@@ -415,7 +554,7 @@ class OpSys(AssemblyGenerator):
                     super_code += f"{set_csr.label}:\n"
                     super_code += f"\tcsrs {csr_name}, t2\n"
                     super_code += f"\tj {end_super_label}\n"
-            if clear_csr:
+            for clear_csr in _get_entries(parsed_csr_accesses[csr], "clear"):
                 if clear_csr.priv_mode == "machine" or clear_csr.force_machine_rw:
                     machine_code += "\n"
                     machine_code += f"\t# Machine Clear: {csr_name}, label: {clear_csr.label}\n"
@@ -429,7 +568,7 @@ class OpSys(AssemblyGenerator):
                     super_code += f"\tcsrc {csr_name}, t2\n"
                     super_code += f"\tj {end_super_label}\n"
 
-            if set_bit_csr:
+            for set_bit_csr in _get_entries(parsed_csr_accesses[csr], "set_bit"):
                 if set_bit_csr.priv_mode == "machine" or set_bit_csr.force_machine_rw:
                     machine_code += "\n"
                     machine_code += f"\t# Machine SetBit: {csr_name}, label: {set_bit_csr.label}\n"
@@ -442,7 +581,7 @@ class OpSys(AssemblyGenerator):
                     super_code += f"{set_bit_csr.label}:\n"
                     super_code += f"\tcsrs {csr_name}, t2\n"
                     super_code += f"\tj {end_super_label}\n"
-            if clear_bit_csr:
+            for clear_bit_csr in _get_entries(parsed_csr_accesses[csr], "clear_bit"):
                 if clear_bit_csr.priv_mode == "machine" or clear_bit_csr.force_machine_rw:
                     machine_code += "\n"
                     machine_code += f"\t# Machine ClearBit: {csr_name}, label: {clear_bit_csr.label}\n"
@@ -456,8 +595,9 @@ class OpSys(AssemblyGenerator):
                     super_code += f"\tcsrc {csr_name}, t2\n"
                     super_code += f"\tj {end_super_label}\n"
 
-            if write_subfield_csr and write_subfield_csr.field:
+            for write_subfield_csr in write_subfield_csrs:
                 instr_helper = DtestInstructionHelper(exclude=["t2"])
+                assert write_subfield_csr.field is not None
                 subfield = {write_subfield_csr.field: ""}
                 try:
                     if csr_config:
@@ -472,13 +612,13 @@ class OpSys(AssemblyGenerator):
                         )
                         if write_subfield_csr.priv_mode == "machine" or write_subfield_csr.force_machine_rw:
                             machine_code += "\n"
-                            machine_code += f"\t# Machine WriteSubfield: {csr_name}, label: {write_subfield_csr.label}\n"
+                            machine_code += f"\t# Machine WriteSubfield: {csr_name}.{write_subfield_csr.field}, label: {write_subfield_csr.label}\n"
                             machine_code += f"{write_subfield_csr.label}:\n"
                             machine_code += "\t" + asm.replace("\n", "\n\t").strip() + "\n"
                             machine_code += f"\tj {end_machine_label}\n"
                         elif write_subfield_csr.priv_mode == "supervisor":
                             super_code += "\n"
-                            super_code += f"\t# Supervisor WriteSubfield: {csr_name}, label: {write_subfield_csr.label}\n"
+                            super_code += f"\t# Supervisor WriteSubfield: {csr_name}.{write_subfield_csr.field}, label: {write_subfield_csr.label}\n"
                             super_code += f"{write_subfield_csr.label}:\n"
                             super_code += "\t" + asm.replace("\n", "\n\t").strip() + "\n"
                             super_code += f"\tj {end_super_label}\n"
@@ -487,8 +627,9 @@ class OpSys(AssemblyGenerator):
                 except Exception as e:
                     raise ValueError(f"write_subfield for {csr_name}.{write_subfield_csr.field} requires csr_config: {e}") from e
 
-            if read_subfield_csr and read_subfield_csr.field:
+            for read_subfield_csr in read_subfield_csrs:
                 instr_helper = DtestInstructionHelper()
+                assert read_subfield_csr.field is not None
                 subfield = {read_subfield_csr.field: "0"}
                 try:
                     if csr_config:
@@ -501,13 +642,13 @@ class OpSys(AssemblyGenerator):
                         )
                         if read_subfield_csr.priv_mode == "machine" or read_subfield_csr.force_machine_rw:
                             machine_code += "\n"
-                            machine_code += f"\t# Machine ReadSubfield: {csr_name}, label: {read_subfield_csr.label}\n"
+                            machine_code += f"\t# Machine ReadSubfield: {csr_name}.{read_subfield_csr.field}, label: {read_subfield_csr.label}\n"
                             machine_code += f"{read_subfield_csr.label}:\n"
                             machine_code += "\t" + asm.replace("\n", "\n\t").strip() + "\n"
                             machine_code += f"\tj {end_machine_label}\n"
                         elif read_subfield_csr.priv_mode == "supervisor":
                             super_code += "\n"
-                            super_code += f"\t# Supervisor ReadSubfield: {csr_name}, label: {read_subfield_csr.label}\n"
+                            super_code += f"\t# Supervisor ReadSubfield: {csr_name}.{read_subfield_csr.field}, label: {read_subfield_csr.label}\n"
                             super_code += f"{read_subfield_csr.label}:\n"
                             super_code += "\t" + asm.replace("\n", "\n\t").strip() + "\n"
                             super_code += f"\tj {end_super_label}\n"
@@ -534,38 +675,21 @@ class OpSys(AssemblyGenerator):
 
 """
         for csr in parsed_csr_accesses:
-            write_csr = parsed_csr_accesses[csr].get("write", None)
-            read_csr = parsed_csr_accesses[csr].get("read", None)
-            set_csr = parsed_csr_accesses[csr].get("set", None)
-            clear_csr = parsed_csr_accesses[csr].get("clear", None)
-            set_bit_csr = parsed_csr_accesses[csr].get("set_bit", None)
-            clear_bit_csr = parsed_csr_accesses[csr].get("clear_bit", None)
-            write_subfield_csr = parsed_csr_accesses[csr].get("write_subfield", None)
-            read_subfield_csr = parsed_csr_accesses[csr].get("read_subfield", None)
-            if write_csr and (write_csr.priv_mode == "machine" or write_csr.force_machine_rw):
-                code += f"\tli t0, {write_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {write_csr.label}\n"
-            if read_csr and (read_csr.priv_mode == "machine" or read_csr.force_machine_rw):
-                code += f"\tli t0, {read_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {read_csr.label}\n"
-            if set_csr and (set_csr.priv_mode == "machine" or set_csr.force_machine_rw):
-                code += f"\tli t0, {set_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {set_csr.label}\n"
-            if clear_csr and (clear_csr.priv_mode == "machine" or clear_csr.force_machine_rw):
-                code += f"\tli t0, {clear_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {clear_csr.label}\n"
-            if set_bit_csr and (set_bit_csr.priv_mode == "machine" or set_bit_csr.force_machine_rw):
-                code += f"\tli t0, {set_bit_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {set_bit_csr.label}\n"
-            if clear_bit_csr and (clear_bit_csr.priv_mode == "machine" or clear_bit_csr.force_machine_rw):
-                code += f"\tli t0, {clear_bit_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {clear_bit_csr.label}\n"
-            if write_subfield_csr and (write_subfield_csr.priv_mode == "machine" or write_subfield_csr.force_machine_rw):
-                code += f"\tli t0, {write_subfield_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {write_subfield_csr.label}\n"
-            if read_subfield_csr and (read_subfield_csr.priv_mode == "machine" or read_subfield_csr.force_machine_rw):
-                code += f"\tli t0, {read_subfield_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {read_subfield_csr.label}\n"
+            write_subfield_csrs = [v for k, v in parsed_csr_accesses[csr].items() if k.startswith("write_subfield")]
+            read_subfield_csrs = [v for k, v in parsed_csr_accesses[csr].items() if k.startswith("read_subfield")]
+            for op in ["write", "read", "set", "clear", "set_bit", "clear_bit"]:
+                for entry in _get_entries(parsed_csr_accesses[csr], op):
+                    if entry.priv_mode == "machine" or entry.force_machine_rw:
+                        code += f"\tli t0, {entry.csr_id}\n"
+                        code += f"\tbeq x31, t0, {entry.label}\n"
+            for write_subfield_csr in write_subfield_csrs:
+                if write_subfield_csr.priv_mode == "machine" or write_subfield_csr.force_machine_rw:
+                    code += f"\tli t0, {write_subfield_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {write_subfield_csr.label}\n"
+            for read_subfield_csr in read_subfield_csrs:
+                if read_subfield_csr.priv_mode == "machine" or read_subfield_csr.force_machine_rw:
+                    code += f"\tli t0, {read_subfield_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {read_subfield_csr.label}\n"
         code += f"\tj {end_machine_label}\n"
         code += machine_code
 
@@ -582,38 +706,21 @@ class OpSys(AssemblyGenerator):
 
 """
         for csr in parsed_csr_accesses:
-            read_csr = parsed_csr_accesses[csr].get("read", None)
-            write_csr = parsed_csr_accesses[csr].get("write", None)
-            set_csr = parsed_csr_accesses[csr].get("set", None)
-            clear_csr = parsed_csr_accesses[csr].get("clear", None)
-            set_bit_csr = parsed_csr_accesses[csr].get("set_bit", None)
-            clear_bit_csr = parsed_csr_accesses[csr].get("clear_bit", None)
-            write_subfield_csr = parsed_csr_accesses[csr].get("write_subfield", None)
-            read_subfield_csr = parsed_csr_accesses[csr].get("read_subfield", None)
-            if read_csr and read_csr.priv_mode == "supervisor" and not read_csr.force_machine_rw:
-                code += f"\tli t0, {read_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {read_csr.label}\n"
-            if write_csr and write_csr.priv_mode == "supervisor" and not write_csr.force_machine_rw:
-                code += f"\tli t0, {write_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {write_csr.label}\n"
-            if set_csr and set_csr.priv_mode == "supervisor" and not set_csr.force_machine_rw:
-                code += f"\tli t0, {set_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {set_csr.label}\n"
-            if clear_csr and clear_csr.priv_mode == "supervisor" and not clear_csr.force_machine_rw:
-                code += f"\tli t0, {clear_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {clear_csr.label}\n"
-            if set_bit_csr and set_bit_csr.priv_mode == "supervisor" and not set_bit_csr.force_machine_rw:
-                code += f"\tli t0, {set_bit_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {set_bit_csr.label}\n"
-            if clear_bit_csr and clear_bit_csr.priv_mode == "supervisor" and not clear_bit_csr.force_machine_rw:
-                code += f"\tli t0, {clear_bit_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {clear_bit_csr.label}\n"
-            if write_subfield_csr and write_subfield_csr.priv_mode == "supervisor" and not write_subfield_csr.force_machine_rw:
-                code += f"\tli t0, {write_subfield_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {write_subfield_csr.label}\n"
-            if read_subfield_csr and read_subfield_csr.priv_mode == "supervisor" and not read_subfield_csr.force_machine_rw:
-                code += f"\tli t0, {read_subfield_csr.csr_id}\n"
-                code += f"\tbeq x31, t0, {read_subfield_csr.label}\n"
+            write_subfield_csrs = [v for k, v in parsed_csr_accesses[csr].items() if k.startswith("write_subfield")]
+            read_subfield_csrs = [v for k, v in parsed_csr_accesses[csr].items() if k.startswith("read_subfield")]
+            for op in ["read", "write", "set", "clear", "set_bit", "clear_bit"]:
+                for entry in _get_entries(parsed_csr_accesses[csr], op):
+                    if entry.priv_mode == "supervisor" and not entry.force_machine_rw:
+                        code += f"\tli t0, {entry.csr_id}\n"
+                        code += f"\tbeq x31, t0, {entry.label}\n"
+            for write_subfield_csr in write_subfield_csrs:
+                if write_subfield_csr.priv_mode == "supervisor" and not write_subfield_csr.force_machine_rw:
+                    code += f"\tli t0, {write_subfield_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {write_subfield_csr.label}\n"
+            for read_subfield_csr in read_subfield_csrs:
+                if read_subfield_csr.priv_mode == "supervisor" and not read_subfield_csr.force_machine_rw:
+                    code += f"\tli t0, {read_subfield_csr.csr_id}\n"
+                    code += f"\tbeq x31, t0, {read_subfield_csr.label}\n"
         code += f"\tj {end_super_label}\n"
         code += super_code
 
@@ -623,139 +730,5 @@ class OpSys(AssemblyGenerator):
         li x31, 0xf0001004
         ecall
         """
-
-        return code
-
-    def _generate_pte_walk_code(self, lin_name: str, paging_mode: str, target_level: int, label: str, is_write: bool) -> str:
-        """Generate page table walk code for reading or writing PTEs at a specific level.
-
-        Args:
-            lin_name: Virtual address label
-            paging_mode: Paging mode (sv39/sv48/sv57)
-            target_level: Target level to read/write
-            label: Label for this PTE operation
-            is_write: True for write, False for read
-
-        Returns:
-            Assembly code string
-        """
-        machine_code = ""
-        paging_mode_lower = paging_mode.lower()
-
-        # Generate page table walk code for this specific paging mode
-        op_type = "Write" if is_write else "Read"
-        machine_code += "\n"
-        machine_code += f"\t# {op_type} PTE: {lin_name} in {paging_mode_lower} at level {target_level}, label: {label}\n"
-        machine_code += f"{label}:\n"
-
-        # Load virtual address from lin_name label into x31
-        machine_code += f"\tli x31, {lin_name}\n"
-
-        # Read satp to get root page table base
-        machine_code += "\tcsrr t1, satp\n"
-        machine_code += "\tslli t1, t1, 20\n"  # Shift left to clear MODE (bits 63:60) and ASID (bits 59:44)
-        machine_code += "\tsrli t1, t1, 20\n"  # Shift right to get PPN in bits 43:0
-        machine_code += "\tslli t1, t1, 12\n"  # Shift left by 12 to convert PPN to physical address
-
-        # Determine number of levels based on paging mode
-        if paging_mode_lower == "sv39":
-            levels = [(38, 30), (29, 21), (20, 12)]  # 3 levels
-        elif paging_mode_lower == "sv48":
-            levels = [(47, 39), (38, 30), (29, 21), (20, 12)]  # 4 levels
-        elif paging_mode_lower == "sv57":
-            levels = [(56, 48), (47, 39), (38, 30), (29, 21), (20, 12)]  # 5 levels
-        else:
-            # Default to sv39
-            levels = [(38, 30), (29, 21), (20, 12)]
-
-        # Walk through each level until we reach the target level
-        for level_idx, (vpn_hi, vpn_lo) in enumerate(levels):
-            vpn_bits = vpn_hi - vpn_lo + 1
-            vpn_mask = (1 << vpn_bits) - 1
-
-            machine_code += f"\n\t# Level {level_idx}: VPN[{vpn_hi}:{vpn_lo}]\n"
-
-            # Extract VPN for this level
-            machine_code += "\tmv t0, x31\n"  # Copy virtual address
-            machine_code += f"\tsrli t0, t0, {vpn_lo}\n"  # Shift to extract VPN
-            machine_code += f"\tandi t0, t0, {hex(vpn_mask)}\n"  # Mask to get VPN bits
-            machine_code += "\tslli t0, t0, 3\n"  # Multiply by 8 (PTE size)
-            machine_code += "\tadd t1, t1, t0\n"  # t1 = PTE address
-
-            if level_idx == target_level:
-                # We've reached the target level
-                if is_write:
-                    # Write the value from t2 to the PTE
-                    machine_code += f"\t# Writing PTE at level {target_level}\n"
-                    machine_code += "\tsd t2, 0(t1)\n"  # Store t2 value to PTE
-                else:
-                    # Read the PTE value into t2
-                    machine_code += f"\t# Reading PTE at level {target_level}\n"
-                    machine_code += "\tld t2, 0(t1)\n"  # Load PTE into t2
-                machine_code += f"\tj {label}_done\n"
-                break
-            else:
-                # Not at target level yet, read PTE and continue to next level
-                machine_code += "\tld t0, 0(t1)\n"  # Load PTE into t0
-
-                # Check if this is a leaf PTE (shouldn't be if not at target level)
-                machine_code += "\tandi t1, t0, 0xE\n"  # Check bits [3:1]
-                machine_code += f"\tbnez t1, {label}_error\n"  # If any set, it's a leaf (error)
-
-                # Not a leaf, extract next level base address
-                machine_code += "\tsrli t0, t0, 10\n"  # Extract PPN from PTE
-                machine_code += "\tslli t1, t0, 12\n"  # Convert PPN to address
-
-        machine_code += f"\n{label}_error:\n"
-        machine_code += "\t# Error: encountered leaf PTE before target level\n"
-        machine_code += "\tj end_machine_pte_label\n"
-
-        machine_code += f"\n{label}_done:\n"
-        machine_code += f"\t# PTE {'write' if is_write else 'read'} complete\n"
-        machine_code += "\tj end_machine_pte_label\n"
-
-        return machine_code
-
-    def generate_pte_jump_table(self) -> str:
-        """Generate unified jump table for reading and writing PTEs at any level."""
-        machine_code = ""
-        end_machine_label = "end_machine_pte_label"
-
-        # Build Machine Jump Table for PTE reads
-        parsed_read_ptes = self.pool.get_parsed_read_ptes()
-        for (lin_name, paging_mode, level), read_pte in parsed_read_ptes.items():
-            machine_code += self._generate_pte_walk_code(lin_name, paging_mode, level, read_pte.label, is_write=False)
-
-        # Build Machine Jump Table for PTE writes
-        parsed_write_ptes = self.pool.get_parsed_write_ptes()
-        for (lin_name, paging_mode, level), write_pte in parsed_write_ptes.items():
-            machine_code += self._generate_pte_walk_code(lin_name, paging_mode, level, write_pte.label, is_write=True)
-
-        # Generate the jump table section
-        code = f"""
-.section .pte_machine_0, "ax"
-{self.machine_pte_jump_table_flags.load("x31")}
-
-"""
-        # Generate comparison checks for each parsed read PTE
-        for (lin_name, paging_mode, level), read_pte in parsed_read_ptes.items():
-            code += f"\tli t1, {read_pte.pte_id}\n"
-            code += f"\tbeq x31, t1, {read_pte.label}\n"
-
-        # Generate comparison checks for each parsed write PTE
-        for (lin_name, paging_mode, level), write_pte in parsed_write_ptes.items():
-            code += f"\tli t1, {write_pte.write_pte_id}\n"
-            code += f"\tbeq x31, t1, {write_pte.label}\n"
-
-        code += f"\tj {end_machine_label}\n"
-        code += machine_code
-
-        # End label that returns to test mode
-        code += f"""
-{end_machine_label}:
-\t# Return to testmode
-\tli x31, 0xf0001004
-\tecall
-"""
 
         return code
