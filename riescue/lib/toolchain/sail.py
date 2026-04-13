@@ -45,6 +45,18 @@ class Sail(Tool):
         The parser handles all known variants.
     """
 
+    # Mapping from friendly trace names to Sail 0.10 CLI flags.
+    # Used by --sail_trace argument to enable instruction-level tracing.
+    TRACE_FLAG_MAP: dict[str, str] = {
+        "instr":     "--trace-instr",
+        "reg":       "--trace-reg",
+        "mem":       "--trace-mem",
+        "exception": "--trace-exception",
+        "interrupt": "--trace-interrupt",
+        "ptw":       "--trace-ptw",
+        "all":       "--trace-all",
+    }
+
     def __init__(
         self,
         sail_path: Optional[Path] = None,
@@ -52,6 +64,7 @@ class Sail(Tool):
         sail_config: Optional[Path] = None,
         sail_config_override: Optional[Path] = None,
         sail_max_instr: int = 2000000,
+        sail_trace: Optional[list[str]] = None,
     ):
         """
         :param sail_path: path to sail_riscv_sim binary. If None, uses
@@ -67,13 +80,22 @@ class Sail(Tool):
             rewriting the full config.
         :param sail_max_instr: maximum instructions before Sail terminates.
             Passed via --inst-limit (renamed from --instruction-limit in 0.10).
+        :param sail_trace: list of trace categories to enable. Valid values:
+            'instr', 'reg', 'mem', 'exception', 'interrupt', 'ptw', 'all'.
+            Maps to Sail's --trace-<name> flags. Trace output goes to the
+            same log file as the HTIF trace (--trace-output). Useful for
+            diagnosing why tests fail or hang on Sail.
+            Example: sail_trace=['instr', 'reg', 'mem']
         """
         if sail_args is None:
             sail_args = []
+        if sail_trace is None:
+            sail_trace = []
 
         self.sail_config = sail_config
         self.sail_config_override = sail_config_override
         self.sail_max_instr = sail_max_instr
+        self.sail_trace = sail_trace
 
         # Sail 0.10 base args:
         #   --inst-limit N  : stop after N instructions
@@ -86,6 +108,19 @@ class Sail(Tool):
             "--inst-limit", str(sail_max_instr),
             "--trace-htif",
         ]
+
+        # Add user-requested trace flags. If 'all' is in the list, just use
+        # --trace-all and skip the rest to avoid duplicate flags.
+        if "all" in sail_trace:
+            args.append("--trace-all")
+        else:
+            for t in sail_trace:
+                flag = self.TRACE_FLAG_MAP.get(t)
+                if flag and flag not in args:
+                    args.append(flag)
+
+        if sail_trace:
+            log.debug(f"Sail trace enabled: {sail_trace} → {[self.TRACE_FLAG_MAP.get(t, t) for t in sail_trace]}")
 
         super().__init__(
             path=sail_path,
@@ -127,8 +162,19 @@ class Sail(Tool):
                  "without rewriting the full config.",
         )
         sail_parser.add_argument(
-            "--sail_max_instr", type=int, default=2000000,
-            help="Max instructions to simulate on Sail (--inst-limit). Default: 2000000.",
+            "--sail_max_instr", type=int, default=20000,
+            help="Max instructions to simulate on Sail (--inst-limit). Default: 20000.",
+        )
+        sail_parser.add_argument(
+            "--sail_trace", nargs="*", default=[],
+            metavar="CATEGORY",
+            help="Enable Sail instruction-level trace output. "
+                 "Specify one or more categories: instr, reg, mem, exception, interrupt, ptw, all. "
+                 "E.g. --sail_trace instr reg mem. "
+                 "Use 'all' to enable everything. "
+                 "Trace is written to the same log file as the HTIF trace (<testname>_sail.log). "
+                 "Useful for diagnosing test failures or supervisor-mode hangs on Sail. "
+                 "Warning: 'all' produces very large log files and slows simulation significantly.",
         )
         # fmt: on
 
@@ -140,6 +186,7 @@ class Sail(Tool):
             sail_config=getattr(args, "sail_config", None),
             sail_config_override=getattr(args, "sail_config_override", None),
             sail_max_instr=args.sail_max_instr,
+            sail_trace=getattr(args, "sail_trace", []) or [],
         )
 
     def run(self, output_file=None, cwd=None, timeout=90, args: Optional[list[str]] = None):
