@@ -1,25 +1,21 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 // SPDX-License-Identifier: Apache-2.0
-#include <stdio.h>
-#include <stdint.h>
-#include <strings.h>
-
 #define MAP_ADDR    (0x90000000)
 #define MAP_SIZE    (0x1000)
-#define MAP_MAGIC_1 (0x3150414d)
-#define MAP_MAGIC_2 (0x3250414d)
+#define MAP_MAGIC_1 (0x3150414dU)
+#define MAP_MAGIC_2 (0x3250414dU)
 
 struct ipc_struct {
-    uint32_t ipc_flag;
+    unsigned int ipc_flag;
 };
 
 int
-c_func_0(uint32_t *addr1)
+c_func_0(unsigned int *addr1)
 {
     volatile struct ipc_struct *sbuf;
 
-    uint32_t *addr2 = (uint32_t *)((uint8_t *)addr1 + 0x1000);
-    uint32_t *addr3 = (uint32_t *)((uint8_t *)addr1 + 0x2000);
+    unsigned int *addr2 = (unsigned int *)((unsigned char *)addr1 + 0x1000);
+    unsigned int *addr3 = (unsigned int *)((unsigned char *)addr1 + 0x2000);
 
     *addr1 = MAP_MAGIC_1;
     *addr2 = MAP_MAGIC_1 + 1;
@@ -38,12 +34,12 @@ c_func_0(uint32_t *addr1)
 }
 
 int
-c_func_1(uint32_t *addr1)
+c_func_1(unsigned int *addr1)
 {
     volatile struct ipc_struct *sbuf;
 
-    uint32_t *addr2 = (uint32_t *)((uint8_t *)addr1 + 0x1000);
-    uint32_t *addr3 = (uint32_t *)((uint8_t *)addr1 + 0x2000);
+    unsigned int *addr2 = (unsigned int *)((unsigned char *)addr1 + 0x1000);
+    unsigned int *addr3 = (unsigned int *)((unsigned char *)addr1 + 0x2000);
 
     *addr1 = MAP_MAGIC_2;
     *addr2 = MAP_MAGIC_2 + 1;

@@ -92,13 +92,10 @@ Tests are scheduled for repeat_times number of times.
 ``ParallelScheduler``
 _______________________
 
-This is a multiprocessor mode that schedules tests so that no two tests are ran at the same time by different harts.
-Tests for this scheduler can be written indepedently as the harts will never be runnign the same test.
+This is a multiprocessor mode that schedules tests so that no two tests are run at the same time by different harts.
+Tests for this scheduler can be written indepedently as the harts will never be running the same test.
 
-There's a couple scheduling modes for this scheduler, configured with ``parallel_scheduling_mode``:
-
-- ``ROUND_ROBIN``: All tests are ran ``repeat_times`` number of times, but each hart has an independent set of tests to run.
-- ``EXHAUSTIVE``: All harts run all tests ``repeat_times`` number of times.
+Tests × repeat_times are run across all cores from a shared pool. Each core uses LCG-based random selection.
 
 
 ``SimultaneousScheduler``
@@ -125,6 +122,5 @@ Configuration
 - ``priv_mode``: Privilege mode for test execution
 - ``repeat_times``: Number of times to repeat each test (-1 for Linux mode runtime randomization)
 - ``linux_mode``: Enable Linux scheduler mode with runtime randomization
-- ``parallel_scheduling_mode``: Scheduling mode for parallel MP (ROUND_ROBIN or EXHAUSTIVE)
 
 

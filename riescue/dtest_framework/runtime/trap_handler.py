@@ -392,6 +392,7 @@ class TrapHandler(AssemblyGenerator):
         self.xepc = "sepc"
         self.xret = "sret"
         self.xip = "sip"
+        self.xstatus = "sstatus"
         self.tvec = "stvec"
         self.tval = "stval"
         self.scratch_reg = "sscratch"
@@ -400,6 +401,7 @@ class TrapHandler(AssemblyGenerator):
             self.xepc = "mepc"
             self.xret = "mret"
             self.xip = "mip"
+            self.xstatus = "mstatus"
             self.tvec = "mtvec"
             self.tval = "mtval"
             self.scratch_reg = "mscratch"
@@ -474,16 +476,31 @@ class TrapHandler(AssemblyGenerator):
             vec_mode = RV.RiscvPrivileges.SUPER if vec_delegated else RV.RiscvPrivileges.MACHINE
             if vec_mode == self.deleg_mode:
                 ctx = SUPERVISOR_CTX if vec_delegated else MACHINE_CTX
-                override_handlers += f"\n.align 2\n{label}:\n{assembly_fn(ctx)}\n"
+                override_handlers += f"\n.balign 4, 0\n{label}:\n{assembly_fn(ctx)}\n"
+
+        # Emit handler bodies for FeatMgr-level default exception handler overrides.
+        # Routing parallels the interrupt side but uses medeleg: causes whose medeleg
+        # bit is set go to the S-mode TrapHandler, others to M-mode. Dispatch to these
+        # handlers is inlined at exception_path in default_trap_handler() (both APLIC
+        # and non-APLIC paths) — see there for the (test-wide, no per-segment
+        # switching) matching scheme.
+        excp_override_handlers = ""
+        for cause, (label, assembly_fn) in self.featmgr.exception_handler_overrides.items():
+            cause_delegated = bool((self.featmgr.medeleg >> cause) & 1)
+            cause_mode = RV.RiscvPrivileges.SUPER if cause_delegated else RV.RiscvPrivileges.MACHINE
+            if cause_mode == self.deleg_mode:
+                ctx = SUPERVISOR_CTX if cause_delegated else MACHINE_CTX
+                excp_override_handlers += f"\n.balign 4, 0\n{label}:\n{assembly_fn(ctx)}\n"
 
         code = f"""
         .section .{section_name}, "ax"
         {custom_macros}
         {self.interrupt_handler.generate(custom_vectors=custom_vectors)}
         {override_handlers}
+        {excp_override_handlers}
         {self.test_fail()}
         {self.default_trap_handler()}
-        .align 2
+        .balign 4, 0
         {self.exception_handler_label}:
         """
 
@@ -494,6 +511,7 @@ class TrapHandler(AssemblyGenerator):
         check_excp_actual_pc = self.variable_manager.get_variable("check_excp_actual_pc")
         check_excp_actual_cause = self.variable_manager.get_variable("check_excp_actual_cause")
         check_excp_return_pc = self.variable_manager.get_variable("check_excp_return_pc")
+        check_excp_re_execute = self.variable_manager.get_variable("check_excp_re_execute")
 
         code += f" csrr t1, {self.xcause}\n"
         code += self.ecall_handler()
@@ -515,13 +533,19 @@ class TrapHandler(AssemblyGenerator):
             {self.label_prefix}ecall_from_supervisor:
             {self.label_prefix}return_to_host:
 
+            # Always consume the stashed return_pc so every OS_SETUP_CHECK_EXCP is single-use.
             {check_excp_return_pc.load_and_clear(dest_reg='t0'):<35}  # check_excp_return_pc
+            # When re-execute is set, leave xepc pointing at the faulting PC so xret
+            # resumes at the same instruction (sdtrig icount/mcontrol6 use cases).
+            {check_excp_re_execute.load_and_clear(dest_reg='t1'):<35}  # check_excp_re_execute
+            bnez t1, {self.label_prefix}skip_xepc_write
             csrw {self.xepc}, t0
+            {self.label_prefix}skip_xepc_write:
         """
 
         # Call post handler user code
         if self.featmgr.excp_hooks:
-            code += self._call_excp_hook("excp_handler_pre_addr")
+            code += self._call_excp_hook("excp_handler_post_addr")
 
         # Return from trap
         code += "\n" + self.trap_exit()
@@ -659,28 +683,60 @@ class TrapHandler(AssemblyGenerator):
         """
         Generates the default trap handler code. Checks for interrupt vs exception.
         Exceptions get handled in exception entry.
-        Interrupts get cleared and return to code.
+        Interrupts get dispatched to the interrupt vector table based on xcause.
 
         Consists of:
 
-        - routine :py:attr:`trap_handler_label` checks if interrupts vs exception
-        - routine :py:attr:`interrupt_handler_label` clears interrupts and returns to code
-        - branches to :py:attr:`exception_handler_label` if interrupt bit is 0 (i.e. exception)
+        - routine :py:attr:`trap_handler_label` reads xcause **before** saving context
+        - if interrupt (MSB set): dispatches to the interrupt vector table at
+          ``trap_entry + 4 * cause``.  The vector table entries are ``j <handler>``
+          instructions whose targets handle the interrupt and execute ``xret``
+          directly (no context save/restore needed — identical to HW vectored mode).
+        - if exception (MSB clear): runs any FeatMgr exception handler overrides
+          before saving context, then (on fall-through) saves context and branches
+          to :py:attr:`exception_handler_label` for full exception processing.
+        - routine :py:attr:`interrupt_handler_label` handles the APLIC dispatch
+          path; it saves context at its own entry and re-reads xcause.
         - jumps to :py:attr:`trap_exit_label` to restore context and return to test code
         """
 
-        ret = f"""
+        # Build FeatMgr-registered exception handler override dispatch once — it runs
+        # before save_context() in both APLIC and non-APLIC paths so the handler body
+        # is responsible for its own register discipline and ends with ctx.xret.
+        # t0 still holds xcause from the initial read; t1 is used as a scratch for
+        # the cause compare.  Non-overridden causes fall through to save_context().
+        excp_dispatch_body = ""
+        for cause, (label, _) in self.featmgr.exception_handler_overrides.items():
+            cause_delegated = bool((self.featmgr.medeleg >> cause) & 1)
+            cause_mode = RV.RiscvPrivileges.SUPER if cause_delegated else RV.RiscvPrivileges.MACHINE
+            if cause_mode == self.deleg_mode:
+                excp_dispatch_body += f"            li t1, {cause}\n            beq t0, t1, {label}\n"
+
+        # Only emit the comment block when at least one override is registered for
+        # this privilege level, so the generated asm stays clean otherwise.
+        if excp_dispatch_body:
+            excp_dispatch = f"""            # FeatMgr exception handler overrides — matched before context save.
+            # t0 still holds {self.xcause} from the initial read above; only t1
+            # was clobbered by the interrupt-vs-exception test.
+{excp_dispatch_body}"""
+        else:
+            excp_dispatch = ""
+
+        if self.pool.init_aplic_interrupts:
+            # APLIC path: xcause is read BEFORE save_context() so the exception-override
+            # dispatch can run with no registers spilled (same contract as non-APLIC).
+            # Interrupt handlers save context at their own entry and re-read xcause there.
+            topei = f"{self.deleg_mode_str}topei"
+            ret = f"""
             {self.trap_handler_label}:
-            {self.save_context()}
             csrr t0, {self.xcause}
             li t1, (0x1<<(XLEN-1))              # Isolate interrupt bit
             and t1, t1, t0
-            beq t1, x0, {self.exception_handler_label}  # If the interrupt bit is 0, exception
-        """
-        if self.pool.init_aplic_interrupts:
-            topei = f"{self.deleg_mode_str}topei"
-            ret += f"""
+            beq t1, x0, {self.label_prefix}exception_path  # If the interrupt bit is 0, exception
+
                 {self.interrupt_handler_label}:
+                {self.save_context()}
+                csrr t0, {self.xcause}
                 bclri t0, t0, 63
 
                 li t1, 1
@@ -709,22 +765,38 @@ class TrapHandler(AssemblyGenerator):
                     beqz t0, test_failed
                     jr t0
 
+            {self.label_prefix}exception_path:
+{excp_dispatch}            {self.save_context()}
+            j {self.exception_handler_label}
             """
         else:
-            ret += f"""
-                {self.interrupt_handler_label}:
-                li t0, 0
-                # Clear the pending interrupt by writing a 0;
-                # FIXME: This will clear nested interrupts. We don't want that.
-                # This needs to clear the highest interrupt bit that was set
-                # If zbb
-                # csrr a0, {self.xip}
-                # ctz a1, a0
-                # gives interrupt bit
-                # otherwise need a while loop to get lowest bit to clear
-                csrw {self.xip}, t0
+            # Non-APLIC path: check xcause BEFORE saving context.
+            # Interrupts dispatch directly to the vector table (handlers do their
+            # own xret, same as HW vectored mode — no context save/restore).
+            # Exceptions fall through to save context and enter the exception handler.
+            ret = f"""
+            {self.trap_handler_label}:
+            csrr t0, {self.xcause}
+            li t1, (0x1<<(XLEN-1))              # Isolate interrupt bit
+            and t1, t1, t0
+            beq t1, x0, {self.label_prefix}exception_path  # If the interrupt bit is 0, exception
 
-                j {self.trap_exit_label}
+                {self.interrupt_handler_label}:
+                # Dispatch to the interrupt vector table based on xcause.
+                # Strip the interrupt bit (MSB) to get the cause number,
+                # then jump into the vector table at trap_entry + 4*cause.
+                # Each vector table entry is a 4-byte 'j <handler>' instruction.
+                # Handlers execute xret directly (no context save/restore needed).
+                li t1, (0x1<<(XLEN-1))
+                xor t0, t0, t1                  # Strip interrupt bit to get cause number
+                la t1, {self.interrupt_handler.trap_entry_label}
+                slli t0, t0, 2                  # cause * 4 (each entry is 4 bytes)
+                add t0, t1, t0                  # trap_entry + 4*cause
+                jr t0                           # Jump to vector table entry
+
+            {self.label_prefix}exception_path:
+{excp_dispatch}            {self.save_context()}
+            j {self.exception_handler_label}
             """
 
         return ret
@@ -793,7 +865,7 @@ class TrapHandler(AssemblyGenerator):
             xret_code = self.xret
 
         return f"""
-.align 2
+.balign 4, 0
 {self.trap_exit_label}:
     {self.featmgr.call_hook(RV.HookPoint.POST_TRAP)}
     {self.restore_trap_handler()}
@@ -923,11 +995,32 @@ class TrapHandler(AssemblyGenerator):
         if self.featmgr.skip_instruction_for_unexpected:
             # generates code for skipping trap, incrementing ignored exception count, and ending test if max count is reached
             # otherwise, skips trapped instruction and continues to test
+
+            # When the M-mode handler runs, xepc is a virtual address in the mode
+            # that trapped (MPP). M-mode loads bypass paging, so a direct lwu
+            # reads the wrong physical address. Set MPRV so the load translates
+            # via MPP's paging (and MPV's guest paging if set by H-extension).
+            # Skip the MPRV dance for the M-mode paging test mode
+            # (priv_mode==MACHINE + paging enabled) because that mode has its
+            # own MPRV/MPP semantics in the test code.
+            mmode_paging_test = self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE and self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE
+            use_mprv = self.deleg_mode == RV.RiscvPrivileges.MACHINE and not mmode_paging_test
+            if use_mprv:
+                mprv_sum_mask = "(1 << 17) | (1 << 18)"  # MPRV | SUM
+            else:
+                mprv_sum_mask = "(1 << 18)"  # SUM only
+            load_faulting_instr = f"""
+                csrr t3, {self.xstatus}
+                li t4, {mprv_sum_mask}
+                csrs {self.xstatus}, t4
+                lwu t1, 0(t0)
+                csrw {self.xstatus}, t3
+            """
             code += f"""
              {self.label_prefix}count_ignored_excp:
                 # Get PC exception {xepc}
                 csrr t0, {xepc}
-                lwu t1, 0(t0)
+                {load_faulting_instr}
                 # Check lower 2 bits to see if it equals 3
                 andi t1, t1, 0x3
                 li t2, 3
@@ -977,3 +1070,24 @@ class TrapHandler(AssemblyGenerator):
                 li x31, 0xf0000003  # End test without failure
                 ecall
             """
+
+    def kernel_panic(self, name: str) -> str:
+        """
+        Override of ``AssemblyGenerator.kernel_panic`` so that the S/HS/VS-mode
+        trap panic handlers do not try to branch directly into the ``.runtime``
+        section. ``eot__end_test`` lives in ``.runtime`` which is only
+        identity-accessible from M-mode; under S-mode sv39/sv48/sv57 paging the
+        runtime's text is not mapped into the supervisor page tables, so a
+        direct ``j eot__end_test`` from an S-mode trap_panic faults with
+        INST_PAGE_FAULT, re-enters the trap_panic, and spins until the ISS
+        instruction cap is hit. Use the 0xf0000002 syscall (fail-test) so that
+        M-mode terminates the test cleanly.
+        """
+        if self.deleg_mode == RV.RiscvPrivileges.MACHINE:
+            return super().kernel_panic(name)
+        return f"""
+{name}:
+    li gp, 0
+    li x31, 0xf0000002  # fail test
+    ecall
+        """

@@ -99,8 +99,6 @@ class BringupArgsAdapter(BaseAdapter):
             resource.force_alignment = args.force_alignment
 
         # FeatMgrBuilder overrides
-        if args.parallel_scheduling_mode is not None:
-            featmgr_builder.parallel_scheduling_mode = Candidate(RV.RiscvParallelSchedulingMode.str_to_enum(args.parallel_scheduling_mode))
         if args.big_endian is not None:
             resource.big_endian = args.big_endian
             featmgr_builder.featmgr.num_cpus = 1  # from legacy code, not sure what the restriction is

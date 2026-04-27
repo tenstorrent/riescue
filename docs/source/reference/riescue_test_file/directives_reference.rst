@@ -448,14 +448,43 @@ Sets up expected exceptions and verifies that they occur with correct parameters
 
 .. code-block:: text
 
-    OS_SETUP_CHECK_EXCP <expected_cause>, <expected_pc>, <return_pc> [, <expected_tval>]
+    OS_SETUP_CHECK_EXCP <expected_cause>, <expected_pc>, <return_pc> \
+        [, <expected_tval> [, <expected_htval> [, <skip_pc_check> \
+        [, <far_expected_pc> [, <far_return_pc> [, <gva_check> \
+        [, <expected_mode> [, <re_execute> ]]]]]]]]
 
 **Parameters:**
 
 - ``expected_cause`` (required) - Expected exception cause code
 - ``expected_pc`` (required) - Label where exception should occur
-- ``return_pc`` (required) - Label where execution continues after exception
+- ``return_pc`` (required) - Label where execution continues after exception.
+  Ignored by the handler when ``re_execute=1``.
 - ``expected_tval`` (optional) - Expected trap value (default: 0)
+- ``expected_htval`` (optional) - Expected hypervisor trap value (default: 0)
+- ``skip_pc_check`` (optional) - When 1, do not validate the faulting PC
+  (useful for icount triggers; default: 0)
+- ``far_expected_pc`` (optional) - When 1, use ``li`` instead of ``la`` for
+  ``expected_pc`` (use with equate addresses; default: 0)
+- ``far_return_pc`` (optional) - When 1, use ``li`` instead of ``la`` for
+  ``return_pc`` (default: 0)
+- ``gva_check`` (optional) - When 1, also validate and clear the ``GVA`` bit
+  in ``mstatus`` / ``hstatus`` (default: 0)
+- ``expected_mode`` (optional) - Require the trap to be taken in a specific
+  privilege mode. Use ``CHECK_EXCP_MODE_MACHINE``, ``CHECK_EXCP_MODE_HS`` or
+  ``CHECK_EXCP_MODE_VS``. 0 means any mode (default: 0).
+- ``re_execute`` (optional) - When 1, the OS trap handler returns with
+  ``mret`` / ``sret`` **without overwriting** ``mepc`` / ``sepc``, so the
+  core re-executes the same PC that took the exception. Intended for sdtrig
+  ``icount`` / ``mcontrol6`` before-stimulus use cases where the test needs
+  the trigger to fire repeatedly on the same instruction, or where the
+  handler disables/reconfigures the trigger before returning (default: 0).
+
+.. warning::
+
+    When ``re_execute=1``, the caller is responsible for forward progress —
+    either disable/reconfigure the trigger from a ``;#custom_handler`` or
+    rely on the trigger semantics to stop firing on the next execution.
+    Otherwise the hart will trap on the same PC forever.
 
 **Examples:**
 
@@ -466,3 +495,24 @@ Sets up expected exceptions and verifies that they occur with correct parameters
 
     # Test store page fault with specific trap value
     OS_SETUP_CHECK_EXCP STORE_PAGE_FAULT, fault_store, after_fault, readonly_page
+
+    # sdtrig mcontrol6 that must re-execute the same PC. The custom handler
+    # is responsible for disabling the trigger so the second fetch succeeds.
+    # Requires running with --excp_hooks so excp_handler_pre is invoked.
+    OS_SETUP_CHECK_EXCP BREAKPOINT, bp_here, bp_after, 0, 0, 0, 0, 0, 0, 0, 1
+    ;#trigger_config(index=0, type=execute, addr=bp_here, action=breakpoint)
+    bp_here:
+        nop
+    bp_after:
+
+    # sdtrig icount + re_execute=1. Icount naturally latches count=0 after
+    # firing (it is single-shot), so no in-handler cleanup is needed — the
+    # re-fetch is clean even without --excp_hooks. skip_pc_check=1 is set
+    # because icount fires at a non-deterministic retirement boundary.
+    OS_SETUP_CHECK_EXCP BREAKPOINT, ic_after, ic_after, 0, 0, 1, 0, 0, 0, 0, 1
+    ;#trigger_config(index=0, type=icount, count=3, action=breakpoint)
+    addi x10, x0, 0
+    addi x10, x10, 1
+    addi x10, x10, 1
+    ic_after:
+    ;#trigger_disable(index=0)

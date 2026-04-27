@@ -483,21 +483,28 @@ class RiscvPagingModes(MyEnum):
         return entry_size
 
     @classmethod
-    def supported_pagesizes(cls, mode: RiscvPagingModes) -> list[RiscvPageSizes]:
+    def supported_pagesizes(cls, mode: RiscvPagingModes, napot_supported: bool = False) -> list[RiscvPageSizes]:
         """
-        Return supported pagesizes for a page mode
+        Return supported pagesizes for a page mode.
+
+        :param mode: The paging mode (SV32, SV39, SV48, SV57, etc.)
+        :param napot_supported: Whether the Svnapot extension is enabled.
+            When True, S64KB (Svnapot) pages are included in the result.
         """
         pagesizes: list[RiscvPageSizes] = list()
         if mode == RiscvPagingModes.SV32:
             pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S4MB]
         elif mode == RiscvPagingModes.SV39:
-            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S64KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB]
+            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB]
         elif mode == RiscvPagingModes.SV48:
-            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S64KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB, RiscvPageSizes.S512GB]
+            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB, RiscvPageSizes.S512GB]
         elif mode == RiscvPagingModes.SV57:
-            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S64KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB, RiscvPageSizes.S512GB, RiscvPageSizes.S256TB]
+            pagesizes = [RiscvPageSizes.S4KB, RiscvPageSizes.S2MB, RiscvPageSizes.S1GB, RiscvPageSizes.S512GB, RiscvPageSizes.S256TB]
         else:
             pass
+
+        if napot_supported and mode in (RiscvPagingModes.SV39, RiscvPagingModes.SV48, RiscvPagingModes.SV57):
+            pagesizes.insert(1, RiscvPageSizes.S64KB)
 
         return pagesizes
 
@@ -619,20 +626,6 @@ class RiscvMPMode(MyEnum):
             return cls.MP_PARALLEL
         else:
             raise ValueError(f"mp_mode: {mp_mode} is unrecognized")
-
-
-class RiscvParallelSchedulingMode(MyEnum):
-    ROUND_ROBIN = auto()
-    EXHAUSTIVE = auto()
-
-    @classmethod
-    def str_to_enum(cls, mode: str) -> "RiscvParallelSchedulingMode":
-        if mode == "round_robin":
-            return cls.ROUND_ROBIN
-        elif mode == "exhaustive":
-            return cls.EXHAUSTIVE
-        else:
-            raise ValueError(f"mode: {mode} is unrecognized")
 
 
 class HookPoint(MyEnum):

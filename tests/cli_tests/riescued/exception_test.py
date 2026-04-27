@@ -2,10 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import unittest
+from pathlib import Path
 
 from riescue import RiescueD
 
 from tests.cli_tests.riescued.base_riescued import BaseRiescuedTest
+
+DEFAULT_EXCP_HANDLER_OVERRIDE_CONF = Path(__file__).resolve().parents[3] / "riescue/dtest_framework/tests/non_instr_tests/default_excp_handler_override_conf.py"
+DEFAULT_COMBINED_HANDLER_OVERRIDE_CONF = Path(__file__).resolve().parents[3] / "riescue/dtest_framework/tests/non_instr_tests/default_combined_handler_override_conf.py"
 
 
 class Test_ExcpTests(BaseRiescuedTest):
@@ -81,6 +85,62 @@ class Test_ExcpTests(BaseRiescuedTest):
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 
 
+class DefaultExceptionHandlerOverrideTests(BaseRiescuedTest):
+    """
+    CLI tests for ``FeatMgr.register_default_exception_handler()`` overrides.
+
+    Covers the test-wide synchronous exception handler override API: M-mode and
+    S-mode delegation paths, dispatch under vectored ``mtvec`` mode, and
+    composition with ``register_default_handler()`` (interrupt overrides) in
+    the same :class:`~riescue.dtest_framework.config.conf.Conf`.
+    """
+
+    def test_default_excp_handler_override(self):
+        """Verify register_default_exception_handler() routes ILLEGAL_INSTRUCTION (cause 2)
+        to a conf-registered handler in M-mode (medeleg bit 2 clear).
+
+        The conf file registers my_illegal_handler, which writes 0xCAFE to test_marker
+        and advances mepc by 4 so execution resumes after the faulting .word 0x0.
+        The test fires the illegal instruction and checks the marker."""
+        testname = "dtest_framework/tests/non_instr_tests/default_excp_handler_override.s"
+        args = ["--run_iss", "--deleg_excp_to=machine", f"--conf={DEFAULT_EXCP_HANDLER_OVERRIDE_CONF}"]
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+    def test_default_excp_handler_override_s(self):
+        """Verify register_default_exception_handler() with S-mode delegation path.
+
+        Same conf (my_illegal_handler) registered for cause 2, but run with
+        --deleg_excp_to=super so medeleg bit 2 is set and the handler is emitted in the
+        S-mode TrapHandler with SUPERVISOR_CTX (sepc/sret).  Confirms the single
+        TrapContext-aware callable works unchanged across delegation modes."""
+        testname = "dtest_framework/tests/non_instr_tests/default_excp_handler_override_s.s"
+        args = ["--run_iss", "--deleg_excp_to=super", f"--conf={DEFAULT_EXCP_HANDLER_OVERRIDE_CONF}"]
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+    def test_default_excp_handler_override_vectored_mode(self):
+        """Verify register_default_exception_handler() works when mtvec is in vectored MODE.
+
+        RISC-V spec: exceptions always dispatch to mtvec BASE regardless of MODE.
+        Only interrupts use BASE + 4*cause in vectored mode.  This test sets
+        SET_VECTORED_INTERRUPTS before triggering the illegal instruction to prove
+        the dispatch at exception_path runs identically in both modes."""
+        testname = "dtest_framework/tests/non_instr_tests/default_excp_handler_override.s"
+        args = ["--run_iss", "--deleg_excp_to=machine", f"--conf={DEFAULT_EXCP_HANDLER_OVERRIDE_CONF}", "-teq", "USE_VECTORED_MODE=1"]
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+    def test_default_combined_handler_override(self):
+        """Verify register_default_handler() and register_default_exception_handler() compose.
+
+        Single conf file registers both a SSI interrupt handler (vec 1) and an
+        ILLEGAL_INSTRUCTION exception handler (cause 2) in one add_hooks() call.
+        The directed test triggers both and checks that each handler wrote its
+        own marker, proving the two override mechanisms coexist without
+        interfering."""
+        testname = "dtest_framework/tests/non_instr_tests/default_combined_handler_override.s"
+        args = ["--run_iss", "--deleg_excp_to=machine", f"--conf={DEFAULT_COMBINED_HANDLER_OVERRIDE_CONF}"]
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+
 class Skip_InstrTests(BaseRiescuedTest):
     """
     Combined tests for skip_instr
@@ -105,8 +165,6 @@ class Skip_InstrTests(BaseRiescuedTest):
             "2",
             "--mp_mode",
             "parallel",
-            "--parallel_scheduling_mode",
-            "round_robin",
         ]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=1)  # FIXME: Fails on seed 2+
 

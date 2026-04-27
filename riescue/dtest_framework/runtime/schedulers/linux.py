@@ -108,7 +108,7 @@ mv t1, a0         # t1 = a0. a0 is being still used for test offset jumps
         """
         code = ""
         if self.featmgr.force_alignment:
-            code += ".align 3\n"
+            code += ".balign 8, 0\n"
         code += f"""
 
 
@@ -122,7 +122,7 @@ mv t1, a0         # t1 = a0. a0 is being still used for test offset jumps
         """
 
         if self.featmgr.force_alignment:
-            code += ".align 3\n"
+            code += ".balign 8, 0\n"
         os_test_sequence = "    .dword test_setup\n"
         for test in self.dtests_sequence:
             os_test_sequence += f"    .dword {test}\n"

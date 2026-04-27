@@ -156,18 +156,15 @@ class Container:
                 binds.append(full_bind)
         binds = ",".join(binds)
 
-        cmd = ["exec", "--bind", binds, str(self.sif)]
+        cmd = ["singularity", "exec", "--bind", binds, str(self.sif)]
         if len(args) == 0:
             cmd += ["bash"]
-        elif Path(args[0]).exists():
-            cmd += ["bash", "-c", " ".join(args)]
+        elif len(args) == 1:
+            # Single arg is treated as a shell command string so callers can pass
+            # a pre-composed script in quotes, e.g. container-run "foo && bar"
+            cmd += ["bash", "-c", args[0]]
         else:
-            cmd += ["bash", "-c"]
-            if '"' in args[0]:
-                cmd += args
-            else:
-                cmd.append(" ".join(args))
-        cmd = ["singularity"] + cmd
+            cmd += args
         os.execvp(cmd[0], cmd)
 
     def push(self, version_string=None):

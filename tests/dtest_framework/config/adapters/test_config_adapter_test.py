@@ -169,20 +169,6 @@ class TestConfigAdapterTest(unittest.TestCase):
         empty_candidate = self.adapter.setup_mp_mode("")
         self.assertEqual(empty_candidate.choose(self.rng), RV.RiscvMPMode.MP_PARALLEL)
 
-    def test_setup_parallel_scheduling_mode_valid_inputs(self):
-        """Test setup_parallel_scheduling_mode with valid inputs"""
-        rr_candidate = self.adapter.setup_parallel_scheduling_mode("round_robin")
-        self.assertEqual(rr_candidate.choose(self.rng), RV.RiscvParallelSchedulingMode.ROUND_ROBIN)
-
-        exhaustive_candidate = self.adapter.setup_parallel_scheduling_mode("exhaustive")
-        self.assertEqual(exhaustive_candidate.choose(self.rng), RV.RiscvParallelSchedulingMode.EXHAUSTIVE, "Only option is exhaustive, should have picked exhaustive")
-
-    def test_setup_parallel_scheduling_mode_none_and_empty_have_default(self):
-        """Test that setup_parallel_scheduling_mode with empty defaults to ROUND_ROBIN"""
-        empty_candidate = self.adapter.setup_parallel_scheduling_mode("")
-        self.assertEqual(empty_candidate.choose(self.rng), RV.RiscvParallelSchedulingMode.ROUND_ROBIN)
-        self.assertNotIn(RV.RiscvParallelSchedulingMode.EXHAUSTIVE, empty_candidate, "Exhaustive shouldn't have been picked if none provided")
-
     def test_setup_mp_valid_inputs(self):
         """Test setup_mp with valid inputs"""
         on_candidate = self.adapter.setup_mp("on")

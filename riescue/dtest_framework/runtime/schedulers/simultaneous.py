@@ -78,7 +78,7 @@ class SimultaneousScheduler(Scheduler):
 
 
         scheduler__calc_test_pointer:
-            slli s11, s10, 3     # s11 = (--num_runs) * 8
+            slli s11, s10, 3     # s11 = (num_runs) * 8
         """
 
         # Store current test index for RVCP pass/fail messages
@@ -95,8 +95,7 @@ class SimultaneousScheduler(Scheduler):
         """
 
         code += """
-        # s11 = os_test_sequence + ((--num_runs) * 8])
-        # or os_test_sequence[--num_runs]
+        # s11 = os_test_sequence[num_runs]
         scheduler__load_test_addr:
             la t0, os_test_sequence
             add s11, s11, t0

@@ -101,7 +101,7 @@
         "svinval": {"supported": true, "enabled": true, "randomize": 0},
         "zba": {"supported": true, "enabled": true, "randomize": 100},
         "zbb": {"supported": true, "enabled": true, "randomize": 100},
-        "zbc": {"supported": true, "enabled": true, "randomize": 100},
+        "zbc": {"supported": false, "enabled": false, "randomize": 0},
         "zbs": {"supported": true, "enabled": true, "randomize": 100},
         "zfa": {"supported": true, "enabled": true, "randomize": 100},
         "zfh": {"supported": true, "enabled": true, "randomize": 100},

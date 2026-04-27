@@ -107,21 +107,21 @@
 	    },
 
 	    "tselect" : {
-	        "Comment" : "Hardwired to 0",
+	        "Comment" : "Trigger select; writable for sdtrig tests",
 	        "reset" : "0x0",
-	        "mask" : "0x0"
+	        "mask" : "0xffffffffffffffff"
 	    },
 
 	    "tdata1" : {
-	        "Comment" : "Hardwired to 0",
+	        "Comment" : "Trigger data1 (mcontrol6 config); writable for sdtrig tests",
 	        "reset" : "0x0",
-	        "mask" : "0x0"
+	        "mask" : "0xffffffffffffffff"
 	    },
 
 	    "tdata2" : {
-	        "Comment" : "Hardwired to 0",
+	        "Comment" : "Trigger data2 (address); writable for sdtrig tests",
 	        "reset" : "0x0",
-	        "mask" : "0x0"
+	        "mask" : "0xffffffffffffffff"
 	    },
 
 	    "tdata3" : {

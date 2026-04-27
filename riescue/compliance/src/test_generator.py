@@ -9,7 +9,6 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-import riescue.lib.enums as RV
 from riescue.compliance.src.riscv_dv import (
     process_whisper_sim_log,
     process_spike_sim_log,
@@ -111,8 +110,6 @@ class TestGenerator:
         header.append(f";#test.cpus       {self.resource_db.num_cpus}")
         if self.resource_db.num_cpus > 1:
             header.append(f";#test.mp_mode       {self.resource_db.mp_mode}")
-            if self.resource_db.mp_mode == RV.RiscvMPMode.MP_PARALLEL:
-                header.append(f";#test.parallel_scheduling_mode       {self.resource_db.parallel_scheduling_mode.value}")
         header.append(f";#test.paging     {str(self.resource_db.featmgr.paging_mode).lower()}")
         header.append(";#test.category   arch")
         header.append(";#test.class      vector")

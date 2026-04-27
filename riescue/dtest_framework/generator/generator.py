@@ -1813,7 +1813,8 @@ class Generator:
         # Check what pagesizes are specified and pick one and set the address size
         # Generally, we want to use main paging mode, but in virtualization if vs-stage is BARE then use g-mode paging
         # paging_mode = self.featmgr.paging_mode
-        valid_pagesizes = RV.RiscvPagingModes.supported_pagesizes(paging_mode)
+        napot_supported = self.featmgr.is_feature_enabled("svnapot")
+        valid_pagesizes = RV.RiscvPagingModes.supported_pagesizes(paging_mode, napot_supported=napot_supported)
         # If paging is disabled and valid_pagesizes is empty, then we need to add at least 4kb page
         if not valid_pagesizes:
             valid_pagesizes = [RV.RiscvPageSizes.S4KB]

@@ -46,7 +46,7 @@ class Eot(AssemblyGenerator):
 
 .section .runtime, "ax"
 # End of test data
-.align 3
+.balign 8, 0
 tohost_mutex:
     .dword 0;
 tohost_addr_mem:
@@ -67,8 +67,8 @@ eot__failed:
     {self.halt()}
 
 .section .io_htif, "aw"
-.align 6; .global tohost; tohost: .dword 0;
-.align 6; .global fromhost; fromhost: .dword 0;
+.balign 64, 0; .global tohost; tohost: .dword 0;
+.balign 64, 0; .global fromhost; fromhost: .dword 0;
         """
 
         return code
@@ -88,6 +88,8 @@ eot__failed:
             code += self._mp_end_test()
             return code
 
+        # TODO: FIX UP OS_END_TEST to use correct prefix and not use gp to tell if test passed or failed.
+
         code += """
     li t0, 0x1
     beq t0, gp, eot__passed
@@ -106,43 +108,10 @@ eot__failed:
 
         # nonzero gp means test failed, so increment number of hard fails
         code = f"""
-    li t0, 0x1
-    beq t0, gp, 1f
-    {self.num_hard_fails.increment("t0", "a0")}
-1:
-"""
-        # TODO: return to M mode, set Tvec to eot__failed (worst case panic will jump to this and fail instantly)
-        # Can write the rest of the code assuming that we are in M mode, and panic will jump to eot__failed
-        # TODO: FIX UP OS_END_TEST to use correct prefix and not use gp to tell if test passed or failed.
-
-        if self.mp_parallel:
-            # If parallel mode, holding a lock for other tests. Need to release lock
-
-            code += "csrr s1, mhartid\n"
-
-            # loading gp with 1, otherwise it will be garbage value. If it wins tohost_mutex it will write garbage value
-            code += """
-            li gp, 1
-
-            # Check if we are storing nonzero in held_locks for this hart
-            la a0, held_locks
-            li t1, 8
-            mul t1, s1, t1
-            add a0, a0, t1
-
-            ld t1, 0(a0) # Load the lock address
-            beqz t1, eot__skip_lock_release # If zero, we don't hold a lock
-            fence
-            amoswap.w.rl x0, x0, (t1) # Release lock by storing 0.
-
-            eot__skip_lock_release:
-            """
-
-        # num_harts_ended only matters for MP mode?  Should there be handlers for MP vs single hart?
-        # if single hart I think we can just skip al lthis mutex and wait for others stuff, and just branch to eot__passed or eot__failed
-        # fix all the labels first
-        code += f"""
-
+        li t0, 0x1
+        beq t0, gp, 1f
+        {self.num_hard_fails.increment("t0", "a0")}
+    1:
         # each hart increments num_harts_ended so that the first one waits till all harts have finished before writing to tohost
         eot__mark_done:
             {self.num_harts_ended.increment("t0", "t3")}
@@ -155,7 +124,6 @@ eot__failed:
         # Try to obtain tohost_mutex
         la a0, tohost_mutex
         j eot__tohost_try_lock
-
 
         eot__tohost_try_lock:
             li t0, 1                    # Initialize swap value.

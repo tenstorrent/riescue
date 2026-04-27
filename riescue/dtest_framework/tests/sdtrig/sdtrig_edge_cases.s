@@ -34,6 +34,15 @@
 .ifne SDTRIG_SUPPORTED
 test_setup:
     li x1, 0xc0010001
+    # RISC-V Debug Spec Sdtrig re-entrancy (option 1): triggers with action=0 do not
+    # match while mstatus.MIE=0 (M), or while medeleg[3]=1 && sstatus.SIE=0 (S), or
+    # while medeleg[3]=1 && hedeleg[3]=1 && vsstatus.SIE=0 (VS). Force SIE/MIE=1
+    # so trigger configuration is deterministic under randomized delegation.
+    ;#csr_rw(mstatus, set_bit, bit=3, force_machine=true)
+    ;#csr_rw(mstatus, set_bit, bit=1, force_machine=true)
+.if ENV_VIRTUALIZED
+    ;#csr_rw(vsstatus, set_bit, bit=1, force_machine=true)
+.endif
     ;#test_passed()
 
 #####################

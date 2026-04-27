@@ -30,6 +30,7 @@ class CsrReadAction(Action):
         self.csr_name = csr_name
         self.direct_read = direct_read
         self.constraints = {}  # Will be manually picking a CSR instruction
+        self.expanded = False
 
     def repr_info(self) -> str:
         return f"'{self.csr_name}'"
@@ -43,6 +44,42 @@ class CsrReadAction(Action):
             csr_name=step.step.csr_name,
             direct_read=step.step.direct_read,
         )
+
+    def expand(self, ctx: LoweringContext) -> Optional[list["Action"]]:
+        if self.expanded:
+            return None
+        self.expanded = True
+
+        priv_modes = ["m", "s", "vs", "u"]
+        csr_priv_mode = self.csr_name[0]
+        if csr_priv_mode == "h":
+            csr_priv_mode = "s"
+        if csr_priv_mode == "v":
+            csr_priv_mode = "vs"
+        which_priv_mode = 2
+        if csr_priv_mode in priv_modes:
+            which_priv_mode = priv_modes.index(csr_priv_mode)
+        ctx_priv_str = ctx.env.priv.name[0].lower()
+        if ctx_priv_str == "s" and ctx.env.virtualized:
+            ctx_priv_str = "vs"
+        ctx_priv_mode = priv_modes.index(ctx_priv_str)
+        if ctx_priv_mode <= which_priv_mode:
+            return None  # non-api path: fall through to pick_instruction
+
+        # api path: CsrApiInstruction writes its result to hardcoded t2, and later CsrApi calls
+        # clobber t2. Capture t2 into a virtual register immediately so downstream consumers
+        # (which reference self.step_id) resolve to an allocator-chosen virtual register.
+        api_id = ctx.new_value_id()
+        return [
+            CsrApiReadAction(step_id=api_id, csr_name=self.csr_name, direct_read=self.direct_read),
+            MvFromT2Action(step_id=self.step_id, src1=api_id),
+        ]
+
+    @property
+    def fault_expansion_index(self) -> int:
+        # expand() returns [CsrApiReadAction, MvFromT2Action] — the api read is the faulter;
+        # the trailing mv is post-fault bookkeeping.
+        return 0
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
         priv_modes = ["m", "s", "vs", "u"]
@@ -342,8 +379,11 @@ class CsrApiInstruction(Instruction):
         force_machine_rw: bool = False,
         instruction_id: str = "",
     ):
+        t0_reg = get_register("t0")
         t1_reg = get_register("t1")
         t2_reg = get_register("t2")
+        t5_reg = get_register("t5")
+        t6_reg = get_register("t6")  # ABI alias for x31 used as flag pointer / syscall number
 
         if src is None:
             src_reg = get_register("zero")
@@ -360,7 +400,11 @@ class CsrApiInstruction(Instruction):
                 Operand(type=OperandType.CSR, name="csr", val=csr_name),
                 Operand(type=OperandType.GPR, name="rs1", val=src_reg),
             ],
-            clobbers=[t1_reg.name, t2_reg.name, "x31"],
+            # The non-direct (syscall) expansion of ;#csr_rw clobbers t0 (jump-table dispatch),
+            # t1 (trap entry), t2 (CSR handler rd), t5 (csr_id scratch at the call site),
+            # and t6/x31 (flag pointer / syscall number). The register allocator matches clobber
+            # names against ABI names, so use t6 rather than x31 here.
+            clobbers=[t0_reg.name, t1_reg.name, t2_reg.name, t5_reg.name, t6_reg.name],
             instruction_id=instruction_id,
         )
         self.csr_name = csr_name
@@ -442,6 +486,57 @@ class MvT2Instruction(Instruction):
             ],
             formatter="mv t2, {rs1}",
             clobbers=[t1_reg.name, t2_reg.name, "x31"],
+        )
+
+
+class CsrApiReadAction(Action):
+    register_fields = []
+
+    def __init__(self, csr_name: str, direct_read: bool = False, **kwargs: Any):
+        super().__init__(**kwargs)
+        self.csr_name = csr_name
+        self.direct_read = direct_read
+        self.constraints = {}
+
+    def repr_info(self) -> str:
+        return f"'{self.csr_name}'"
+
+    def pick_instruction(self, ctx: LoweringContext) -> Instruction:
+        return CsrApiInstruction(csr_name=self.csr_name, src=None, direct_read_write=self.direct_read, name="csrr", api_call="read", instruction_id="")
+
+
+class MvFromT2Action(Action):
+    register_fields = ["src1"]
+
+    def __init__(self, src1: str, **kwargs: Any):
+        super().__init__(**kwargs)
+        self.src1 = src1
+        self.constraints = {}
+
+    def repr_info(self) -> str:
+        return f"{self.src1}"
+
+    def pick_instruction(self, ctx: LoweringContext) -> Instruction:
+        return MvFromT2Instruction(src1=self.src1)
+
+
+class MvFromT2Instruction(Instruction):
+
+    def __init__(self, src1: Optional[str] = None):
+        super().__init__(
+            name="mv",
+            extension=Extension.I,
+            xlen=Xlen.XLEN64,
+            category=Category.PSEUDO,
+            destination=Operand(type=OperandType.GPR, name="rd", val=""),
+            source=[
+                Operand(
+                    type=OperandType.GPR,
+                    name="rs1",
+                    val=src1,
+                ),
+            ],
+            formatter="mv {rd}, {rs1}",
         )
 
 

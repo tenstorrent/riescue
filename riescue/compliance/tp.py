@@ -27,6 +27,7 @@ from riescue.riescued import RiescueD
 from riescue.compliance.config import TpBuilder, TpCfg
 from riescue.lib.rand import RandNum
 from riescue.lib.toolchain import Toolchain
+from riescue.lib.toolchain.whisper import Whisper
 from riescue.dtest_framework.config import FeatMgr
 from riescue.compliance.test_plan.generator import Predicates
 import riescue.lib.enums as RV
@@ -135,14 +136,12 @@ class TpMode(BaseMode[TpCfg]):
         rd = RiescueD(testfile=test_assembly_file, seed=cfg.seed, toolchain=toolchain, run_dir=self.run_dir)
         rd.generate(cfg.featmgr)
         generated_files = rd.build(cfg.featmgr)
-        if rd.toolchain.simulator is None:
+        if toolchain.simulator is None:
             raise ValueError("No simulator configured in toolchain")
-        whisper = rd.toolchain.whisper
-        if whisper is None:
-            raise ValueError("No whisper configured in toolchain. Ensure Whisper was built in toolchain")
-
-        whisper_config_json_override = whisper.whisper_config_json.resolve()
-        rd.simulate(cfg.featmgr, iss=whisper, whisper_config_json_override=whisper_config_json_override)
+        whisper_config_json_override = None
+        if isinstance(toolchain.simulator, Whisper):
+            whisper_config_json_override = toolchain.simulator.check_filepath(toolchain.simulator.whisper_config_json)
+        rd.simulate(cfg.featmgr, iss=toolchain.simulator, whisper_config_json_override=whisper_config_json_override)
 
         return generated_files.elf
 

@@ -11,10 +11,18 @@
 # for Supervisor Software Interrupt (vec 1).  This test fires SSIP and verifies
 # that the custom handler ran by checking a marker written by the handler.
 #
-# Run with:
-#   riescued.py -t riescue/dtest_framework/tests/non_instr_tests/default_handler_override.s \
-#               --conf riescue/dtest_framework/tests/non_instr_tests/default_handler_override_conf.py \
-#               --seed 1 --run_iss --deleg_excp_to=machine
+# Supports both vectored and direct mtvec modes via the USE_DIRECT_MODE define:
+#
+#   Vectored (default):
+#     riescued.py -t ...default_handler_override.s \
+#                 --conf ...default_handler_override_conf.py \
+#                 --seed 1 --run_iss --deleg_excp_to=machine
+#
+#   Direct mode:
+#     riescued.py -t ...default_handler_override.s \
+#                 --conf ...default_handler_override_conf.py \
+#                 --seed 1 --run_iss --deleg_excp_to=machine \
+#                 -teq USE_DIRECT_MODE=1
 
 ;#random_addr(name=test_marker, type=physical, size=8, and_mask=0xfffffffffffffff8)
 
@@ -32,8 +40,15 @@ test01:
     li   t0, test_marker
     sd   x0, 0(t0)
 
-    # Enable vectored interrupt dispatch, machine interrupts, and SSIE (bit 1)
+    # Select interrupt dispatch mode based on compile-time define.
+    # Default is vectored; pass -teq USE_DIRECT_MODE=1 for direct.
+#ifdef USE_DIRECT_MODE
+    SET_DIRECT_INTERRUPTS
+#else
     SET_VECTORED_INTERRUPTS
+#endif
+
+    # Enable SSIE (mie bit 1) and global MIE
     li   t1, 2
     csrw mie, t1
     ENABLE_MIE

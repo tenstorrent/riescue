@@ -281,10 +281,6 @@ class Resource:
         return self.featmgr.mp_mode
 
     @property
-    def parallel_scheduling_mode(self) -> RV.RiscvParallelSchedulingMode:
-        return self.featmgr.parallel_scheduling_mode
-
-    @property
     def wysiwyg(self) -> bool:
         return self.featmgr.wysiwyg
 

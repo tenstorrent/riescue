@@ -8,7 +8,7 @@ container_run=$script_dir/container-run
 
 # Hardcoded SHAs and remotes
 spike_remote="https://github.com/riscv-software-src/riscv-isa-sim.git"
-spike_sha="4703ad98bf4c247a0841a6d7254357b14a97ff29"
+spike_sha="434570f5a6b68c1fb497ec6c7a4303d2a0cc949c"
 
 tt_spike_remote="https://github.com/tenstorrent/spike.git"
 tt_spike_sha="344b9ef3951fc9318caae4ce41da8ede5d6085fc"

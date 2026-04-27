@@ -816,6 +816,10 @@ class Pagetables:
                                 value = self.page.attrs[f"{attr}_level{pt_level}_glevel{level}"]  # FIXME: bandaid fix for None values in page.attrs, do we want to allow None values?
                                 if value is not None:
                                     attrs[attr_level] = value
+                        # Propagate secure attribute to G-stage leaf so bit 55
+                        # is set in the final HPA PTE PPN.
+                        if pt_attr.secure:
+                            attrs["secure"] = 1
                         map.add_raw_pt_page(
                             linear_name=linear_name,
                             physical_name=physical_name,

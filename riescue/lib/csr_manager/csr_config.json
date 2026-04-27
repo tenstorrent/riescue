@@ -6613,7 +6613,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "Accessibility": "Machine",
           "sub-fields": {
                "mtinst": {

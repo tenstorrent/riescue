@@ -147,6 +147,9 @@ loader__done:
         """
         code = ""
 
+        if self.featmgr.is_feature_enabled("smrnmi"):
+            code += self.setup_smrnmi()
+
         if self.featmgr.big_endian:
             code += self.enable_big_endian()
         if self.featmgr.csr_init or self.featmgr.csr_init_mask:
@@ -877,6 +880,19 @@ loader__setup_stateen:
         for i in range(32):
             code.append(f"vmv.v.x v{i},  x0")
         return "\n" + "\n".join(code) + "\n"
+
+    def setup_smrnmi(self) -> str:
+        """
+        Set mnstatus.NMIE=1 to enable normal trap handling when Smrnmi is enabled.
+
+        On reset, mnstatus.NMIE defaults to 0, which causes all M-mode traps to
+        vector to the NMI exception handler address instead of mtvec. Setting NMIE=1
+        restores normal trap vectoring behavior.
+        """
+        return """
+loader__setup_smrnmi:
+    csrsi 0x744, 0x8  # Set mnstatus.NMIE (bit 3) = 1
+"""
 
     # panic code
     # Making these separate jump tables for simpler debug, rather than having code go through trap handler

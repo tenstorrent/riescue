@@ -131,7 +131,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     mp_args.add_argument(
         "--parallel_scheduling_mode",
         default=None,
-        help="Overrides parallel scheduling mode provided in cpuconfig file or overridden in test file. Legal values are: 'round_robin', 'exhaustive'",
+        help="Ignored. Kept for legacy command-line compatibility.",
         type=str,
     )
     mp_args.add_argument(

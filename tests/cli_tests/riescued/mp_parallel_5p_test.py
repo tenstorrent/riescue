@@ -49,15 +49,13 @@ class Mp_Par_5PTests(BaseRiescuedTest):
         args = ["--run_iss", "--repeat_times", "2", "--test_priv_mode", "user", "--num_cpus", "5", "--pbmt_ncio_randomization", "0"]
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 
-    def test_mp_par5_round_robin(self):
+    def test_mp_par5_core_balanced(self):
         args = [
             "--run_iss",
             "--repeat_times",
             "2",
             "--num_cpus",
             "2",
-            "--parallel_scheduling_mode",
-            "round_robin",
             "--pbmt_ncio_randomization",
             "0",
         ]

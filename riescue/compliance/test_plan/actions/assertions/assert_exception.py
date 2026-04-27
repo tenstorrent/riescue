@@ -141,16 +141,30 @@ class AssertExceptionAction(AssertionBase):
         exception_return_label = LabelAction(step_id=ctx.new_label(), name=self.excp_return_label)
         jum_to_fail = AssertionJumpToFail(step_id=ctx.new_value_id())
 
-        # Expandin place because label needs to be directly before the failing instruction
-        expanded_code = []
-        for code in self.code:
+        # Expanding in place because label needs to be directly before the failing instruction.
+        # All actions except the last are expanded normally; the last (faulting) action's
+        # expansion is spliced so the label lands right before the faulting action, as
+        # indicated by its ``fault_expansion_index`` (the default ``-1`` keeps the old
+        # "label before last" behavior for actions whose expansion prepends preparation).
+        expanded_code: list[Action] = []
+        for code in self.code[:-1]:
             new_code = code.expand(ctx)
             if new_code is not None:
                 expanded_code.extend(new_code)
             else:
                 expanded_code.append(code)
-        # Assuming last action is the failing action, placing label before it
-        expanded_code.insert(-1, exception_label)
+
+        last_action = self.code[-1]
+        last_expansion = last_action.expand(ctx)
+        if last_expansion is None:
+            last_expansion = [last_action]
+
+        fault_pos = last_action.fault_expansion_index
+        if fault_pos < 0:
+            fault_pos = len(last_expansion) + fault_pos
+        expanded_code.extend(last_expansion[:fault_pos])
+        expanded_code.append(exception_label)
+        expanded_code.extend(last_expansion[fault_pos:])
 
         # Add markers around AssertException code so CSR save/restore logic
         # can skip CSRs that are only accessed within AssertException blocks

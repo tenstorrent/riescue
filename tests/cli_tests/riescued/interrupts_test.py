@@ -46,9 +46,22 @@ class Interrupt_EnabledTests(BaseRiescuedTest):
         """Verify that Conf.add_hooks() / FeatMgr.register_default_handler() replaces the
         test-wide default handler for a given vector.  The conf file registers a custom
         SSI handler that writes 0xCAFE to test_marker; the test fires SSIP and checks the
-        marker to confirm the override ran (M-mode path: vec 1 non-delegated, mip/mret)."""
+        marker to confirm the override ran (M-mode path: vec 1 non-delegated, mip/mret).
+        Uses vectored mtvec mode (MODE=1) — hardware dispatches to the vector table."""
         testname = "dtest_framework/tests/non_instr_tests/default_handler_override.s"
         args = ["--run_iss", f"--conf={DEFAULT_HANDLER_OVERRIDE_CONF}"]
+        self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
+
+    def test_default_handler_override_direct_mode(self):
+        """Verify register_default_handler() dispatch in direct mtvec mode (MODE=0).
+
+        Same test and conf as test_default_handler_override, but passes
+        -teq USE_DIRECT_MODE=1 so the test keeps mtvec in direct mode.
+        The trap handler's software mcause-based dispatch must route
+        the SSI (cause 1) to the registered handler via the vector table,
+        identically to hardware vectored mode."""
+        testname = "dtest_framework/tests/non_instr_tests/default_handler_override.s"
+        args = ["--run_iss", f"--conf={DEFAULT_HANDLER_OVERRIDE_CONF}", "-teq", "USE_DIRECT_MODE=1"]
         self.run_riescued(testname=testname, cli_args=args, iterations=self.iterations)
 
     def test_default_handler_override_s(self):
