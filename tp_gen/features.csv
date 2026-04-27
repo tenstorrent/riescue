@@ -25,3 +25,4 @@ hypervisor_paging_faults,,x,x,x,x,x,x,x,x,,x,x,x,,1
 hypervisor_paging_permissions_023,,x,x,,x,x,x,x,x,x,x,x,x,,1
 hypervisor_paging_permissions_024,,x,x,,x,x,x,x,x,x,x,x,x,,1
 hypervisor_exceptions,,x,x,,x,x,x,x,x,x,x,x,x,,1
+zjpm,x,x,x,,x,x,x,x,,,,,,,
