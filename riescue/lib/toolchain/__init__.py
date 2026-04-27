@@ -5,7 +5,8 @@ from .tool import Disassembler
 from .tool import Spike
 from .tool import Objcopy
 from .whisper import Whisper
+from .sail import Sail
 from .exceptions import ToolFailureType, ToolchainError
 from .toolchain import Toolchain
 
-__all__ = ("Compiler", "Disassembler", "Spike", "Whisper", "ToolFailureType", "ToolchainError", "Objcopy", "Toolchain")
+__all__ = ("Compiler", "Disassembler", "Spike", "Whisper", "Sail", "ToolFailureType", "ToolchainError", "Objcopy", "Toolchain")
