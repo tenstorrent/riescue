@@ -56,10 +56,6 @@ class TestConfigAdapter(Adapter):
         if test_header.mp_mode:
             builder.mp_mode = self.setup_mp_mode(test_header.mp_mode)
 
-        # Handle ;#test.parallel_scheduling_mode
-        if test_header.parallel_scheduling_mode:
-            builder.parallel_scheduling_mode = self.setup_parallel_scheduling_mode(test_header.parallel_scheduling_mode)
-
         # Handle ;#test.mp
         if test_header.mp:
             builder.mp = self.setup_mp(test_header.mp)
@@ -183,17 +179,6 @@ class TestConfigAdapter(Adapter):
             entries.append(RV.RiscvMPMode.MP_PARALLEL)
         if "" == mp_mode_header:
             entries.append(RV.RiscvMPMode.MP_PARALLEL)
-
-        return Candidate(*entries)
-
-    def setup_parallel_scheduling_mode(self, parallel_scheduling_mode_header: str) -> Candidate[RV.RiscvParallelSchedulingMode]:
-        entries: list[RV.RiscvParallelSchedulingMode] = []
-        if "round_robin" in parallel_scheduling_mode_header:
-            entries.append(RV.RiscvParallelSchedulingMode.ROUND_ROBIN)
-        if "exhaustive" in parallel_scheduling_mode_header:
-            entries.append(RV.RiscvParallelSchedulingMode.EXHAUSTIVE)
-        if not parallel_scheduling_mode_header:
-            entries.append(RV.RiscvParallelSchedulingMode.ROUND_ROBIN)
 
         return Candidate(*entries)
 

@@ -99,6 +99,19 @@ class Action(ABC):
 
         return None
 
+    @property
+    def fault_expansion_index(self) -> int:
+        """
+        Position within ``expand()`` result where the action whose first instruction may fault lives.
+
+        Used by ``AssertExceptionAction`` to place ``fault_label`` immediately before the
+        faulting instruction. Default is ``-1`` (last action), matching the common convention
+        where ``expand()`` prepends preparation actions to the faulting action. Override when
+        the faulter is not last — e.g., when ``expand()`` appends post-fault bookkeeping
+        actions that will never execute in the fault case.
+        """
+        return -1
+
     @abstractmethod
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
         """

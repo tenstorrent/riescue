@@ -124,6 +124,7 @@ class Macros(AssemblyGenerator):
             "__far_return_pc=0",
             "__gva_check=0",
             "__expected_mode=0",
+            "__re_execute=0",
         ]
 
         check_excp_expected_cause = self.variable_manager.get_variable("check_excp_expected_cause")
@@ -134,6 +135,7 @@ class Macros(AssemblyGenerator):
         check_excp_skip_pc_check = self.variable_manager.get_variable("check_excp_skip_pc_check")
         check_excp_gva_check = self.variable_manager.get_variable("check_excp_gva_check")
         check_excp_expected_mode = self.variable_manager.get_variable("check_excp_expected_mode")
+        check_excp_re_execute = self.variable_manager.get_variable("check_excp_re_execute")
 
         macro.code = f"""
             {self.get_hart_context()}
@@ -176,6 +178,10 @@ class Macros(AssemblyGenerator):
             li t3, \\__expected_mode
             {check_excp_expected_mode.store(src_reg="t3")}
 
+            # Re-execute flag: when set, the OS trap handler returns to the faulting PC
+            # instead of overwriting xepc with __return_pc (sdtrig icount/mcontrol6 use cases).
+            li t3, \\__re_execute
+            {check_excp_re_execute.store(src_reg="t3")}
 
         """
 

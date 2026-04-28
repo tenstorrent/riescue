@@ -130,7 +130,9 @@ class Compiler(Tool):
     Default compiler march uses GCC march.
     """
 
-    default_compiler_march = "rv64imafdcvh_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zvkned_zicbom_zicbop_zicboz_zawrs_zihintpause_zvbb1_zicond_zvkg_zvkn_zvbc_zfa_zk"
+    default_compiler_march = "rv64imafdcvh_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zvkned_zicbom_zicbop_zicboz_zawrs_zihintpause_zvbb1_zicond_zvkg_zvkn_zvbc_zfa_zk_zvfbfmin_zvfbfwma_zfbfmin"
+
+    default_compiler_march_no_vector = "rv64imafdch_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zicbom_zicbop_zicboz_zawrs_zihintpause_zicond_zfa_zk_zfbfmin"
 
     def __init__(
         self,
@@ -288,9 +290,9 @@ class Spike(Tool):
             self.spike_isa = spike_isa
         else:
             if third_party_spike:
-                self.spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvl256b_zve64d_svpbmt_svnapot"
+                self.spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvl256b_zve64d_zicond_svpbmt_svnapot"
             else:
-                self.spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_svpbmt_sstc_zicntr_svnapot"
+                self.spike_isa = "RV64IMAFDCVH_zba_zbb_zbc_zfh_zbs_zfbfmin_zvfh_zvbb_zvbc_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zicond_svpbmt_sstc_zicntr_svnapot"
 
         if not third_party_spike:
             self.varch = {"vlen": 256, "elen": 64}
@@ -320,13 +322,39 @@ class Spike(Tool):
     def run(self, output_file=None, cwd=None, timeout=90, args: Optional[list[str]] = None):
         raise NotImplementedError("Use run_iss() instead of run() for this tool.")
 
+    @staticmethod
+    def _spike_supports_misaligned(spike_executable) -> bool:
+        """Check if the spike executable supports the --misaligned flag."""
+        try:
+            result = subprocess.run(
+                [spike_executable, "--help"],
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
+            combined_output = (result.stdout or "") + (result.stderr or "")
+            return "--misaligned" in combined_output
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+
     def run_iss(self, elf_file: Path, output_file, cwd=None, timeout=60, args: Optional[list[str]] = None) -> subprocess.CompletedProcess:
         if args is not None:
             extra_args = args
         else:
             extra_args = []
-        if self.spike_isa:
-            extra_args.append(f"--isa={self.spike_isa}")
+
+        isa = self.spike_isa
+
+        # Handle --misaligned: pass through if spike supports it,
+        # otherwise replace with _zicclsm ISA extension.
+        if "--misaligned" in extra_args:
+            if not self._spike_supports_misaligned(self.executable):
+                extra_args = [a for a in extra_args if a != "--misaligned"]
+                if isa and "_zicclsm" not in isa.lower():
+                    isa = f"{isa}_zicclsm"
+
+        if isa:
+            extra_args.append(f"--isa={isa}")
         if self.varch:
             extra_args.append(f"--varch=vlen:{self.varch['vlen']},elen:{self.varch['elen']}")
         extra_args.extend([str(elf_file)])

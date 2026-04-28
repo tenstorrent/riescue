@@ -82,4 +82,16 @@ def experimental_toolchain_from_args(args: argparse.Namespace) -> Toolchain:
     else:
         compiler = Compiler.from_clargs(args)
         disassembler = Disassembler.from_clargs(args)
-    return Toolchain(compiler=compiler, disassembler=disassembler, spike=spike, whisper=whisper)
+    tc = Toolchain(compiler=compiler, disassembler=disassembler, spike=spike, whisper=whisper)
+
+    # Toolchain.__init__ prefers spike when both are present, but
+    # --iss (default "whisper") should control the primary simulator.
+    iss_choice = args.iss
+    if iss_choice == "whisper" and whisper is not None:
+        tc.simulator = whisper
+        tc.tool_name = "whisper"
+    elif iss_choice == "spike" and spike is not None:
+        tc.simulator = spike
+        tc.tool_name = "spike"
+
+    return tc

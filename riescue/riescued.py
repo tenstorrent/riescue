@@ -19,7 +19,7 @@ from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.generator import Generator
 from riescue.dtest_framework.lib.discrete_test import DiscreteTest
 from riescue.lib.cli_base import CliBase
-from riescue.lib.toolchain import Toolchain, Spike, Whisper
+from riescue.lib.toolchain import Toolchain, Compiler, Spike, Whisper
 
 
 log = logging.getLogger("riescue")  # special case because riescued can be a main module
@@ -361,6 +361,7 @@ class RiescueD(CliBase):
 
         if featmgr.big_endian:
             compiler_args.append("-mbig-endian")
+            compiler_args.append(f"-march={Compiler.default_compiler_march_no_vector}")
 
         compiler.run(cwd=self.run_dir, args=compiler_args)
 

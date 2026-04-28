@@ -71,6 +71,7 @@ class HLoadAction(Action):
             memory_li = LiAction(step_id=ctx.new_value_id(), immediate=mem.step_id)
             self.rs1 = memory_li.step_id
             new_actions.append(memory_li)
+            new_actions.append(self)
             return new_actions
         elif ctx.mem_reg.is_memory_label(self.memory):
             memory_li = LiAction(step_id=ctx.new_value_id(), immediate=self.memory)

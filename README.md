@@ -243,4 +243,3 @@ The list of supported features can be found below. RiescueC is aiming to support
 | Ssstrict       |           |                   | Strict reserved encoding behavior |
 | Svvptc         |           |                   | PTE visibility without memory-management fence |
 | Sspm           |           |                   | Supervisor-mode pointer masking |
-

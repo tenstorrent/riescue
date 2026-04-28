@@ -14,61 +14,65 @@ class Routines:
 
     # Used in the place barrier routine
     @classmethod
-    def place_acquire_lock(cls, name: str, lock_addr_reg: str, swap_val_reg: str, work_reg: str, end_test_label: str, max_tries: int = 500, use_zawrs: bool = False, bare: bool = False) -> str:
+    def place_acquire_lock(
+        cls, name: str, lock_addr_reg: str, swap_val_reg: str, work_reg: str, end_test_label: str, max_tries: int = 500, use_zawrs: bool = False, bare: bool = False, lock_reg_prelaoded: bool = False
+    ) -> str:
         # Build load and wait code based on ZAWRS availability
         # When using ZAWRS, use lr.w to establish reservation so wrs.nto can wait on it
         if use_zawrs:
             load_lock = f"lr.w {work_reg}, ({lock_addr_reg})"
-            wait_code = f"""
-        {name}_wait:
-            wrs.nto                              # Wait until reservation invalidated
-            j {name}_retry_acquire_lock
-"""
+            wait_code = "wrs.nto                              # Wait until reservation invalidated"
         else:
             load_lock = f"lw {work_reg}, ({lock_addr_reg})"
-            wait_code = f"""
-        {name}_wait:
-            j {name}_retry_acquire_lock
-"""
+            wait_code = ""
+
+        # Algorithm:
+        # 1. Check if any other hart has bailed for an acceptable reason.
+        # 2. Check if the timeout has been reached.
+        # 3. Try to acquire the lock.
+        # 4. If the lock is not acquired, wait for the reservation to be invalidated.
+        # 5. If the lock is acquired, return success.
+        # 6. If the timeout has been reached, call os_failed.
+        # 7. If the other hart has bailed for an acceptable reason, call end_test_label.
 
         _pa = "_pa" if bare else ""
         return f"""
-        li {lock_addr_reg}, barrier_lock{_pa}
+        {f"li {lock_addr_reg}, barrier_lock{_pa}" if not lock_reg_prelaoded else ""}
         li {swap_val_reg}, {max_tries}        # Initialize swap value.
 
-        j {name}_retry_acquire_lock
-
-        {name}_check_if_early_bail:
-            li {lock_addr_reg}, num_harts_ended{_pa}
-            lw {work_reg}, 0({lock_addr_reg})
-            bnez {work_reg}, {name}_early_bail
-            # Looks like we are stuck and no other hart has apparently bailed, so end in a fail.
-            li a0, failed_addr{_pa}
-            ld a1, 0(a0)
-            jalr ra, 0(a1)
-
-        # Another hart may have bailed for an acceptable reason, so end nominally.
-        {name}_early_bail:
-            li gp, 0x80000000 # Set GP[31]==1 to indicate failure
-            li a0, {end_test_label}
-            ld a1, 0(a0)
-            jalr ra, 0(a1)
-
         {name}_retry_acquire_lock:
+        {name}_check_any_hart_ended:
+            # Always check if any other hart has bailed for an acceptable reason.
+            li {work_reg}, num_harts_ended{_pa}
+            lw {work_reg}, 0({work_reg})
+            bnez {work_reg}, {name}_other_hart_ended
+        {name}_check_timeout:
             # decrement swap value
             addi {swap_val_reg}, {swap_val_reg}, -1
             # jump to fail if {swap_val_reg} is zero or less
-            bge zero, {swap_val_reg}, {name}_check_if_early_bail
-
+            blez {swap_val_reg}, {name}_self_bail
+        {name}_try_lock:
             {load_lock}     # Check if lock is held
             bnez         {work_reg}, {name}_wait    # Retry if held.
             amoswap.w.aq {work_reg}, {swap_val_reg}, ({lock_addr_reg})
             bnez         {work_reg}, {name}_wait     # Retry if held.
             j {name}_acquired_lock
-{wait_code}
+        {name}_wait:
+            {wait_code}
+            j {name}_retry_acquire_lock
+        {name}_other_hart_ended:
+            # Another hart may have bailed for an acceptable reason, so end nominally.
+            # report pass and stop trying to lock
+            li a0, {end_test_label}
+            ld a1, 0(a0)
+            jalr ra, 0(a1)
+        {name}_self_bail:
+            # Looks like we are stuck and no other hart has apparently bailed, so end in a fail.
+            li a0, os_failed_addr{_pa}
+            ld a1, 0(a0)
+            jalr ra, 0(a1)
         {name}_acquired_lock:
             fence
-
         """
 
     # Used in the place barrier routine
@@ -110,7 +114,7 @@ class Routines:
         :param work_reg_1: Register to hold the work register 1.
         :param work_reg_2: Register to hold the work register 2.
         :param num_cpus: Number of CPUs.
-        :param end_test_label: Label to end the test.
+        :param end_test_label: Label to end the test when the other hart has bailed for an acceptable reason.
         :param max_tries: Maximum number of tries to acquire the lock.
         :param use_zawrs: Whether to use ZAWRS extension (wrs.nto instruction) for waiting.
         :param bare: If True, use PA-based equate names (``_pa`` suffix) for M-mode bare addressing.

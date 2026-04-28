@@ -18,7 +18,7 @@ class Rv64I(unittest.TestCase):
         RiescueC.run_cli(args=args.split())
 
     def test_2(self):
-        args = "--json compliance/tests/rv_i/rv64i.json --num_cpus 2 --mp_mode parallel --parallel_scheduling_mode round_robin --max_instrs 5000 --rpt_cnt 5 --seed 0"
+        args = "--json compliance/tests/rv_i/rv64i.json --num_cpus 2 --mp_mode parallel --max_instrs 5000 --rpt_cnt 5 --seed 0"
         RiescueC.run_cli(args=args.split())
 
     def test_3(self):

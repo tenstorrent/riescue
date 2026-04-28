@@ -340,8 +340,8 @@ class AssemblyWriter:
                 if trigger_disable_idx < len(disables) and self.featmgr.get_summary().get("SDTRIG_SUPPORTED", 0):
                     cfg = disables[trigger_disable_idx]
                     csr_acc = self.pool.get_parsed_csr_accesses()
-                    tselect_acc = csr_acc.get("tselect", {}).get("write")
-                    tdata1_acc = csr_acc.get("tdata1", {}).get("write")
+                    tselect_acc = csr_acc.get("tselect", {}).get("write_force_machine")
+                    tdata1_acc = csr_acc.get("tdata1", {}).get("write_force_machine")
                     if tselect_acc and tdata1_acc:
                         flag_name = "machine_csr_jump_table_flags"
                         sys_call = "0xf0001005"
@@ -361,8 +361,8 @@ class AssemblyWriter:
                     configs = self.pool.get_parsed_trigger_configs()
                     prev_cfg = next((c for c in reversed(configs) if c.index == cfg.index), None)
                     csr_acc = self.pool.get_parsed_csr_accesses()
-                    tdata1_acc = csr_acc.get("tdata1", {}).get("write")
-                    tselect_acc = csr_acc.get("tselect", {}).get("write")
+                    tdata1_acc = csr_acc.get("tdata1", {}).get("write_force_machine")
+                    tselect_acc = csr_acc.get("tselect", {}).get("write_force_machine")
                     if prev_cfg and tdata1_acc and tselect_acc:
                         if prev_cfg.trigger_type == TriggerType.ICOUNT:
                             tdata1_val = build_tdata1_icount(
@@ -622,7 +622,7 @@ class AssemblyWriter:
         if self.featmgr.c_used:
             runtime_sections.append(
                 """
-            .balign 16
+            .balign 16, 0
             __c__stack_addr:
                 .dword __c__stack
             """
@@ -714,7 +714,7 @@ discrete_debug_test_entry:
 
 .section .runtime, "ax"
 
-.balign 16
+.balign 16, 0
 
 # __set_maplic_eidelivery(interrrupt_delivery)
 # interrupt_delivery == 0 => interrupt delivery is disabled
@@ -1101,11 +1101,12 @@ __c__stack:
         """
         with open(linker_script, "w") as linker_file:
             linker_file.write('OUTPUT_ARCH("riscv")\nENTRY(_start)\n')
-            linker_file.write("SECTIONS\n{\n")
+
+            # Build section list with resolved names, VMAs, and LMAs
+            sections: list[tuple[str, int, int]] = []
             for section_name, section_info in self.pool.get_sections().items():
                 vma = section_info.vma
                 lma = section_info.lma
-                log.debug(f"{section_name} -> vma=0x{vma:016x}, lma=0x{lma:016x}")
                 print_section_name = section_name
                 if section_name == "code":
                     vma = vma + self.code_offset
@@ -1115,13 +1116,53 @@ __c__stack:
                 # Clear bit-55 if it's set since the physical address space does not use it
                 if lma & (1 << 55):
                     lma = lma & ~(1 << 55)
+                log.debug(f"{section_name} -> vma=0x{vma:016x}, lma=0x{lma:016x}")
+                sections.append((print_section_name, vma, lma))
 
+            # Group contiguous sections into the same segment.  Two adjacent
+            # sections are contiguous when *both* their VMAs and LMAs are
+            # exactly one page (4 KB) apart, so the linker can pack them into
+            # a single LOAD segment without file-offset gaps.
+            PAGE_SIZE = 0x1000
+            seg_indices: list[int] = []
+            seg_id = 0
+            for i, (_, vma, lma) in enumerate(sections):
+                if i == 0:
+                    seg_indices.append(seg_id)
+                else:
+                    prev_vma = sections[i - 1][1]
+                    prev_lma = sections[i - 1][2]
+                    if vma - prev_vma == PAGE_SIZE and lma - prev_lma == PAGE_SIZE:
+                        # Contiguous with previous section — same segment
+                        seg_indices.append(seg_id)
+                    else:
+                        seg_id += 1
+                        seg_indices.append(seg_id)
+            num_segments = seg_id + 1 if sections else 0
+
+            # Emit PHDRS block — one PT_LOAD per segment group, none with
+            # FILEHDR/PHDRS so the ELF/program headers are not mapped into
+            # any loadable segment.
+            linker_file.write("PHDRS\n{\n")
+            for sid in range(num_segments):
+                linker_file.write(f"\tseg{sid} PT_LOAD;\n")
+            linker_file.write("}\n")
+
+            # Emit SECTIONS block — each section assigned to its segment group.
+            # Express LMA as (lma + ADDR(.name) - vma) so the LMA tracks any
+            # VMA bump ld applies for the section's sh_addralign (raised by
+            # .align/.balign/.p2align inside the section) while preserving the
+            # intended (lma - vma) delta. A literal AT(lma) would stay pinned
+            # and produce a VMA/LMA skew.
+            linker_file.write("SECTIONS\n{\n")
+            for i, (print_section_name, vma, lma) in enumerate(sections):
                 linker_file.write(
-                    "\t. = {}\n\t {} : AT({}) {} \n\n".format(
-                        str(hex(vma) + ";"),
-                        "." + print_section_name,
-                        hex(lma),
-                        "{ *(." + print_section_name + ") }",
+                    "\t. = {vma};\n\t .{name} : AT({lma} + ADDR(.{name}) - {vma}) {{ *(."
+                    "{name}) }} :seg{sid}\n\n".format(
+                        vma=hex(vma),
+                        name=print_section_name,
+                        lma=hex(lma),
+                        sid=seg_indices[i],
                     )
                 )
             linker_file.write("}")

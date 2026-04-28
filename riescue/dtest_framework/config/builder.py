@@ -85,7 +85,6 @@ class FeatMgrBuilder:
     # MP mode
     mp: Candidate[RV.RiscvMPEnablement] = field(default_factory=lambda: Candidate(RV.RiscvMPEnablement.MP_OFF))
     mp_mode: Candidate[RV.RiscvMPMode] = field(default_factory=lambda: Candidate(RV.RiscvMPMode.MP_PARALLEL))
-    parallel_scheduling_mode: Candidate[RV.RiscvParallelSchedulingMode] = field(default_factory=lambda: Candidate.from_enum(RV.RiscvParallelSchedulingMode))
 
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser):
@@ -203,7 +202,6 @@ class FeatMgrBuilder:
         featmgr.arch = self.arch.choose(rng)
         featmgr.mp = self.mp.choose(rng)
         featmgr.mp_mode = self.mp_mode.choose(rng)
-        featmgr.parallel_scheduling_mode = self.parallel_scheduling_mode.choose(rng)
 
         if self.medeleg is None:
             random_medeleg = rng.random_nbit(64)

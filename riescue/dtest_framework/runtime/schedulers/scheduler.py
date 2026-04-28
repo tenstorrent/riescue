@@ -97,7 +97,7 @@ scheduler__execute_test:
 {self.scheduler_variables()}
 
 # test pointers
-.align 3
+.balign 8, 0
 scheduler__test_setup_ptr:
     .dword test_setup
 scheduler__test_cleanup_ptr:
@@ -154,10 +154,24 @@ scheduler__test_cleanup_ptr:
     def _dispatch_setup(self) -> str:
         """
         Setup for scheduler dispatch.
-        Sets up scheduler panic handler before running scheduler__dispatch code.
+        Disables M-mode interrupts (saves MIE to MPIE), then sets up scheduler
+        panic handler before running scheduler__dispatch code.
+        MIE is restored from MPIE in execute_test() just before jumping to
+        the next test.
         """
+        disable_mie = ""
+        if self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
+            disable_mie = """
+            # Save MIE to MPIE, then clear MIE to prevent interrupts
+            # while mtvec points at scheduler__panic.
+            csrrci t0, mstatus, (1 << 3)  # Read old mstatus, clear MIE
+            andi t0, t0, (1 << 3)         # Extract old MIE
+            slli t0, t0, 4                # Shift to MPIE position (bit 7)
+            csrs mstatus, t0              # Set MPIE = old MIE
+            """
         return f"""
         # Setup scheduler panic handler before dispatching
+        {disable_mie}
         la t0, scheduler__panic
         csrrw t0, {self.tvec}, t0
         {self.variable_manager.get_variable("scheduler__saved_stvec").store(src_reg='t0')}
@@ -202,6 +216,17 @@ scheduler__test_cleanup_ptr:
                 li t0, (1<<12) # Clear mstatus[12]
                 csrrc x0, mstatus, t0
                 """
+            # Restore MIE from MPIE before jumping to test code.
+            # MIE was saved into MPIE and cleared on entry to the scheduler
+            # (in test_passed / enter_scheduler) to prevent interrupts while
+            # mtvec pointed at scheduler__panic.
+            code += """
+                # Restore MIE from MPIE
+                csrr t0, mstatus              # Read mstatus
+                andi t0, t0, (1 << 7)         # Extract MPIE
+                srli t0, t0, 4                # Shift to MIE position (bit 3)
+                csrs mstatus, t0              # Set MIE = old MPIE
+            """
             code += "jr t1\n"
         else:
             # For user mode use sret to jump to test
@@ -229,11 +254,11 @@ scheduler__test_cleanup_ptr:
         This is a bit faster than setting a flag in scheduler__finished to check if test_cleanup has been ran.
         """
         code = f"""
-        .align 3
+        .balign 8, 0
         num_runs:
             .dword {len(self.dtests_sequence)+1}
 
-        .align 3
+        .balign 8, 0
         os_test_sequence:
             .dword test_cleanup
         """
@@ -248,7 +273,7 @@ scheduler__test_cleanup_ptr:
         if not self.featmgr.rvcp_print_enabled():
             return ""
 
-        code = "\n.align 3\ndtest_descriptor_table:\n"
+        code = "\n.balign 8, 0\ndtest_descriptor_table:\n"
         for i, test in enumerate(self.dtests):
             code += f"    .dword dtest_name_{i}\n"
 
@@ -261,7 +286,7 @@ scheduler__test_cleanup_ptr:
         # This is needed because with repeat_times > 1, the same test appears multiple times
         # in os_test_sequence, but we need the discrete test index (0-N) for dtest_descriptor_table
         code += "\n# Lookup table: os_test_sequence position -> discrete test index\n"
-        code += ".align 2\ndtest_index_map:\n"
+        code += ".balign 4, 0\ndtest_index_map:\n"
         code += "    .word 0xFFFFFFFF  # Position 0 = test_cleanup\n"
 
         # Create mapping from test label to discrete test index
@@ -276,12 +301,12 @@ scheduler__test_cleanup_ptr:
         """Round-robin tables for FS/VS randomization (per-dispatch deterministic cycle)."""
         code = ""
         if self.featmgr.fs_randomization > 0 and self.featmgr.fs_randomization_values:
-            code += "\n        .align 2\n        fs_rr_table:\n"
+            code += "\n        .balign 4, 0\n        fs_rr_table:\n"
             for v in self.featmgr.fs_randomization_values:
                 code += f"            .word {v & 0x3}\n"
             code += f"        .equ fs_rr_table_size, {len(self.featmgr.fs_randomization_values)}\n"
         if self.featmgr.vs_randomization > 0 and self.featmgr.vs_randomization_values:
-            code += "\n        .align 2\n        vs_rr_table:\n"
+            code += "\n        .balign 4, 0\n        vs_rr_table:\n"
             for v in self.featmgr.vs_randomization_values:
                 code += f"            .word {v & 0x3}\n"
             code += f"        .equ vs_rr_table_size, {len(self.featmgr.vs_randomization_values)}\n"

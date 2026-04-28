@@ -192,26 +192,6 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         feat_mgr = self.builder.with_test_header(header).with_args(args).build(rng=self.rng)
         self.assertEqual(feat_mgr.mp, RV.RiscvMPEnablement.MP_OFF, "Tests should default to MP_OFF when mp is set to off on the command line")
 
-    def test_parallel_scheduling_mode_exhaustive(self):
-        """
-        Checking that ;#test.parallel_scheduling_mode works as expected
-        """
-        header = ParsedTestHeader(
-            cpus="2",
-            parallel_scheduling_mode="exhaustive",
-        )
-        feat_mgr = self.builder.with_test_header(header).build(rng=self.rng)
-        self.assertEqual(feat_mgr.parallel_scheduling_mode, RV.RiscvParallelSchedulingMode.EXHAUSTIVE, "Tests should default to EXHAUSTIVE when parallel_scheduling_mode is set to exhaustive")
-
-    def test_parallel_scheduling_mode_round_robin(self):
-
-        header = ParsedTestHeader(
-            cpus="2",
-            parallel_scheduling_mode="round_robin",
-        )
-        feat_mgr = self.builder.with_test_header(header).build(rng=self.rng)
-        self.assertEqual(feat_mgr.parallel_scheduling_mode, RV.RiscvParallelSchedulingMode.ROUND_ROBIN, "Tests should default to ROUND_ROBIN when parallel_scheduling_mode is set to round_robin")
-
     def test_force_alignment_arg(self):
         """
         Test that force alignment is set correctly
@@ -527,3 +507,58 @@ class TestFeatMgrBuilderFeatureDiscovery(FeatMgrBuilderBase):
             featmgr = self.builder.with_test_header(header).with_cpu_json(Path(f.name)).build(rng=self.rng)
 
         self.assertTrue(featmgr.wysiwyg)
+
+
+class TestFeatMgrExceptionHandlerOverrides(unittest.TestCase):
+    """
+    Tests for FeatMgr.register_default_exception_handler().
+    """
+
+    def setUp(self):
+        # An unrelated test above calls logging.disable(logging.WARNING), which
+        # is a process-global setting that persists across tests and would
+        # silence the warning we rely on in test_double_register_overwrites_with_warning.
+        # Reset it here so log capture is deterministic regardless of test order.
+        logging.disable(logging.NOTSET)
+
+    def _make_handler(self):
+        def handler(ctx):
+            return f"{ctx.xret}"
+
+        return handler
+
+    def test_register_stores_label_and_callable(self):
+        fm = FeatMgr()
+        h = self._make_handler()
+        fm.register_default_exception_handler(2, "my_illegal", h)
+        self.assertIn(2, fm.exception_handler_overrides)
+        self.assertEqual(fm.exception_handler_overrides[2], ("my_illegal", h))
+
+    def test_reserved_ecall_causes_rejected(self):
+        fm = FeatMgr()
+        h = self._make_handler()
+        for reserved in (8, 9, 10, 11):
+            with self.assertRaises(ValueError):
+                fm.register_default_exception_handler(reserved, "bad", h)
+            self.assertNotIn(reserved, fm.exception_handler_overrides)
+
+    def test_double_register_overwrites_with_warning(self):
+        fm = FeatMgr()
+        h1 = self._make_handler()
+        h2 = self._make_handler()
+        fm.register_default_exception_handler(2, "first", h1)
+        # Attach to the root logger so capture is independent of how featmanager was
+        # imported (Bazel runfiles can expose it under a different fully-qualified
+        # name than the normal riescue.dtest_framework.config.featmanager path).
+        with self.assertLogs(level="WARNING") as cm:
+            fm.register_default_exception_handler(2, "second", h2)
+        self.assertTrue(any("already has handler 'first'" in msg for msg in cm.output))
+        self.assertEqual(fm.exception_handler_overrides[2], ("second", h2))
+
+    def test_non_reserved_causes_accepted(self):
+        fm = FeatMgr()
+        h = self._make_handler()
+        # A selection of non-reserved, common synchronous causes.
+        for cause in (0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 15, 20, 21, 22, 23):
+            fm.register_default_exception_handler(cause, f"h_{cause}", h)
+            self.assertIn(cause, fm.exception_handler_overrides)

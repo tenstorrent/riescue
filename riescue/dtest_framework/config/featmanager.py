@@ -91,6 +91,9 @@ class FeatMgr:
     # Per-vector default interrupt handler overrides registered via register_default_handler().
     # Maps vec_num -> (label, assembly_fn) where assembly_fn(TrapContext) -> str.
     interrupt_handler_overrides: dict[int, tuple[str, TrapHookable]] = field(default_factory=dict)
+    # Per-cause default exception handler overrides registered via register_default_exception_handler().
+    # Maps cause_num -> (label, assembly_fn) where assembly_fn(TrapContext) -> str.
+    exception_handler_overrides: dict[int, tuple[str, TrapHookable]] = field(default_factory=dict)
 
     # Run options
     tohost_nonzero_terminate: bool = False
@@ -122,7 +125,6 @@ class FeatMgr:
     # MP mode
     mp: RV.RiscvMPEnablement = RV.RiscvMPEnablement.MP_ON
     mp_mode: RV.RiscvMPMode = RV.RiscvMPMode.MP_PARALLEL
-    parallel_scheduling_mode: RV.RiscvParallelSchedulingMode = RV.RiscvParallelSchedulingMode.ROUND_ROBIN
     num_cpus: int = 1
 
     # Generation options
@@ -266,9 +268,6 @@ class FeatMgr:
 
         presence["MP_SIMULTANEOUS"] = self.mp_mode == RV.RiscvMPMode.MP_SIMULTANEOUS
         presence["MP_PARALLEL"] = self.mp_mode == RV.RiscvMPMode.MP_PARALLEL
-        presence["MP_PARALLEL_SCHEDULING_MODE_ROUND_ROBIN"] = self.parallel_scheduling_mode == RV.RiscvParallelSchedulingMode.ROUND_ROBIN
-        presence["MP_PARALLEL_SCHEDULING_MODE_EXHAUSTIVE"] = self.parallel_scheduling_mode == RV.RiscvParallelSchedulingMode.EXHAUSTIVE
-
         # Export g-stage paging modes
         paging_g_mode = self.paging_g_mode
         presence["PAGING_G_MODE_DISABLE"] = paging_g_mode == RV.RiscvPagingModes.DISABLE
@@ -325,7 +324,7 @@ class FeatMgr:
             misa |= 1 << 30  # MXL = 1 for RV32
 
         # Base extensions
-        extension_bits = {"i": 8, "m": 12, "a": 0, "f": 5, "d": 3, "c": 2, "v": 21}  # I  # M  # A  # F  # D  # C  # V
+        extension_bits = {"i": 8, "m": 12, "a": 0, "f": 5, "d": 3, "c": 2, "v": 21, "h": 7}  # I  # M  # A  # F  # D  # C  # V  # H
 
         for ext, bit in extension_bits.items():
             if self.cpu_config.features.is_feature_enabled(ext):
@@ -395,6 +394,65 @@ class FeatMgr:
             existing_label = self.interrupt_handler_overrides[vec][0]
             log.warning(f"register_default_handler: vec {vec} already has handler '{existing_label}', " f"overwriting with '{label}'")
         self.interrupt_handler_overrides[vec] = (label, assembly)
+
+    def register_default_exception_handler(self, cause: int, label: str, assembly: TrapHookable) -> None:
+        """
+        Override the default exception handler for a synchronous cause for the entire test.
+
+        Replaces the framework's default exception path for ``cause`` with a user-supplied
+        label and assembly body for the **whole test**. There is no per-generator variant:
+        once registered, the handler is active for every discrete_test. The handler runs
+        **before** the framework saves context, so the body is fully responsible for its
+        own register discipline and must end with ``ctx.xret``.
+
+        The ``assembly`` callable receives a :class:`~riescue.dtest_framework.trap_context.TrapContext`
+        at generation time, carrying the correct CSR names (``xcause``, ``xepc``, ``xtval``,
+        ``xret``, etc.) for the privilege level at which *this cause* is handled (chosen by
+        the ``medeleg`` bit for ``cause``). Write a single handler body that works for both
+        M-mode and S-mode delegation:
+
+        .. code-block:: python
+
+            from riescue import Conf, FeatMgr, TrapContext
+
+            def my_illegal_handler(ctx: TrapContext) -> str:
+                return f\"\"\"
+                    csrr t0, {ctx.xepc}
+                    addi t0, t0, 4            # skip the faulting 32-bit instruction
+                    csrw {ctx.xepc}, t0
+                    {ctx.xret}
+                \"\"\"
+
+            class MyConf(Conf):
+                def add_hooks(self, featmgr: FeatMgr) -> None:
+                    featmgr.register_default_exception_handler(2, "my_illegal_handler", my_illegal_handler)
+
+            def setup() -> Conf:
+                return MyConf()
+
+        ECALL causes (8, 9, 10, 11 — ``ECALL_FROM_USER``/``SUPER``/``VS``/``MACHINE``) are
+        reserved for OS syscall dispatch and cannot be overridden; attempting to register
+        one raises ``ValueError``.
+
+        Overrides bypass the framework's ``check_excp`` validation for the given cause;
+        handlers are responsible for any validation they wish to enforce.
+
+        Called from :meth:`riescue.dtest_framework.config.conf.Conf.add_hooks`.
+
+        :param cause: Synchronous exception cause number (e.g. 2 for illegal instruction,
+            3 for breakpoint, 13 for load page fault). Causes 8–11 are reserved.
+        :param label: Assembly label for the handler (must be unique in the test).
+        :param assembly: Callable ``(ctx: TrapContext) -> str`` returning the handler body.
+            Do **not** hard-code ``mret``/``mepc`` etc.; use ``ctx.xret`` / ``ctx.xepc`` instead.
+        :raises ValueError: if ``cause`` is a reserved ECALL cause (8–11).
+        """
+        _RESERVED_ECALL_CAUSES = {8, 9, 10, 11}  # ECALL_FROM_USER/SUPER/VS/MACHINE
+        if cause in _RESERVED_ECALL_CAUSES:
+            raise ValueError(f"register_default_exception_handler: cause {cause} is reserved for OS ecall " f"dispatch and cannot be overridden (reserved causes: {sorted(_RESERVED_ECALL_CAUSES)})")
+        if cause in self.exception_handler_overrides:
+            existing_label = self.exception_handler_overrides[cause][0]
+            log.warning(f"register_default_exception_handler: cause {cause} already has handler " f"'{existing_label}', overwriting with '{label}'")
+        self.exception_handler_overrides[cause] = (label, assembly)
 
     def register_hook(self, hook_point: RV.HookPoint, hook: Hookable):
         """

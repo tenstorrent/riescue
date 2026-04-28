@@ -6,14 +6,14 @@ import unittest
 from tests.cli_tests.riescuec.base import BaseRiescueCTest
 
 
-class HypervisorPagingFaultsTest(BaseRiescueCTest):
-    "Runs hypervisor_paging_faults test plan"
+class HypervisorPagingFaultsGMisalignedTest(BaseRiescueCTest):
+    "Runs hypervisor_paging_faults_g_misaligned test plan (G-stage misaligned superpage fault scenarios)"
 
     def test_cli_gstage_only(self):
         for g_paging_mode in ("sv39", "sv48", "sv57"):
             for priv_mode in ("super", "user"):
                 self.run_tp_mode(
-                    plan="hypervisor_paging_faults",
+                    plan="hypervisor_paging_faults_g_misaligned",
                     cli_args=["--test_paging_mode", "disable", "--test_paging_g_mode", g_paging_mode, "--test_priv_mode", priv_mode, "--test_env", "virtualized", "--repeat_times", "1"],
                 )
 
@@ -22,7 +22,7 @@ class HypervisorPagingFaultsTest(BaseRiescueCTest):
             for g_paging_mode in ("sv39", "sv48", "sv57"):
                 for priv_mode in ("super", "user"):
                     self.run_tp_mode(
-                        plan="hypervisor_paging_faults",
+                        plan="hypervisor_paging_faults_g_misaligned",
                         cli_args=["--test_paging_mode", paging_mode, "--test_paging_g_mode", g_paging_mode, "--test_priv_mode", priv_mode, "--test_env", "virtualized", "--repeat_times", "1"],
                     )
 

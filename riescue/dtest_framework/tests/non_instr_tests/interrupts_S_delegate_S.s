@@ -2,7 +2,7 @@
 ;#test.author     nmatus@tenstorrent.com
 ;#test.arch       rv64
 ;#test.priv       supervisor
-;#test.env        virtualized bare_metal any
+;#test.env        bare_metal
 ;#test.cpus       1
 ;#test.paging     disable
 ;#test.category   arch

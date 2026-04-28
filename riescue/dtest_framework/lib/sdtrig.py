@@ -47,7 +47,7 @@ class TriggerAction(Enum):
     """Trigger action encodings (tdata1 action field value).
 
     The enum value IS the tdata1 bit encoding:
-      mcontrol6: bits [15:12], icount/itrigger/etrigger: bits [3:0]
+      mcontrol6: bits [15:12] (4-bit), icount/itrigger/etrigger: bits [5:0] (6-bit)
     """
 
     BREAKPOINT = 0
@@ -79,8 +79,8 @@ class TriggerMatch(Enum):
 
     EQUAL = 0
     NAPOT = 1
-    LT = 2
-    GE = 3
+    GE = 2
+    LT = 3
     MASK_LOW = 4
     MASK_HIGH = 5
     NE = 8
@@ -111,7 +111,7 @@ class TriggerMatch(Enum):
 # Valid privilege mode tokens
 _VALID_MODES = {"m", "s", "u", "vs", "vu"}
 _ALL_MODES = ("m", "s", "u", "vs", "vu")
-_DEFAULT_PRIV_MODE = ("m", "s", "u")
+_DEFAULT_PRIV_MODE = ("m", "s", "u", "vs", "vu")
 
 
 def modes_to_priv_bits(priv_mode: Sequence[str]) -> dict:
@@ -186,12 +186,13 @@ def build_tdata1_mcontrol6(
     val |= (chain & 1) << 11
     # match[10:7]
     val |= (match.value & 0xF) << 7
-    # privilege mode bits: m[6], vs[5], s[4], u[3], vu[2] per Debug Spec mcontrol6 layout
+    # privilege mode bits per Debug Spec mcontrol6 layout:
+    # m[6], s[4], u[3] in low bits; vs[24], vu[23] in high bits
     val |= bits["m"] << 6
-    val |= bits["vs"] << 5
     val |= bits["s"] << 4
     val |= bits["u"] << 3
-    val |= bits["vu"] << 2
+    val |= bits["vs"] << 24
+    val |= bits["vu"] << 23
     # load[0], store[1], execute[2]
     if trigger_type == TriggerType.EXECUTE:
         val |= 1 << 2
@@ -229,17 +230,18 @@ def build_tdata1_icount(
     # type[63:60] = 3
     val = TDATA1_TYPE_ICOUNT << 60
     # dmode[59] = 0
+    # vs[26], vu[25], hit[24]
+    val |= bits["vs"] << 26
+    val |= bits["vu"] << 25
     # count[23:10] (14 bits)
     val |= (count & 0x3FFF) << 10
-    # m[9], pending[8], s[7], u[6], vs[5], vu[4]
+    # m[9], pending[8], s[7], u[6]
     val |= bits["m"] << 9
     val |= (pending & 1) << 8
     val |= bits["s"] << 7
     val |= bits["u"] << 6
-    val |= bits["vs"] << 5
-    val |= bits["vu"] << 4
-    # action[3:0]
-    val |= _encode_action(action) & 0xF
+    # action[5:0]
+    val |= _encode_action(action) & 0x3F
     return val & 0xFFFFFFFFFFFFFFFF
 
 
@@ -261,14 +263,15 @@ def build_tdata1_itrigger(
     # type[63:60] = 4
     val = TDATA1_TYPE_ITRIGGER << 60
     # dmode[59] = 0
-    # m[9], s[7], u[6], vs[5], vu[4]
+    # vs[12], vu[11], nmi[10] (nmi not set here)
+    val |= bits["vs"] << 12
+    val |= bits["vu"] << 11
+    # m[9], (bit 8 reserved), s[7], u[6]
     val |= bits["m"] << 9
     val |= bits["s"] << 7
     val |= bits["u"] << 6
-    val |= bits["vs"] << 5
-    val |= bits["vu"] << 4
-    # action[3:0]
-    val |= _encode_action(action) & 0xF
+    # action[5:0]
+    val |= _encode_action(action) & 0x3F
     return val & 0xFFFFFFFFFFFFFFFF
 
 
@@ -290,12 +293,13 @@ def build_tdata1_etrigger(
     # type[63:60] = 5
     val = TDATA1_TYPE_ETRIGGER << 60
     # dmode[59] = 0
-    # m[9], s[7], u[6], vs[5], vu[4]
+    # vs[12], vu[11], (bit 10 reserved)
+    val |= bits["vs"] << 12
+    val |= bits["vu"] << 11
+    # m[9], (bit 8 reserved), s[7], u[6]
     val |= bits["m"] << 9
     val |= bits["s"] << 7
     val |= bits["u"] << 6
-    val |= bits["vs"] << 5
-    val |= bits["vu"] << 4
-    # action[3:0]
-    val |= _encode_action(action) & 0xF
+    # action[5:0]
+    val |= _encode_action(action) & 0x3F
     return val & 0xFFFFFFFFFFFFFFFF

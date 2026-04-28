@@ -185,7 +185,7 @@ class BringupMode(BaseMode[Resource]):
         rd.build(resource.featmgr)
         for simulator in iss:
             if toolchain.whisper is not None:
-                whisper_config_json_override = toolchain.whisper.whisper_config_json.resolve()
+                whisper_config_json_override = toolchain.whisper.check_filepath(toolchain.whisper.whisper_config_json)
             else:
                 whisper_config_json_override = None
 

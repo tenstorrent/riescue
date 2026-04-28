@@ -10,27 +10,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riescue"
-version = "1.12.0"
+version = "1.13.0"
 description = "RISC-V Directed Test Framework and Compliance Suite"
 readme = "README.md"
 requires-python = ">= 3.9"
-dependencies = [
-    "sortedcontainers",
-    "pyyaml",
-    "numpy",
-    "sphinx>=7.4.0",
-    "sphinx-rtd-theme",
-    "sphinxcontrib.mermaid",
-    "flake8",
-    "black==25.1.0",
-    "intervaltree",
-    "coverage",
-    "pyright[nodejs]",
-    "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp@045cf0faed544351b12729f95ecedfd1932035cb",
-]
+dynamic = ["dependencies"]
 
 [tool.setuptools.package-dir]
 riescue = "riescue/"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "riescue*",
+]
+exclude = ["tests*", "taffy*"]
 
 [tool.setuptools.package-data]
 "riescue.dtest_framework.tests" = ["*.s"]
@@ -62,6 +56,7 @@ include = [
     "riescue/compliance/config",
     "riescue/compliance/src",
     "riescue/compliance/test_plan",
+
 ]
 
 typeCheckingMode = "standard"

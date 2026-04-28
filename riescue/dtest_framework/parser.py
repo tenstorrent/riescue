@@ -796,7 +796,7 @@ class Parser:
                 vectored_interrupt = ParsedVectoredInterrupt.from_interrupt_index(label=label, index=index)
             else:
                 vectored_interrupt = ParsedVectoredInterrupt.from_interrupt_name(label=label, name=index)
-            log.warning(f"parsed {vectored_interrupt}")
+            log.info(f"parsed {vectored_interrupt}")
             self.pool.add_parsed_vectored_interrupt(vectored_interrupt)
 
     def parse_custom_handler(self, line):
@@ -1093,7 +1093,7 @@ class Parser:
         pending = int(args.get("pending", 0))
 
         # Parse priv_mode=[m,s,u] — stored as a comma-separated string inside brackets
-        priv_mode_raw = args.get("priv_mode", "m,s,u")
+        priv_mode_raw = args.get("priv_mode", "m,s,u,vs,vu")
         priv_mode: tuple[str, ...] = tuple(tok.strip() for tok in priv_mode_raw.strip("[]").split(",") if tok.strip())
 
         # icount does not use tdata2; itrigger/etrigger use addr as tdata2 value
@@ -1117,10 +1117,11 @@ class Parser:
                 force_machine_rw=True,
                 hypervisor=False,
             )
-            if csr_name not in self.pool.parsed_csr_accesses or "write" not in self.pool.parsed_csr_accesses[csr_name]:
+            pool_key = "write_force_machine"
+            if csr_name not in self.pool.parsed_csr_accesses or pool_key not in self.pool.parsed_csr_accesses[csr_name]:
                 self.pool.add_parsed_csr_access(acc)
                 self.parsed_csr_id += 1
-            csr_ids.append(self.pool.parsed_csr_accesses[csr_name]["write"].csr_id)
+            csr_ids.append(self.pool.parsed_csr_accesses[csr_name][pool_key].csr_id)
         # Pad to 3-tuple with 0 for unused tdata2 slot (icount)
         while len(csr_ids) < 3:
             csr_ids.append(0)
@@ -1544,7 +1545,6 @@ class ParsedTestHeader:
     mp: str = ""
     mp_mode: str = ""
     opts: str = ""
-    parallel_scheduling_mode: str = ""
 
 
 @dataclass
@@ -1616,7 +1616,7 @@ class ParsedTriggerConfig:
     size: int = 4
     chain: int = 0
     match: TriggerMatch = TriggerMatch.EQUAL  # mcontrol6 match type
-    priv_mode: Tuple[str, ...] = ("m", "s", "u")  # privilege modes in which trigger is active
+    priv_mode: Tuple[str, ...] = ("m", "s", "u", "vs", "vu")  # privilege modes in which trigger is active
     count: int = 0  # icount: instruction count
     pending: int = 0  # icount: pending bit
     trigger_id: int = 0

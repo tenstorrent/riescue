@@ -180,12 +180,11 @@ class CliAdapterTest(unittest.TestCase):
 
     def test_multiprocessor_complex_setup(self):
         """Test complex multiprocessor configuration"""
-        args = self.parser.parse_args(args=["--num_cpus", "8", "--mp", "on", "--mp_mode", "parallel", "--parallel_scheduling_mode", "exhaustive"])
+        args = self.parser.parse_args(args=["--num_cpus", "8", "--mp", "on", "--mp_mode", "parallel"])
         result = self.adapter.apply(self.builder, args)
         self.assertEqual(result.featmgr.num_cpus, 8)
         self.assertEqual([m for m in result.mp], [RV.RiscvMPEnablement.MP_ON])
         self.assertEqual([m for m in result.mp_mode], [RV.RiscvMPMode.MP_PARALLEL])
-        self.assertEqual([s for s in result.parallel_scheduling_mode], [RV.RiscvParallelSchedulingMode.EXHAUSTIVE])
 
     def test_pma_pmp_configuration(self):
         """Test PMA/PMP related configuration"""

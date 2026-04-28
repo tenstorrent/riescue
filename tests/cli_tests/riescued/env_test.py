@@ -154,6 +154,19 @@ class TestEnvTests(BaseRiescuedTest):
         self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
 
 
+class BigEndianTest(BaseRiescuedTest):
+    "Tests for big-endian mode"
+
+    def setUp(self):
+        self.testname = "dtest_framework/tests/riescued_ld_test.s"
+        super().setUp()
+
+    def test_big_endian(self):
+        "Test that big-endian compiles and runs successfully"
+        cli_args = ["--run_iss", "--big_endian", "--cpuconfig=dtest_framework/lib/config_big_endian.json"]
+        self.run_riescued(testname=self.testname, cli_args=cli_args, iterations=self.iterations)
+
+
 class Bf16Test(BaseRiescuedTest):
     "Test for bf16"
 

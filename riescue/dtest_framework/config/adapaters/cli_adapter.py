@@ -247,9 +247,8 @@ class CliAdapter(Adapter):
 
         if cmdline.mp_mode:
             builder.mp_mode = to_candidate(RV.RiscvMPMode.str_to_enum(cmdline.mp_mode))
-
         if cmdline.parallel_scheduling_mode:
-            builder.parallel_scheduling_mode = to_candidate(RV.RiscvParallelSchedulingMode.str_to_enum(cmdline.parallel_scheduling_mode))
+            log.warning("(--parallel_scheduling_mode is deprecated. Only one parallel mode is supported now.")
 
         # FIXME: Old behavior was to only allow virtualized if --test_env_any is specified. Should remove --test_env_any when changes are stable
         # --test_env should always win, otherwise only use virtualized if --test_env_any is specified

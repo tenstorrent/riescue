@@ -62,6 +62,9 @@ class Runtime:
         self.variable_manager.register_hart_variable("check_excp_actual_cause", 0xFF)
         self.variable_manager.register_hart_variable("check_excp_gva_check", 0)
         self.variable_manager.register_hart_variable("check_excp_expected_mode", 0)
+        # When set by OS_SETUP_CHECK_EXCP, the OS trap handler leaves xepc untouched so
+        # mret/sret returns to the same PC that faulted (sdtrig icount/mcontrol6 use cases).
+        self.variable_manager.register_hart_variable("check_excp_re_execute", 0)
 
         # GPR save area for trap handler (32 registers)
         self.variable_manager.register_hart_variable("gpr_save_area", value=0, element_count=32)
