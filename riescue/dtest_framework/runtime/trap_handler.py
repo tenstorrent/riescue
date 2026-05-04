@@ -543,6 +543,58 @@ class TrapHandler(AssemblyGenerator):
             {self.label_prefix}skip_xepc_write:
         """
 
+        # AssertException(disable_triggers_after=True) walker. Fires when
+        # check_excp_disable_triggers != 0 AND cause != BREAKPOINT. Walks
+        # every implemented sdtrig trigger and clears only the priv-enable
+        # bits per trigger type so the trigger can no longer match without
+        # clobbering its action/match/count/hit/chain/etc. fields.
+        # M-mode only: tselect / tdata1 are M-mode CSRs, so emitting from
+        # an S-mode trap handler would raise ILLEGAL_INSTRUCTION.
+        if self.deleg_mode == RV.RiscvPrivileges.MACHINE:
+            check_excp_disable_triggers = self.variable_manager.get_variable("check_excp_disable_triggers")
+            code += f"""
+            # disable_triggers_after path: load+clear the flag; if set and
+            # cause != BREAKPOINT, walk all triggers and clear priv-enables.
+            {check_excp_disable_triggers.load_and_clear(dest_reg='t1'):<35}  # check_excp_disable_triggers
+            beqz t1, {self.label_prefix}skip_assert_disable_triggers
+            csrr t1, {self.xcause}
+            li t2, 3                                     # RISC-V BREAKPOINT cause
+            beq t1, t2, {self.label_prefix}skip_assert_disable_triggers
+            li t1, 0                                     # candidate trigger index
+        {self.label_prefix}assert_disable_triggers_loop:
+            csrw tselect, t1
+            csrr t2, tselect
+            bne t2, t1, {self.label_prefix}skip_assert_disable_triggers   # past last implemented
+
+            csrr t4, tdata1
+            srli t5, t4, 60                              # t5 = tdata1[63:60] = trigger type
+            li t3, 0                                     # default: unknown type, mask = 0 (no-op)
+
+            li t6, 6                                     # mcontrol6
+            bne t5, t6, {self.label_prefix}assert_check_icount
+            li t3, 0x01800058
+            j {self.label_prefix}assert_apply_priv_mask
+        {self.label_prefix}assert_check_icount:
+            li t6, 3                                     # icount
+            bne t5, t6, {self.label_prefix}assert_check_itrig_etrig
+            li t3, 0x060002C0
+            j {self.label_prefix}assert_apply_priv_mask
+        {self.label_prefix}assert_check_itrig_etrig:
+            li t6, 4                                     # itrigger
+            beq t5, t6, {self.label_prefix}assert_set_itrig_etrig_mask
+            li t6, 5                                     # etrigger
+            bne t5, t6, {self.label_prefix}assert_apply_priv_mask
+        {self.label_prefix}assert_set_itrig_etrig_mask:
+            li t3, 0x000018C0
+        {self.label_prefix}assert_apply_priv_mask:
+            csrc tdata1, t3                              # clear priv enables only
+
+            addi t1, t1, 1
+            li t2, 64                                    # safety upper bound
+            blt t1, t2, {self.label_prefix}assert_disable_triggers_loop
+        {self.label_prefix}skip_assert_disable_triggers:
+            """
+
         # Call post handler user code
         if self.featmgr.excp_hooks:
             code += self._call_excp_hook("excp_handler_post_addr")

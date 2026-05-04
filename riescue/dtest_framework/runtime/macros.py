@@ -125,6 +125,7 @@ class Macros(AssemblyGenerator):
             "__gva_check=0",
             "__expected_mode=0",
             "__re_execute=0",
+            "__disable_triggers_after=0",
         ]
 
         check_excp_expected_cause = self.variable_manager.get_variable("check_excp_expected_cause")
@@ -136,6 +137,7 @@ class Macros(AssemblyGenerator):
         check_excp_gva_check = self.variable_manager.get_variable("check_excp_gva_check")
         check_excp_expected_mode = self.variable_manager.get_variable("check_excp_expected_mode")
         check_excp_re_execute = self.variable_manager.get_variable("check_excp_re_execute")
+        check_excp_disable_triggers = self.variable_manager.get_variable("check_excp_disable_triggers")
 
         macro.code = f"""
             {self.get_hart_context()}
@@ -182,6 +184,15 @@ class Macros(AssemblyGenerator):
             # instead of overwriting xepc with __return_pc (sdtrig icount/mcontrol6 use cases).
             li t3, \\__re_execute
             {check_excp_re_execute.store(src_reg="t3")}
+
+            # Disable-triggers-after flag: when set AND cause != BREAKPOINT, the
+            # OS trap handler walks every implemented sdtrig trigger and clears
+            # its priv-enable bits before xret. Lets a test arm an icount
+            # trigger inside an assert block that's expected to fault for some
+            # other reason, without the still-armed trigger firing on the next
+            # user instruction (e.g. the readback step).
+            li t3, \\__disable_triggers_after
+            {check_excp_disable_triggers.store(src_reg="t3")}
 
         """
 

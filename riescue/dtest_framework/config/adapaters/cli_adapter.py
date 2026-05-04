@@ -90,6 +90,8 @@ class CliAdapter(Adapter):
 
         if cmdline.excp_hooks is not None:
             featmgr.excp_hooks = cmdline.excp_hooks
+        if cmdline.save_restore_gprs is not None:
+            featmgr.save_restore_gprs = True
         if cmdline.interrupts_enabled is not None:
             log.warning("(--interrupts_enabled is deprecated. Use --interrupts_disabled instead.)")
             featmgr.interrupts_enabled = cmdline.interrupts_enabled

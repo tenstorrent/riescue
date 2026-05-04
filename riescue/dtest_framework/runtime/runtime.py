@@ -65,6 +65,14 @@ class Runtime:
         # When set by OS_SETUP_CHECK_EXCP, the OS trap handler leaves xepc untouched so
         # mret/sret returns to the same PC that faulted (sdtrig icount/mcontrol6 use cases).
         self.variable_manager.register_hart_variable("check_excp_re_execute", 0)
+        # When set by OS_SETUP_CHECK_EXCP, the OS trap handler walks every
+        # implemented sdtrig trigger and clears its priv-enable bits before
+        # returning to user code. Only fires when the cause is NOT BREAKPOINT
+        # (a BREAKPOINT is the trigger firing as expected). Use case: an
+        # AssertException for ILLEGAL_INSTRUCTION etc. running with a still-
+        # armed icount trigger that would fire on the very next user instr
+        # after xret, masking the test's actual readback / next step.
+        self.variable_manager.register_hart_variable("check_excp_disable_triggers", 0)
 
         # GPR save area for trap handler (32 registers)
         self.variable_manager.register_hart_variable("gpr_save_area", value=0, element_count=32)

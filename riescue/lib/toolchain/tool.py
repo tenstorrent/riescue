@@ -130,9 +130,11 @@ class Compiler(Tool):
     Default compiler march uses GCC march.
     """
 
-    default_compiler_march = "rv64imafdcvh_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zvkned_zicbom_zicbop_zicboz_zawrs_zihintpause_zvbb1_zicond_zvkg_zvkn_zvbc_zfa_zk_zvfbfmin_zvfbfwma_zfbfmin"
+    default_compiler_march = (
+        "rv64imafdcvh_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zca_zvkned_zicbom_zicbop_zicboz_zawrs_zihintpause_zihintntl_zvbb1_zicond_zvkg_zvkn_zvbc_zfa_zk_zvfbfmin_zvfbfwma_zfbfmin"
+    )
 
-    default_compiler_march_no_vector = "rv64imafdch_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zicbom_zicbop_zicboz_zawrs_zihintpause_zicond_zfa_zk_zfbfmin"
+    default_compiler_march_no_vector = "rv64imafdch_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zca_zicbom_zicbop_zicboz_zawrs_zihintpause_zihintntl_zicond_zfa_zk_zfbfmin"
 
     def __init__(
         self,

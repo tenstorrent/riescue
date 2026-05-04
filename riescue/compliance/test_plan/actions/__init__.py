@@ -32,6 +32,21 @@ from .comment import CommentAction
 from .directive import DirectiveAction
 from .set_wait_timeout import SetWaitTimeoutAction
 from .privilege_mode import MachineCodeAction, SupervisorCodeAction, UserCodeAction
+from .label_step import LabelTestStepAction
+from .debug import (
+    ConfigureExecuteTriggerAction,
+    ConfigureLoadTriggerAction,
+    ConfigureStoreTriggerAction,
+    ConfigureLoadStoreTriggerAction,
+    ConfigureIcountTriggerAction,
+    ConfigureItriggerAction,
+    ConfigureEtriggerAction,
+    EnableTriggerAction,
+    DisableTriggerAction,
+    SelectTriggerAction,
+    WriteTriggerCsrAction,
+    ReadTriggerCsrAction,
+)
 from .mappings import DEFAULT_MAPPINGS
 
 
@@ -76,5 +91,18 @@ __all__ = [
     "MachineCodeAction",
     "SupervisorCodeAction",
     "UserCodeAction",
+    "LabelTestStepAction",
+    "ConfigureExecuteTriggerAction",
+    "ConfigureLoadTriggerAction",
+    "ConfigureStoreTriggerAction",
+    "ConfigureLoadStoreTriggerAction",
+    "ConfigureIcountTriggerAction",
+    "ConfigureItriggerAction",
+    "ConfigureEtriggerAction",
+    "EnableTriggerAction",
+    "DisableTriggerAction",
+    "SelectTriggerAction",
+    "WriteTriggerCsrAction",
+    "ReadTriggerCsrAction",
     "DEFAULT_MAPPINGS",
 ]
