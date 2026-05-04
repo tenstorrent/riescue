@@ -49,7 +49,7 @@ class StoreAction(Action):
         if TYPE_CHECKING:
             assert isinstance(step.step, Store)
         memory = None
-        value = None
+        value: Any = None
 
         # Use positional ordering from gather_inputs: memory comes before value
         str_inputs = [src for src in step.inputs if isinstance(src, str)]
@@ -60,8 +60,13 @@ class StoreAction(Action):
         if step.step.value is not None and not isinstance(step.step.value, int) and idx < len(str_inputs):
             value = str_inputs[idx]
             idx += 1
+        # Plumb the integer immediate through so expand() can materialize it via
+        # an LiAction. Without this, an int Store(value=0xBEEF) was silently
+        # dropped — pick_instruction then synthesized a random value id.
+        elif isinstance(step.step.value, int):
+            value = step.step.value
 
-        return cls(step_id=step_id, offset=step.step.offset, memory=memory, value=value, **kwargs)
+        return cls(step_id=step_id, offset=step.step.offset, memory=memory, value=value, op=step.step.op, **kwargs)
 
     def repr_info(self) -> str:
         return f"{self.offset}('{self.memory}')"
@@ -97,6 +102,16 @@ class StoreAction(Action):
             self.offset = 0  # replace offset with 0
             new_actions.append(li)
             new_actions.append(add)
+
+        # Materialize integer immediate `value`s into a register via LiAction so
+        # the store's rs2 references that register's step_id. Without this, an
+        # int value passed in via Store(value=0xBEEF) would never reach the
+        # generated assembly — pick_instruction would substitute a random value
+        # id at line ~157.
+        if isinstance(self.value, int):
+            value_li = LiAction(step_id=ctx.new_value_id(), immediate=self.value)
+            self.value = value_li.step_id
+            new_actions.append(value_li)
 
         if new_actions:
             new_actions.append(self)

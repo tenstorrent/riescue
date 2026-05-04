@@ -8,7 +8,7 @@ from coretp.rv_enums import PrivilegeMode
 
 from riescue.compliance.test_plan.actions import ActionRegistry
 from riescue.compliance.test_plan.factory import TestPlanFactory
-from riescue.compliance.test_plan.types import DiscreteTest, AssemblyFile, Header
+from riescue.compliance.test_plan.types import DiscreteTest, AssemblyFile, Header, TestCase, TextBlock
 from riescue.compliance.test_plan.transformer import Transformer
 from riescue.compliance.test_plan.memory import MemoryRegistry
 from riescue.compliance.test_plan.actions import CsrReadAction, CsrWriteAction
@@ -52,7 +52,13 @@ class TestPlanGenerator:
         """
         discrete_tests = self.build(test_plan)
         env = self.solve(discrete_tests)
-        return self.generate(discrete_tests, env, test_plan.name)
+        return self.generate(
+            discrete_tests,
+            env,
+            test_plan.name,
+            excp_handler_pre=test_plan.excp_handler_pre,
+            excp_handler_post=test_plan.excp_handler_post,
+        )
 
     def build(self, test_plan: TestPlan) -> list[DiscreteTest]:
         """
@@ -83,7 +89,14 @@ class TestPlanGenerator:
             raise ValueError("No valid TestEnv objects found for given tests. TestPlan may be too narrow with TestEnvCfgs or constraints are too strict")
         return self.rng.random_entry_in(envs)
 
-    def generate(self, discrete_tests: list[DiscreteTest], env: TestEnv, test_plan_name: str = "generated_test_plan") -> str:
+    def generate(
+        self,
+        discrete_tests: list[DiscreteTest],
+        env: TestEnv,
+        test_plan_name: str = "generated_test_plan",
+        excp_handler_pre: Optional[str] = None,
+        excp_handler_post: Optional[str] = None,
+    ) -> str:
         """
         Generate a string of assembly code for the given :class:`DiscreteTest` objects and ``TestEnv``.
 
@@ -95,6 +108,14 @@ class TestPlanGenerator:
         :param discrete_tests: List of :class:`DiscreteTest` objects to generate.
         :param env: ``TestEnv`` object to generate.
         :param test_plan_name: Name of the test plan to use in the generated test case. - FIXME: In the future, maybe have discrete tests store TestPlan name as metadata?
+        :param excp_handler_pre: Optional plan-wide assembly body to emit inside an
+            ``excp_handler_pre:`` label (terminated with ``ret``). When only one
+            of pre/post is set, the missing label is emitted with a ``nop`` body
+            so the runtime hook pointer pair always resolves. The test must be
+            run with ``--excp_hooks`` for the runtime trap handler to call it.
+        :param excp_handler_post: Optional plan-wide assembly body to emit inside an
+            ``excp_handler_post:`` label (terminated with ``ret``). The test must be
+            run with ``--excp_hooks`` for the runtime trap handler to call it.
         """
 
         # filtered discrete tests to only include tests that match the environment
@@ -114,6 +135,23 @@ class TestPlanGenerator:
 
         # generate test segments
         text, data = self.transformer.transform_tests(discrete_tests, env)
+
+        # Plan-wide ``excp_handler_pre`` / ``excp_handler_post`` labels.
+        #
+        # Emitted in .code so ``--excp_hooks`` resolves the function pointer to a
+        # user-section symbol (subject to the .code VMA→LMA relocation that the
+        # M-mode trap handler applies in _call_excp_hook).
+        #
+        # ``--excp_hooks`` registers runtime pointers for BOTH labels (see
+        # opsys.OpSys runtime_pointers), so when the plan sets either of pre/post
+        # we must define both to keep the link resolving — fill the absent body
+        # with a ``nop``.
+        if excp_handler_pre or excp_handler_post:
+            pre_body = excp_handler_pre if excp_handler_pre else "    nop"
+            post_body = excp_handler_post if excp_handler_post else "    nop"
+            text.blocks.append(TestCase([TextBlock(label="excp_handler_pre", text=[pre_body, "ret"])]))
+            text.blocks.append(TestCase([TextBlock(label="excp_handler_post", text=[post_body, "ret"])]))
+
         header = Header.from_env(env=env, plan_name=test_plan_name)
         assembly_file = AssemblyFile(header=header, code=text, data=data)
 

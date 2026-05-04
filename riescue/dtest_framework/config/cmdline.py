@@ -361,6 +361,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
             ]
         ),
     )
+    trap_handler_args.add_argument(
+        "--save_restore_gprs",
+        "-save_restore_gprs",
+        action="store_true",
+        default=None,
+        help="Force save/restore of all GPRs across the trap handler so user state is preserved when the handler clobbers scratch registers.",
+    )
 
     # FIXME: Interrupts disabled by default. This should be removed in the future.
     trap_handler_args.add_argument(

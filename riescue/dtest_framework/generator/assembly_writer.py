@@ -175,11 +175,11 @@ class AssemblyWriter:
         code_super_0_idx = None
         code_machine_0_idx = None
         for i, line in enumerate(lines):
-            if ".section .code" in line and "_" not in line:
+            if ".section .code" in line and "_" not in line and code_section_idx is None:
                 code_section_idx = i
-            if ".section .code_super_0" in line:
+            if ".section .code_super_0" in line and code_super_0_idx is None:
                 code_super_0_idx = i
-            if ".section .code_machine_0" in line:
+            if ".section .code_machine_0" in line and code_machine_0_idx is None:
                 code_machine_0_idx = i
 
         if code_section_idx is None:

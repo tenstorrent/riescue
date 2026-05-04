@@ -122,7 +122,13 @@ class TpMode(BaseMode[TpCfg]):
         env = generator.solve(discrete_tests, env_constraints)
 
         # cfg.featmgr.hypervisor = env.hypervisor
-        test = generator.generate(discrete_tests, env, cfg.test_plan_name)
+        test = generator.generate(
+            discrete_tests,
+            env,
+            cfg.test_plan_name,
+            excp_handler_pre=test_plan.excp_handler_pre,
+            excp_handler_post=test_plan.excp_handler_post,
+        )
 
         # write test file
         output_name = cl_args.output_file if cl_args is not None and getattr(cl_args, "output_file", None) else f"tp_{cfg.test_plan_name}_{cfg.seed}"
