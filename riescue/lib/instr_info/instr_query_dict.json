@@ -4568,33 +4568,33 @@
             1141,
             "{\"encoding\": \"---011-----------000-----0000111\", \"extension\": [\"rv_v\"], \"mask\": \"0x1c00707f\", \"match\": \"0xc000007\", \"variable_fields\": [\"nf\", \"vm\", \"vs2\", \"rs1\", \"vd\"], \"group\": \"vector_load_indexed_segmented\", \"opcode\": \"0x7\", \"mop\": \"0x3\"}"
         ],
-        "vqdot.vv": [
+        "vdot4a.vv": [
             1142,
-            "{\"encoding\": \"101100-----------010-----1011011\", \"extension\": [\"Xsfvqdotq\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"vs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
+            "{\"encoding\": \"101100-----------010-----1011011\", \"extension\": [\"rv_zvdot4a8i\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"vs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
         ],
-        "vqdot.vx": [
+        "vdot4a.vx": [
             1143,
-            "{\"encoding\": \"101100-----------110-----1011011\", \"extension\": [\"Xsfvqdotq\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"rs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
+            "{\"encoding\": \"101100-----------110-----1011011\", \"extension\": [\"rv_zvdot4a8i\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"rs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
         ],
-        "vqdotu.vv": [
+        "vdot4au.vv": [
             1144,
-            "{\"encoding\": \"101000-----------010-----1011011\", \"extension\": [\"Xsfvqdotq\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"vs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
+            "{\"encoding\": \"101000-----------010-----1011011\", \"extension\": [\"rv_zvdot4a8i\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"vs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
         ],
-        "vqdotu.vx": [
+        "vdot4au.vx": [
             1145,
-            "{\"encoding\": \"101000-----------110-----1011011\", \"extension\": [\"Xsfvqdotq\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"rs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
+            "{\"encoding\": \"101000-----------110-----1011011\", \"extension\": [\"rv_zvdot4a8i\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"rs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
         ],
-        "vqdotsu.vv": [
+        "vdot4asu.vv": [
             1146,
-            "{\"encoding\": \"101010-----------010-----1011011\", \"extension\": [\"Xsfvqdotq\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"vs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
+            "{\"encoding\": \"101010-----------010-----1011011\", \"extension\": [\"rv_zvdot4a8i\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"vs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
         ],
-        "vqdotsu.vx": [
+        "vdot4asu.vx": [
             1147,
-            "{\"encoding\": \"101010-----------110-----1011011\", \"extension\": [\"Xsfvqdotq\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"rs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
+            "{\"encoding\": \"101010-----------110-----1011011\", \"extension\": [\"rv_zvdot4a8i\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"rs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
         ],
-        "vqdotus.vx": [
+        "vdot4aus.vx": [
             1148,
-            "{\"encoding\": \"101110-----------110-----1011011\", \"extension\": [\"Xsfvqdotq\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"rs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
+            "{\"encoding\": \"101110-----------110-----1011011\", \"extension\": [\"rv_zvdot4a8i\"], \"mask\": \"missing\", \"match\": \"missing\", \"variable_fields\": [\"vm\", \"vs2\", \"rs1\", \"vd\"], \"group\": \"vec_int_quad_widening_4d_dot_prod\", \"opcode\": \"0x5b\"}"
         ]
     },
     "Extensions_To_Instruction_Names": {
@@ -5668,14 +5668,14 @@
             "vsha2cl.vv",
             "vsha2ms.vv"
         ],
-        "Xsfvqdotq": [
-            "vqdot.vv",
-            "vqdot.vx",
-            "vqdotu.vv",
-            "vqdotu.vx",
-            "vqdotsu.vv",
-            "vqdotsu.vx",
-            "vqdotus.vx"
+        "rv_zvdot4a8i": [
+            "vdot4a.vv",
+            "vdot4a.vx",
+            "vdot4au.vv",
+            "vdot4au.vx",
+            "vdot4asu.vv",
+            "vdot4asu.vx",
+            "vdot4aus.vx"
         ]
     },
     "Extensions_To_Groups": {
@@ -5920,7 +5920,7 @@
         "rv_zvknhb": [
             "vector_sha2_secure_hash"
         ],
-        "Xsfvqdotq": [
+        "rv_zvdot4a8i": [
             "vec_int_quad_widening_4d_dot_prod"
         ]
     },
@@ -6399,7 +6399,7 @@
             "rv_v"
         ],
         "vec_int_quad_widening_4d_dot_prod": [
-            "Xsfvqdotq"
+            "rv_zvdot4a8i"
         ]
     },
     "Groups_To_Instruction_Names": {
@@ -7856,13 +7856,13 @@
             "vloxseg8ei8.v"
         ],
         "vec_int_quad_widening_4d_dot_prod": [
-            "vqdot.vv",
-            "vqdot.vx",
-            "vqdotu.vv",
-            "vqdotu.vx",
-            "vqdotsu.vv",
-            "vqdotsu.vx",
-            "vqdotus.vx"
+            "vdot4a.vv",
+            "vdot4a.vx",
+            "vdot4au.vv",
+            "vdot4au.vx",
+            "vdot4asu.vv",
+            "vdot4asu.vx",
+            "vdot4aus.vx"
         ]
     }
 }

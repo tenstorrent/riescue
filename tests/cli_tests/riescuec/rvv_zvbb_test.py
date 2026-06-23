@@ -20,7 +20,6 @@ class RvvZvbb10Test(unittest.TestCase):
                 "10000",
                 "--user_config",
                 "./compliance/tests/configs/user_rvv_fp_quals.json",
-                "--rv_zvbb_experimental",
                 "--seed",
                 "0",
             ]
@@ -40,7 +39,6 @@ class RvvZvbb10Test(unittest.TestCase):
                 "10000",
                 "--user_config",
                 "./compliance/tests/configs/user_rvv_fp_quals.json",
-                "--rv_zvbb_experimental",
                 "--seed",
                 "0",
             ]

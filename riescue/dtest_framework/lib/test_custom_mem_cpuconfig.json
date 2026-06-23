@@ -84,7 +84,7 @@
         "zimop": {"supported": true, "enabled": false, "randomize": 0},
         "zcmop": {"supported": true, "enabled": false, "randomize": 0},
         "zawrs": {"supported": true, "enabled": true, "randomize": 0},
-        "zvqdot": {"supported": true, "enabled": false, "randomize": 0},
+        "zvdot4a8i": {"supported": true, "enabled": false, "randomize": 0},
         "zjpm": {"supported": true, "enabled": false, "randomize": 0},
         "svnapot": {"supported": true, "enabled": true, "randomize": 0},
         "svpbmt": {"supported": true, "enabled": false, "randomize": 0},
@@ -131,7 +131,17 @@
         "ssstrict": {"supported": true, "enabled": false, "randomize": 0},
         "svvptc": {"supported": true, "enabled": false, "randomize": 0},
         "sspm": {"supported": true, "enabled": false, "randomize": 0},
-        "big_endian": {"supported": true, "enabled": false, "randomize": 0}
+        "big_endian": {"supported": true, "enabled": false, "randomize": 0},
+        "zvzip": {"supported": true, "enabled": true, "randomize": 100},
+        "zvabd": {"supported": true, "enabled": true, "randomize": 100}
+    },
+    "interrupts_supported": {
+        "msi": true,
+        "mei": true,
+        "mti": true,
+        "ssi": true,
+        "sei": true,
+        "sti": true
     },
     "test_generation": {
         "_comment": "Test generation parameters that were previously command-line switches",

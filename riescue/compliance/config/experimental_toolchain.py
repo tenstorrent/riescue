@@ -61,7 +61,7 @@ def experimental_toolchain_from_args(args: argparse.Namespace) -> Toolchain:
             disassembler_opts.append("zvknhb")
         compiler_march.extend(["_zifencei_zicsr"])
 
-        compiler_path = args.compiler_path or args.experimental_compiler or os.getenv("EXPERIMENTAL_COMPILER")
+        compiler_path = args.experimental_compiler or args.compiler_path or os.getenv("EXPERIMENTAL_COMPILER")
         if not compiler_path:
             raise ValueError("Experimental compiler path is not set. Explicitly set --compiler_path or --experimental_compiler, or define EXPERIMENTAL_COMPILER environment variable.")
         compiler_opts = args.compiler_opts + ["-menable-experimental-extensions"]
@@ -72,7 +72,7 @@ def experimental_toolchain_from_args(args: argparse.Namespace) -> Toolchain:
             test_equates=args.test_equates,
         )
 
-        diassembler_path = args.disassembler_path or args.experimental_objdump or os.getenv("EXPERIMENTAL_OBJDUMP")
+        diassembler_path = args.experimental_objdump or args.disassembler_path or os.getenv("EXPERIMENTAL_OBJDUMP")
         if not diassembler_path:
             raise ValueError("Experimental objdump path is not set. Explicitly set --disassembler_path or --experimental_objdump, or define EXPERIMENTAL_OBJDUMP environment variable.")
         disassembler = Disassembler(

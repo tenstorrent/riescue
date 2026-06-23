@@ -5,6 +5,8 @@
 Assembly code routine helper functions that are used in multiple places, such as both OS and test macros.
 """
 
+from typing import Optional
+
 import riescue.lib.enums as RV
 
 
@@ -15,7 +17,18 @@ class Routines:
     # Used in the place barrier routine
     @classmethod
     def place_acquire_lock(
-        cls, name: str, lock_addr_reg: str, swap_val_reg: str, work_reg: str, end_test_label: str, max_tries: int = 500, use_zawrs: bool = False, bare: bool = False, lock_reg_prelaoded: bool = False
+        cls,
+        name: str,
+        lock_addr_reg: str,
+        swap_val_reg: str,
+        work_reg: str,
+        end_test_label: str,
+        max_tries: int = 500,
+        use_zawrs: bool = False,
+        bare: bool = False,
+        lock_reg_prelaoded: bool = False,
+        lock_sym: Optional[str] = None,
+        ended_sym: Optional[str] = None,
     ) -> str:
         # Build load and wait code based on ZAWRS availability
         # When using ZAWRS, use lr.w to establish reservation so wrs.nto can wait on it
@@ -36,14 +49,21 @@ class Routines:
         # 7. If the other hart has bailed for an acceptable reason, call end_test_label.
 
         _pa = "_pa" if bare else ""
+        # When no explicit symbol is provided, fall back to the global barrier equates
+        # (preserves existing behavior for all current callers). When a symbol/expression
+        # is supplied (e.g. "\\__shared_space + 0"), it is used verbatim with no _pa suffix.
+        if lock_sym is None:
+            lock_sym = f"barrier_lock{_pa}"
+        if ended_sym is None:
+            ended_sym = f"num_harts_ended{_pa}"
         return f"""
-        {f"li {lock_addr_reg}, barrier_lock{_pa}" if not lock_reg_prelaoded else ""}
+        {f"li {lock_addr_reg}, {lock_sym}" if not lock_reg_prelaoded else ""}
         li {swap_val_reg}, {max_tries}        # Initialize swap value.
 
         {name}_retry_acquire_lock:
         {name}_check_any_hart_ended:
             # Always check if any other hart has bailed for an acceptable reason.
-            li {work_reg}, num_harts_ended{_pa}
+            li {work_reg}, {ended_sym}
             lw {work_reg}, 0({work_reg})
             bnez {work_reg}, {name}_other_hart_ended
         {name}_check_timeout:
@@ -96,11 +116,16 @@ class Routines:
         swap_val_reg: str,
         work_reg_1: str,
         work_reg_2: str,
-        num_cpus: int,
+        num_cpus,
         end_test_label: str,
         max_tries: int,
         use_zawrs: bool,
         bare: bool = False,
+        lock_sym: Optional[str] = None,
+        arrive_sym: Optional[str] = None,
+        depart_sym: Optional[str] = None,
+        flag_sym: Optional[str] = None,
+        ended_sym: Optional[str] = None,
     ) -> str:
         """
         Barrier routine.
@@ -113,11 +138,18 @@ class Routines:
         :param swap_val_reg: Register to hold the swap value.
         :param work_reg_1: Register to hold the work register 1.
         :param work_reg_2: Register to hold the work register 2.
-        :param num_cpus: Number of CPUs.
+        :param num_cpus: Number of harts that must rendezvous. Usually an ``int``; may be a
+            string assembly expression (e.g. ``"\\__num_harts"``) when emitted inside a macro
+            that resolves the count at assembly time.
         :param end_test_label: Label to end the test when the other hart has bailed for an acceptable reason.
         :param max_tries: Maximum number of tries to acquire the lock.
         :param use_zawrs: Whether to use ZAWRS extension (wrs.nto instruction) for waiting.
         :param bare: If True, use PA-based equate names (``_pa`` suffix) for M-mode bare addressing.
+        :param lock_sym: Override symbol/expression for the barrier lock address. Defaults to
+            ``barrier_lock`` (``barrier_lock_pa`` when ``bare``). When provided (e.g. a
+            caller-supplied shared-region expression like ``"\\__shared_space + 0"``) it is used
+            verbatim with no ``_pa`` suffix. ``arrive_sym``/``depart_sym``/``flag_sym``/``ended_sym``
+            behave the same for the arrive counter, depart counter, flag, and early-bail variable.
 
         Requires these symbols to be defined in the assembly:
         - ``barrier_lock``: Word-sized lock variable (init 0)
@@ -132,11 +164,23 @@ class Routines:
 
         """
         _pa = "_pa" if bare else ""
+        # Default each address to the global barrier equate (preserves existing behavior).
+        # A caller-supplied symbol/expression is used verbatim (no _pa suffix appended).
+        if lock_sym is None:
+            lock_sym = f"barrier_lock{_pa}"
+        if arrive_sym is None:
+            arrive_sym = f"barrier_arrive_counter{_pa}"
+        if depart_sym is None:
+            depart_sym = f"barrier_depart_counter{_pa}"
+        if flag_sym is None:
+            flag_sym = f"barrier_flag{_pa}"
+        if ended_sym is None:
+            ended_sym = f"num_harts_ended{_pa}"
         return f"""
-        li {lock_addr_reg}, barrier_lock{_pa}
-        li {arrive_counter_addr_reg}, barrier_arrive_counter{_pa}
-        li {depart_counter_addr_reg}, barrier_depart_counter{_pa}
-        li {flag_addr_reg}, barrier_flag{_pa}
+        li {lock_addr_reg}, {lock_sym}
+        li {arrive_counter_addr_reg}, {arrive_sym}
+        li {depart_counter_addr_reg}, {depart_sym}
+        li {flag_addr_reg}, {flag_sym}
 
         {cls.place_acquire_lock(
             name = name + "_0",
@@ -146,7 +190,9 @@ class Routines:
             end_test_label=end_test_label,
             max_tries=max_tries,
             use_zawrs=use_zawrs,
-            bare=bare
+            bare=bare,
+            lock_sym=lock_sym,
+            ended_sym=ended_sym,
         )}
         # Branch if arrive_counter not equal to zero
         lw {work_reg_1}, 0({arrive_counter_addr_reg})
@@ -174,7 +220,9 @@ class Routines:
                     end_test_label=end_test_label,
                     max_tries=max_tries,
                     use_zawrs=use_zawrs,
-                    bare=bare
+                    bare=bare,
+                    lock_sym=lock_sym,
+                    ended_sym=ended_sym,
                 )}
                 # Set flag to zero
                 amoswap.w x0, x0, ({flag_addr_reg})
@@ -185,7 +233,7 @@ class Routines:
             addi {work_reg_1}, {work_reg_1}, 1
             {cls.place_release_lock(name = name + "_1", lock_addr_reg = lock_addr_reg)}
 
-            li {arrive_counter_addr_reg}, barrier_arrive_counter{_pa}
+            li {arrive_counter_addr_reg}, {arrive_sym}
 
             # Branch if arrive_count not equal to num_harts
             li {work_reg_2}, {num_cpus}
@@ -201,7 +249,7 @@ class Routines:
             {name}_arrive_count_not_num_harts:
                 {name}_wait_while_flag_zero:
                     # Check again if num_harts_ended is non-zero
-                    li {arrive_counter_addr_reg}, num_harts_ended{_pa}
+                    li {arrive_counter_addr_reg}, {ended_sym}
                     lw {work_reg_2}, 0({arrive_counter_addr_reg})
                     beqz {work_reg_2}, {name}_no_early_bail
                     {name}_yes_other_bailed:
@@ -223,7 +271,9 @@ class Routines:
                     end_test_label=end_test_label,
                     max_tries=max_tries,
                     use_zawrs=use_zawrs,
-                    bare=bare
+                    bare=bare,
+                    lock_sym=lock_sym,
+                    ended_sym=ended_sym,
                 )}
                 li {work_reg_1}, 1
                 amoadd.w {work_reg_2}, {work_reg_1}, ({depart_counter_addr_reg})

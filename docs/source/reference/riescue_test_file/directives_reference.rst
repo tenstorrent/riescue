@@ -406,6 +406,116 @@ Sets up vectored interrupt handling for specific interrupt sources.
     ;#vectored_interrupt(MTI, timer_interrupt_handler)
     ;#vectored_interrupt(13, custom_interrupt_handler)
 
+Random Memory Breakpoint
+------------------------
+
+.. _rand_mem_breakpoint_pool_directive:
+
+``;#rand_mem_breakpoint_pool(addresses=[label1, label2, ...])``
+
+Supplies a pool of memory addresses to the *random memory breakpoint*
+feature. When enabled via ``--rand_mem_breakpoint_pct``, RiescueD samples
+``K = min(2 * --rand_mem_n_triggers, len(pool))`` distinct addresses from
+the pool, arms ``--rand_mem_n_triggers`` mcontrol6 load/store watchpoints
+on the first N at trigger indices 4..4+N-1, and registers a default
+``BREAKPOINT`` (cause=3) handler that round-robin re-arms the firing
+trigger's ``tdata2`` to the next pool address — preserving program order
+via re-execute — bounded by ``--rand_mem_max_fires``.
+
+The directive may appear **multiple times** in a test; addresses from
+every instance accumulate into one pool (duplicates are filtered).
+
+**Parameters:**
+
+- ``addresses`` (required) — comma-separated list of address labels (e.g.
+  names declared via the ``;#random_addr`` directive above, or any symbol
+  resolvable at link time).
+
+**CLI flags:**
+
+- ``--rand_mem_breakpoint_pct N`` (0–100, default 0) — probability the
+  feature is enabled this run. ``0`` = off.
+- ``--rand_mem_n_triggers N`` (default 1, capped at 4) — number of
+  watchpoints armed at startup. Capped at 4 because the standard
+  ``whisper_config_privatecsr.json`` has 4 load/store-capable trigger
+  slots (indices 4–7).
+- ``--rand_mem_max_fires M`` (default 0) — number of BP fires that
+  re-arm the firing trigger's ``tdata2`` to the next pool entry. The
+  ``(M+1)``-th fire takes the disable-all path. ``0`` = single-shot.
+- ``--rand_mem_inject_icount_pct N`` (0–100, default 0) — **inner
+  gate**, rolled only after ``--rand_mem_breakpoint_pct`` rolls true.
+  When this in turn rolls true, an additional icount trigger is armed
+  on slot 8 (the only icount-capable slot in the standard whisper
+  config) with a count drawn randomly from the density-selected range.
+  The icount trigger shares the ``--rand_mem_max_fires`` re-arm budget
+  with the mcontrol6 watchpoints, and on each re-arm the count is
+  freshly randomized (the handler picks the next pre-baked value from a
+  small inline table).
+- ``--rand_mem_icount_density {often,moderate,sparse}`` (default
+  ``moderate``) — random count range used when icount injection rolls
+  true: ``often`` = ``[1, 100]``, ``moderate`` = ``[1, 1000]``,
+  ``sparse`` = ``[1, 10000]``. Only meaningful with
+  ``--rand_mem_inject_icount_pct > 0``.
+
+**medeleg requirement.** The handler writes ``tselect``/``tdata1``/
+``tdata2`` which are M-mode-only CSRs, so BREAKPOINT (cause=3) must be
+handled in M-mode (``medeleg`` bit 3 clear). When the user has not
+forced delegation, RiescueD auto-clears bit 3 and logs INFO. When the
+user explicitly supplies ``--medeleg`` or ``--deleg_excp_to`` and the
+result still keeps bit 3 set, the feature **disables itself with a
+warning** rather than silently overriding the user's choice.
+
+**Single-hart only.** The feature is skipped (with a warning) for MP
+runs (``num_cpus > 1``).
+
+**Conflict auto-disable.** If the test already contains any
+``;#trigger_config`` directive — from coretp's ``--test_plan sdtrig``
+stimulus, the ``sdtrig_stress`` voyager2 plugin, or hand-written
+triggers — the feature **auto-disables with a warning** to avoid
+arming watchpoints on the same trigger CSR slots.
+
+**Example:**
+
+.. code-block:: asm
+
+    ;#random_addr(name=buf_a_lin, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
+    ;#random_addr(name=buf_a_phys, type=physical, size=0x1000, and_mask=0xfffffffffffff000)
+    ;#page_mapping(lin_name=buf_a_lin, phys_name=buf_a_phys, v=1, r=1, w=1, x=0, a=1, d=1, pagesize=['4kb'])
+
+    ;#random_addr(name=buf_b_lin, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
+    ;#random_addr(name=buf_b_phys, type=physical, size=0x1000, and_mask=0xfffffffffffff000)
+    ;#page_mapping(lin_name=buf_b_lin, phys_name=buf_b_phys, v=1, r=1, w=1, x=0, a=1, d=1, pagesize=['4kb'])
+
+    ;#rand_mem_breakpoint_pool(addresses=[buf_a_lin, buf_b_lin])
+
+Run with::
+
+    riescued.py -t my_test.s \
+        --rand_mem_breakpoint_pct 100 \
+        --rand_mem_n_triggers 4 \
+        --rand_mem_max_fires 20
+
+To additionally inject an icount trigger on slot 8 with a freshly
+randomized count from the ``often`` range on every re-arm::
+
+    riescued.py -t my_test.s \
+        --rand_mem_breakpoint_pct 100 \
+        --rand_mem_n_triggers 4 \
+        --rand_mem_max_fires 20 \
+        --rand_mem_inject_icount_pct 100 \
+        --rand_mem_icount_density often
+
+A reference test ships at
+``riescue/dtest_framework/tests/sdtrig/rand_mem_breakpoint.s``.
+
+.. note::
+
+   Tests must not rely on registers ``t0`` and ``t1`` surviving across
+   load/store boundaries when this feature is active — the framework's
+   trap dispatch unconditionally clobbers them before any default
+   exception handler override runs. Use ``s0``–``s11`` or ``t2``–``t6``
+   for memory base addresses if the test code may take a BP.
+
 Exception Types Reference
 -------------------------
 

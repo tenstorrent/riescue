@@ -250,7 +250,7 @@ class AssemblyWriter:
             # replace ;#init_memory with .section .lin_name, "aw" or .section .lin_name, "ax"
             if line.startswith(";#init_memory"):
                 lin_name_map = Parser.separate_lin_name_map(line)
-                maps = lin_name_map[1]
+                maps: list[str] = lin_name_map[1]
                 found = False
                 # Extract the name after @ so we match exactly (e.g. code_mem42 not code_mem4).
                 # Use [^\s:]+ so names with dots (e.g. FADD.D_0_..._lin_aux) are captured fully.
@@ -394,6 +394,7 @@ class AssemblyWriter:
                 parsed_lines.append(line)
                 continue
 
+
             # replace ;#csr_rw with csrr/csrw instructions or system call to jump table
             if parsed_line.startswith(";#csr_rw"):
                 match = re.match(r"^;#csr_rw\(([^,]+),\s*([^,)]+)", parsed_line)
@@ -415,9 +416,9 @@ class AssemblyWriter:
                                 # New format: ;#csr_rw(csr, action, force_machine=true, ...)
                                 for p in rest_parts:
                                     if "=" in p:
-                                        k, v = p.split("=", 1)
-                                        if k.strip() == "force_machine":
-                                            force_machine_rw_line = v.strip().lower() == "true"
+                                        split_kv = p.split("=", 1)
+                                        if split_kv[0].strip() == "force_machine":
+                                            force_machine_rw_line = split_kv[1].strip().lower() == "true"
 
                     directive_value: int | str | None = None
                     directive_bit: int | None = None
@@ -457,7 +458,7 @@ class AssemblyWriter:
                     os_module = self.runtime.modules.get("os")
                     _csr_mgr_raw = getattr(os_module, "csr_manager", None) if os_module is not None else None
                     if _csr_mgr_raw is None:
-                        csr_mgr = CsrManagerInterface(self.rng)
+                        csr_mgr = CsrManagerInterface(self.rng, feature_discovery=self.featmgr)
                         if os_module is not None:
                             os_module.csr_manager = csr_mgr
                     else:
@@ -1038,10 +1039,13 @@ __set_saplic_target_eiid:
     ret
 
 # __set_aplic_isr(target, isr)
+# Loads the table base via an .os_data pointer (registered by the M-mode trap
+# handler) instead of ``la``, which can't reach .data across the >2GiB gap
+# in high-VA paged layouts. PA equate because this runs in M-mode setup.
 .globl __set_aplic_isr
 __set_aplic_isr:
-.extern __trap_handler_m__aplic_isr_table
-    la t0, __trap_handler_m__aplic_isr_table
+    li t0, trap_handler_m__aplic_isr_table_ptr_pa
+    ld t0, 0(t0)
     slli a0, a0, 3
     add a0, a0, t0
     sw a1, 0(a0)

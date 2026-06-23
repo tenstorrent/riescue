@@ -212,6 +212,7 @@ class LinearScan:
         Performs linear scan register allocation, returns a map of {temp_reg_name: register}
         """
         hardcoded_map = self._analyze_hardcoded(self.instructions)
+
         live_interval_list = sorted(self.live_intervals.values(), key=lambda x: x.start)
         clobbered_registers = self._clobber_map()
         register_map: dict[str, VariableRecord] = {} | hardcoded_map

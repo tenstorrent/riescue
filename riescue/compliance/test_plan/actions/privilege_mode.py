@@ -142,13 +142,18 @@ class PrivilegeCodeAction(Action, CodeMixin):
         self.expanded = False
 
     @classmethod
+    def next_block_index(cls) -> int:
+        """Allocate the next unique block index for this privilege mode."""
+        block_index = cls._block_counter
+        cls._block_counter += 1
+        return block_index
+
+    @classmethod
     def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "PrivilegeCodeAction":
         if TYPE_CHECKING:
             assert isinstance(step.step, cls.STEP_TYPE)
-        block_index = cls._block_counter
-        cls._block_counter += 1
         code = kwargs.pop("code", [])
-        return cls(step_id=step_id, code=code, block_index=block_index, **kwargs)
+        return cls(step_id=step_id, code=code, block_index=cls.next_block_index(), **kwargs)
 
     @classmethod
     def reset_counter(cls):

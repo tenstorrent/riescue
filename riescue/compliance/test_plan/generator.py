@@ -34,6 +34,7 @@ class TestPlanGenerator:
     def __init__(self, cfg: TpCfg, rng: RandNum, action_registry: Optional[ActionRegistry] = None, env_constraints: Predicates = None):
         self.rng = rng
         self.mem_reg = MemoryRegistry(cfg)
+        self.featmgr = cfg.featmgr  # kept for top-of-test directive emission (e.g. IMSIC page mapping)
 
         if env_constraints is None:
             self.env_solver = TestEnvSolver()
@@ -152,7 +153,59 @@ class TestPlanGenerator:
             text.blocks.append(TestCase([TextBlock(label="excp_handler_pre", text=[pre_body, "ret"])]))
             text.blocks.append(TestCase([TextBlock(label="excp_handler_post", text=[post_body, "ret"])]))
 
-        header = Header.from_env(env=env, plan_name=test_plan_name)
+        # When --map_imsic_pages is set, identity-map both the M-IMSIC
+        # (PA 0x40000000) and S-IMSIC (PA 0x44000000) pages at the top of the
+        # test so HS/S/U scenarios can store to RVMODEL_SET_M/SEXT_INT's
+        # target addresses without page-faulting. Emitted unconditionally
+        # (no MEI/SEI presence check) per design: the flag is the opt-in,
+        # and scenarios that never touch the IMSIC just carry harmless
+        # extra PTEs.
+        #
+        # parser.py:96 matches ``;#page_mapping`` via ``line.startswith()`` so
+        # the directives must land at column 0 — Header.emit() already emits
+        # at column 0, so passing them via ``extra_directives`` keeps them
+        # there. generator.py:629-652 handles ``phys_addr=`` alone as
+        # identity-mapping VA→PA and auto-creates the named Address entries,
+        # so no companion ``;#random_addr`` is needed.
+        #
+        # Multi-hart stride (PA + hartid * 0x40000) is intentionally not
+        # emitted here — mirrors the ``hart=0`` hard-code in the sibling
+        # ``;#enable_ext_intr_id`` line elsewhere. MP support is a follow-up.
+        extra_directives: list[str] = []
+        if self.featmgr.map_imsic_pages:
+            extra_directives.append(";#page_mapping(lin_name=mimsic_m_lin_h0, phys_name=mimsic_m_phys_h0, phys_addr=0x40000000, pagesize=['4kb'], v=1, r=1, w=1, a=1, d=1)")
+            extra_directives.append(";#page_mapping(lin_name=simsic_s_lin_h0, phys_name=simsic_s_phys_h0, phys_addr=0x44000000, pagesize=['4kb'], v=1, r=1, w=1, a=1, d=1)")
+            # Guest interrupt file 1 for hart 0 (sbase + 1*4KB = 0x44001000).
+            # Not 2MB-aligned so pagesize=['4kb'] is mandatory to avoid a
+            # misaligned-superpage fault (same constraint as ACLINT pages).
+            extra_directives.append(";#page_mapping(lin_name=gimsic_guest1_lin_h0, phys_name=gimsic_guest1_phys_h0, phys_addr=0x44001000, pagesize=['4kb'], v=1, r=1, w=1, a=1, d=1)")
+            # Guest interrupt file 2 for hart 0 (sbase + 2*4KB = 0x44002000),
+            # poked by RVMODEL_SET_HGEI_INT (guest file index 2) to drive SGEI
+            # independently of VSEI.
+            extra_directives.append(";#page_mapping(lin_name=gimsic_guest2_lin_h0, phys_name=gimsic_guest2_phys_h0, phys_addr=0x44002000, pagesize=['4kb'], v=1, r=1, w=1, a=1, d=1)")
+
+        # When --map_aclint_pages is set, identity-map the ACLINT peripheral
+        # pages so HS/S/U scenarios can store to RVMODEL_SET/CLR_MSW_INT and
+        # RVMODEL_SET/CLR_MTIMER_INT target addresses without page-faulting.
+        # ACLINT layout (per whisper_config):
+        #   0x42180000 .. 0x42183FFF : MSIP    (hart 0 @ +0x0)
+        #   0x42184000 .. 0x4218BFF7 : MTIMECMP (hart 0 @ +0x4000)
+        #   0x4218BFF8 .. 0x4218BFFF : MTIME   (shared, at +0xBFF8)
+        # The MSIP, MTIMECMP, and MTIME registers each land on a distinct 4KB
+        # page; emit one identity mapping per page. Hart=0 hard-coded for now,
+        # mirroring the same constraint in the IMSIC block above; MP support
+        # is a follow-up.
+        # pagesize=['4kb'] is mandatory here: the ACLINT register pages
+        # (0x42180000/0x42184000/0x4218B000) are 4KB-aligned but NOT 2MB-aligned,
+        # so if the allocator selects a 2MB leaf the resulting PTE has PPN[0]!=0
+        # and the walk faults with "misaligned superpage" — seen empirically as
+        # a Store/AMO page fault at 0x42184000 with the leaf PTE PPN=0x42180.
+        if self.featmgr.map_aclint_pages:
+            extra_directives.append(";#page_mapping(lin_name=aclint_msip_lin_h0, phys_name=aclint_msip_phys_h0, phys_addr=0x42180000, pagesize=['4kb'], v=1, r=1, w=1, a=1, d=1)")
+            extra_directives.append(";#page_mapping(lin_name=aclint_mtimecmp_lin_h0, phys_name=aclint_mtimecmp_phys_h0, phys_addr=0x42184000, pagesize=['4kb'], v=1, r=1, w=1, a=1, d=1)")
+            extra_directives.append(";#page_mapping(lin_name=aclint_mtime_lin, phys_name=aclint_mtime_phys, phys_addr=0x4218B000, pagesize=['4kb'], v=1, r=1, w=1, a=1, d=1)")
+
+        header = Header.from_env(env=env, plan_name=test_plan_name, extra_directives=extra_directives)
         assembly_file = AssemblyFile(header=header, code=text, data=data)
 
         # generate text

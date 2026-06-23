@@ -139,7 +139,7 @@ class Features:
     ZAWRS = "zawrs"  # Wait-on-reservation-set
     ZIMOP = "zimop"  # Main memory operations
     ZCMOP = "zcmop"  # Compressed main memory operations
-    ZVQDOT = "zvqdot"  # Vector quad-widening integer dot product
+    ZVDOT4A8I = "zvdot4a8i"  # Vector quad-widening integer dot product
     ZJPM = "zjpm"  # Jump pair macro-op
 
     # Compliance extensions

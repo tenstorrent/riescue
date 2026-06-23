@@ -229,7 +229,7 @@ class RiscvVecInstr(InstrBase):
                         self._setup = VecRegImmSetup(resource_db=self.resource_db)
                     elif len(self._imms) == 2 and len(self._srcs) == 0:
                         self._setup = VecImmImmSetup(resource_db=self.resource_db)
-                elif self._name.startswith("vqdot"):
+                elif self._name.startswith("vdot4a"):
                     self._setup = VqdotSetup(resource_db=self.resource_db)
                 else:
                     print("Unhandled instruction: " + str(name))

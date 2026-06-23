@@ -94,7 +94,7 @@ class FpConvertMove(FpLoadUtil, FpSetup, FloatComponent):
                     rs1.value = np.float16(rs1.value)
                 self.write_pre(f"\tli {temp_reg}, {self.float_to_hex(rs1.value, source_size)}")
                 self.write_pre(f"\tfmv.{self.size_name}.x {rs1.name}, {temp_reg}")
-            if any(substr in instr.name for substr in [".s.d", ".h.s", ".h.d", "bf16"]):  # Roundings are done when downcasting.
+            if any(substr in instr.name for substr in [".s.d", ".h.s", ".h.d", "fcvt.bf16"]):  # Roundings are done when downcasting. fcvt.s.bf16 (upcast) has no rm field.
                 self.write_pre(f"{instr.label}: {instr.name} {rd.name}, {rs1.name}, {self.get_rounding_mode(instr)}")
             else:  # No rounding is done when upcasting.
                 self.write_pre(f"{instr.label}: {instr.name} {rd.name}, {rs1.name}")

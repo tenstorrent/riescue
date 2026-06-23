@@ -153,6 +153,8 @@ class PmaRegion:
         self._entries.append(pma_info)
 
     def consolidated_entries(self) -> list[PmaInfo]:
+        if not self._entries:
+            return []
         c_entries = []
         # First sort by address
         # If attributes match, then we can attempt consolidating regions

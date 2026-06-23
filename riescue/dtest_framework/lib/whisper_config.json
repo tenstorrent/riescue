@@ -1,6 +1,6 @@
 {
     "xlen" : 64,
-    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zicntr_zihpm_zvqdot_zjpm_svpbmt_svadu_sstc_ssu64xl_ssnpm_smmpm_smnpm_svnapot_sdtrig",
+    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zicntr_zihpm_zvqdotq_zjpm_svpbmt_svadu_sstc_ssu64xl_ssnpm_smmpm_smnpm_svnapot_sdtrig_zvzip_zvabd_smcsrind",
     "reset_vec"             : "0x80000000",
     "enable_performance_counters" : "true",
     "perf_count_atomic_load_store" : "true",
@@ -27,13 +27,11 @@
 			"poke_mask" : "0x00000000002010a9"
 	    },
 		"mcounteren": {
-			"mcounteren-comment" : "FIXME: Hardwired to 2 to enable time csr access. Temporary until wfi/imsic is implemented",
-			"reset" : "0x2"
+			"reset" : "0x0"
 		},
 
 		"scounteren": {
-			"scounteren-comment" : "Hardwired to 2 to enable time csr access. Temporary until wfi/imsic is implemented",
-			"reset" : "0x2"
+			"reset" : "0x0"
 		},
 
 		"hcounteren": {
@@ -292,6 +290,102 @@
 	    	"reset": "0xe0000000000001e7",
 	    	"mask": "0xfc0ffffffffff1ff",
 	    	"poke_mask": "0xfc0ffffffffff1ff"
+	    },
+	    "pmamask0": {
+	        "number": "0x7f0",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask1": {
+	        "number": "0x7f1",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask2": {
+	        "number": "0x7f2",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask3": {
+	        "number": "0x7f3",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask4": {
+	        "number": "0x7f4",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask5": {
+	        "number": "0x7f5",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask6": {
+	        "number": "0x7f6",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask7": {
+	        "number": "0x7f7",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask8": {
+	        "number": "0x7f8",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask9": {
+	        "number": "0x7f9",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask10": {
+	        "number": "0x7fa",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask11": {
+	        "number": "0x7fb",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask12": {
+	        "number": "0x7fc",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask13": {
+	        "number": "0x7fd",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask14": {
+	        "number": "0x7fe",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
+	    },
+	    "pmamask15": {
+	        "number": "0x7ff",
+	        "reset": "0x0",
+	        "mask": "0x000ffffffffff000",
+	        "poke_mask": "0x000ffffffffff000"
 	    }
     },
 

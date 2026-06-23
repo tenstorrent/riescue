@@ -48,12 +48,79 @@ class TestEmptyDefaults(unittest.TestCase):
         self.assertEqual(g.access_size_weights, (0, 0, 0, 1))
         self.assertEqual(g.vector_element_size_weights, (0, 0, 0, 1))
         self.assertEqual(g.misaligned_prob, 0.0)
+        # Region size: legacy default (preserves byte-identical generation).
+        self.assertEqual(g.shared_mem_bytes, 0x800)
         # Layout / partition / saturation knobs are per-group too.
         self.assertEqual(g.p_split_8, 0.0)
         self.assertEqual(g.p_split_4, 0.0)
         self.assertEqual(g.p_split_2, 0.0)
         self.assertEqual(g.layout_min_counts, (0, 0, 0, 0))
         self.assertEqual(g.saturation_fallback_threshold, 0.05)
+        # Loop knobs default to disabled; ranges to plausible values.
+        self.assertEqual(g.loop_prob, 0.0)
+        self.assertEqual(g.loop_iterations_range, (4, 16))
+        self.assertEqual(g.loop_body_ops_range, (2, 6))
+        # AMO/LR-SC ordering-bit probabilities default to 50/50,
+        # preserving the pre-knob hardcoded behaviour.
+        self.assertEqual(g.aq_prob, 0.5)
+        self.assertEqual(g.rl_prob, 0.5)
+
+
+class TestLoopConfigKeys(unittest.TestCase):
+    """The three new loop knobs round-trip through JSON config."""
+
+    def test_loop_config_round_trip(self):
+        path = _write_json(
+            [
+                {
+                    "count": 1,
+                    "loop_prob": 0.25,
+                    "loop_iterations_range": [2, 8],
+                    "loop_body_ops_range": [1, 4],
+                }
+            ]
+        )
+        groups = load_groups(path)
+        g = groups[0]
+        self.assertEqual(g.loop_prob, 0.25)
+        self.assertEqual(g.loop_iterations_range, (2, 8))
+        self.assertEqual(g.loop_body_ops_range, (1, 4))
+
+    def test_negative_loop_prob_rejected(self):
+        path = _write_json([{"count": 1, "loop_prob": -0.1}])
+        with self.assertRaisesRegex(ValueError, r"loop_prob: must be in \[0\.0, 1\.0\]"):
+            load_groups(path)
+
+    def test_loop_iterations_range_inverted_rejected(self):
+        path = _write_json([{"count": 1, "loop_iterations_range": [10, 4]}])
+        with self.assertRaisesRegex(ValueError, "loop_iterations_range: hi=4 must be >= lo=10"):
+            load_groups(path)
+
+    def test_loop_body_ops_range_zero_lo_rejected(self):
+        path = _write_json([{"count": 1, "loop_body_ops_range": [0, 4]}])
+        with self.assertRaisesRegex(ValueError, "loop_body_ops_range\\[0\\]: must be >= 1"):
+            load_groups(path)
+
+
+class TestAqRlConfigKeys(unittest.TestCase):
+    """The ``aq_prob`` / ``rl_prob`` ordering-bit knobs round-trip through JSON."""
+
+    def test_aq_rl_prob_round_trip(self):
+        path = _write_json([{"count": 1, "aq_prob": 0.9, "rl_prob": 0.1}])
+        groups = load_groups(path)
+        g = groups[0]
+        self.assertEqual(g.aq_prob, 0.9)
+        self.assertEqual(g.rl_prob, 0.1)
+
+    def test_aq_prob_above_one_rejected(self):
+        path = _write_json([{"count": 1, "aq_prob": 1.5}])
+        with self.assertRaisesRegex(ValueError, r"aq_prob: must be in \[0\.0, 1\.0\]"):
+            load_groups(path)
+
+    def test_rl_prob_negative_rejected(self):
+        path = _write_json([{"count": 1, "rl_prob": -0.1}])
+        with self.assertRaisesRegex(ValueError, r"rl_prob: must be in \[0\.0, 1\.0\]"):
+            load_groups(path)
 
 
 class TestFullSpecRoundTrip(unittest.TestCase):
@@ -255,6 +322,65 @@ class TestDirectFromDict(unittest.TestCase):
         g = TestGroup.from_dict({"count": 3, "amo_prob": 0.4}, index=0)
         self.assertEqual(g.count, 3)
         self.assertEqual(g.amo_prob, 0.4)
+
+
+class TestSharedMemBytes(unittest.TestCase):
+    """The shared_mem_bytes per-group option drives MemoryPartitioning.region_size."""
+
+    def test_minimum_accepted(self):
+        g = TestGroup.from_dict({"count": 1, "shared_mem_bytes": 8}, index=0)
+        self.assertEqual(g.shared_mem_bytes, 8)
+
+    def test_maximum_accepted(self):
+        g = TestGroup.from_dict({"count": 1, "shared_mem_bytes": 2048}, index=0)
+        self.assertEqual(g.shared_mem_bytes, 2048)
+
+    def test_non_multiple_of_8_accepted(self):
+        # Greedy default tiling handles arbitrary region sizes; the
+        # config layer doesn't enforce alignment.
+        g = TestGroup.from_dict({"count": 1, "shared_mem_bytes": 13}, index=0)
+        self.assertEqual(g.shared_mem_bytes, 13)
+
+    def test_below_minimum_rejected(self):
+        with self.assertRaisesRegex(ValueError, r"shared_mem_bytes.*must be in \[8, 2048\]"):
+            TestGroup.from_dict({"count": 1, "shared_mem_bytes": 7}, index=0)
+
+    def test_above_maximum_rejected(self):
+        with self.assertRaisesRegex(ValueError, r"shared_mem_bytes.*must be in \[8, 2048\]"):
+            TestGroup.from_dict({"count": 1, "shared_mem_bytes": 2049}, index=0)
+
+    def test_string_rejected(self):
+        with self.assertRaisesRegex(ValueError, "shared_mem_bytes.*must be an integer"):
+            TestGroup.from_dict({"count": 1, "shared_mem_bytes": "0x800"}, index=0)
+
+    def test_bool_rejected(self):
+        with self.assertRaisesRegex(ValueError, "shared_mem_bytes.*must be an integer"):
+            TestGroup.from_dict({"count": 1, "shared_mem_bytes": True}, index=0)
+
+    def test_layout_min_counts_overflows_region(self):
+        # 16 size-8 partitions = 128 bytes total, which exceeds the
+        # 64-byte region.
+        with self.assertRaisesRegex(ValueError, "layout_min_counts totals"):
+            TestGroup.from_dict(
+                {
+                    "count": 1,
+                    "shared_mem_bytes": 64,
+                    "layout_min_counts": [0, 0, 0, 16],
+                },
+                index=0,
+            )
+
+    def test_layout_min_counts_fits_within_region(self):
+        # 8 size-8 partitions = 64 bytes, exactly fills the 64-byte region.
+        g = TestGroup.from_dict(
+            {
+                "count": 1,
+                "shared_mem_bytes": 64,
+                "layout_min_counts": [0, 0, 0, 8],
+            },
+            index=0,
+        )
+        self.assertEqual(g.shared_mem_bytes, 64)
 
 
 if __name__ == "__main__":

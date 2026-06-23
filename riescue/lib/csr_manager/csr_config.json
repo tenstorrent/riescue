@@ -936,7 +936,7 @@
           "software-type": "Read-Only",
           "software-read": "R",
           "Accessibility": "Machine",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "sub-fields": {
                "Bank": {
                     "fields-name": "Bank",
@@ -962,7 +962,7 @@
           "software-type": "Read-Only",
           "software-read": "R",
           "Accessibility": "Machine",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "sub-fields": {
                "ArchitectureID": {
                     "fields-name": "ArchitectureID",
@@ -982,7 +982,7 @@
           "software-type": "Read-Only",
           "software-read": "R",
           "Accessibility": "Machine",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "sub-fields": {
                "Implementation": {
                     "fields-name": "Implementation",
@@ -1002,7 +1002,7 @@
           "software-type": "Read-Only",
           "software-read": "R",
           "Accessibility": "Machine",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "sub-fields": {
                "HartID": {
                     "fields-name": "HartID",
@@ -1224,6 +1224,7 @@
           "software-write": "W",
           "Accessibility": "Machine",
           "ISS_Support": "Yes",
+          "required_feature": "s",
           "sub-fields": {
                "medeleg_1": {
                     "fields-name": "medeleg_1",
@@ -1262,6 +1263,7 @@
           "software-write": "W",
           "Accessibility": "Machine",
           "ISS_Support": "Yes",
+          "required_feature": "s",
           "sub-fields": {
                "SGEIP": {
                     "fields-name": "SGEIP",
@@ -1607,7 +1609,7 @@
           "software-type": "Read-Only",
           "software-read": "R",
           "Accessibility": "Machine",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "sub-fields": {
                "mconfigptr": {
                     "fields-name": "mconfigptr",
@@ -1773,7 +1775,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "Yes",
+          "ISS_Support": "No",
           "sub-fields": {
                "instret": {
                     "fields-name": "instret",
@@ -1794,7 +1796,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter3": {
                     "fields-name": "hpmcounter3",
@@ -1815,7 +1817,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter4": {
                     "fields-name": "hpmcounter4",
@@ -1836,7 +1838,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter5": {
                     "fields-name": "hpmcounter5",
@@ -1857,7 +1859,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter6": {
                     "fields-name": "hpmcounter6",
@@ -1878,7 +1880,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter7": {
                     "fields-name": "hpmcounter7",
@@ -1899,7 +1901,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter8": {
                     "fields-name": "hpmcounter8",
@@ -1920,7 +1922,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter9": {
                     "fields-name": "hpmcounter9",
@@ -1941,7 +1943,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter10": {
                     "fields-name": "hpmcounter10",
@@ -1962,7 +1964,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter11": {
                     "fields-name": "hpmcounter11",
@@ -1983,7 +1985,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter12": {
                     "fields-name": "hpmcounter12",
@@ -2004,7 +2006,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter13": {
                     "fields-name": "hpmcounter13",
@@ -2025,7 +2027,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter14": {
                     "fields-name": "hpmcounter14",
@@ -2046,7 +2048,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter15": {
                     "fields-name": "hpmcounter15",
@@ -2067,7 +2069,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter16": {
                     "fields-name": "hpmcounter16",
@@ -2088,7 +2090,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter17": {
                     "fields-name": "hpmcounter17",
@@ -2109,7 +2111,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter18": {
                     "fields-name": "hpmcounter18",
@@ -2130,7 +2132,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter19": {
                     "fields-name": "hpmcounter19",
@@ -2151,7 +2153,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter20": {
                     "fields-name": "hpmcounter20",
@@ -2172,7 +2174,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter21": {
                     "fields-name": "hpmcounter21",
@@ -2193,7 +2195,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter22": {
                     "fields-name": "hpmcounter22",
@@ -2214,7 +2216,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter23": {
                     "fields-name": "hpmcounter23",
@@ -2235,7 +2237,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter24": {
                     "fields-name": "hpmcounter24",
@@ -2256,7 +2258,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter25": {
                     "fields-name": "hpmcounter25",
@@ -2277,7 +2279,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter26": {
                     "fields-name": "hpmcounter26",
@@ -2298,7 +2300,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter27": {
                     "fields-name": "hpmcounter27",
@@ -2319,7 +2321,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter28": {
                     "fields-name": "hpmcounter28",
@@ -2340,7 +2342,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter29": {
                     "fields-name": "hpmcounter29",
@@ -2361,7 +2363,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter30": {
                     "fields-name": "hpmcounter30",
@@ -2382,7 +2384,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hpmcounter31": {
                     "fields-name": "hpmcounter31",
@@ -2403,7 +2405,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent3": {
                     "fields-name": "mhpmevent3",
@@ -2424,7 +2426,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent4": {
                     "fields-name": "mhpmevent4",
@@ -2445,7 +2447,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent5": {
                     "fields-name": "mhpmevent5",
@@ -2466,7 +2468,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent6": {
                     "fields-name": "mhpmevent6",
@@ -2487,7 +2489,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent7": {
                     "fields-name": "mhpmevent7",
@@ -2508,7 +2510,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent8": {
                     "fields-name": "mhpmevent8",
@@ -2529,7 +2531,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent9": {
                     "fields-name": "mhpmevent9",
@@ -2550,7 +2552,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent10": {
                     "fields-name": "mhpmevent10",
@@ -2571,7 +2573,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent11": {
                     "fields-name": "mhpmevent11",
@@ -2592,7 +2594,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent12": {
                     "fields-name": "mhpmevent12",
@@ -2613,7 +2615,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent13": {
                     "fields-name": "mhpmevent13",
@@ -2634,7 +2636,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent14": {
                     "fields-name": "mhpmevent14",
@@ -2655,7 +2657,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent15": {
                     "fields-name": "mhpmevent15",
@@ -2676,7 +2678,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent16": {
                     "fields-name": "mhpmevent16",
@@ -2697,7 +2699,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent17": {
                     "fields-name": "mhpmevent17",
@@ -2718,7 +2720,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent18": {
                     "fields-name": "mhpmevent18",
@@ -2739,7 +2741,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent19": {
                     "fields-name": "mhpmevent19",
@@ -2760,7 +2762,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent20": {
                     "fields-name": "mhpmevent20",
@@ -2781,7 +2783,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent21": {
                     "fields-name": "mhpmevent21",
@@ -2802,7 +2804,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent22": {
                     "fields-name": "mhpmevent22",
@@ -2823,7 +2825,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent23": {
                     "fields-name": "mhpmevent23",
@@ -2844,7 +2846,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent24": {
                     "fields-name": "mhpmevent24",
@@ -2865,7 +2867,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent25": {
                     "fields-name": "mhpmevent25",
@@ -2886,7 +2888,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent26": {
                     "fields-name": "mhpmevent26",
@@ -2907,7 +2909,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent27": {
                     "fields-name": "mhpmevent27",
@@ -2928,7 +2930,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent28": {
                     "fields-name": "mhpmevent28",
@@ -2949,7 +2951,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent29": {
                     "fields-name": "mhpmevent29",
@@ -2970,7 +2972,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent30": {
                     "fields-name": "mhpmevent30",
@@ -2991,7 +2993,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "mhpmevent31": {
                     "fields-name": "mhpmevent31",
@@ -3219,7 +3221,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "HPM31": {
                     "fields-name": "HPM31",
@@ -3564,7 +3566,8 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Machine",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
+          "required_feature": "smaia",
           "sub-fields": {
                "mvien": {
                     "fields-name": "mvien",
@@ -4452,7 +4455,7 @@
           "size": 1.0,
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "vxsat": {
                     "fields-name": "vxsat",
@@ -4460,7 +4463,8 @@
                     "fields-range": "0:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "User"
      },
      "vxrm": {
           "name": "vxrm",
@@ -4490,7 +4494,7 @@
           "size": 3.0,
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "vxrm": {
                     "fields-name": "vxrm",
@@ -4504,7 +4508,8 @@
                     "fields-range": "0:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "User"
      },
      "vl": {
           "name": "vl",
@@ -5055,8 +5060,8 @@
                }
           }
      },
-     "TSELECT": {
-          "name": "TSELECT",
+     "tselect": {
+          "name": "tselect",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7A0",
@@ -5074,8 +5079,8 @@
                }
           }
      },
-     "TDATA1": {
-          "name": "TDATA1",
+     "tdata1": {
+          "name": "tdata1",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7A1",
@@ -5105,8 +5110,8 @@
                }
           }
      },
-     "TDATA2": {
-          "name": "TDATA2",
+     "tdata2": {
+          "name": "tdata2",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7A2",
@@ -5124,8 +5129,8 @@
                }
           }
      },
-     "TDATA3": {
-          "name": "TDATA3",
+     "tdata3": {
+          "name": "tdata3",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7A3",
@@ -5143,8 +5148,8 @@
                }
           }
      },
-     "TINFO": {
-          "name": "TINFO",
+     "tinfo": {
+          "name": "tinfo",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7A4",
@@ -5168,8 +5173,8 @@
                }
           }
      },
-     "TCONTROL": {
-          "name": "TCONTROL",
+     "tcontrol": {
+          "name": "tcontrol",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7A5",
@@ -5211,8 +5216,8 @@
                }
           }
      },
-     "SCONTEXT": {
-          "name": "SCONTEXT",
+     "scontext": {
+          "name": "scontext",
           "visibility": "External",
           "type": "Debug Control",
           "address": "5A8",
@@ -5230,8 +5235,8 @@
                }
           }
      },
-     "MCONTEXT": {
-          "name": "MCONTEXT",
+     "mcontext": {
+          "name": "mcontext",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7A8",
@@ -5241,16 +5246,16 @@
           "software-write": "W",
           "ISS_Support": "No",
           "sub-fields": {
-               "MCONTEXT": {
-                    "fields-name": "MCONTEXT",
+               "mcontext": {
+                    "fields-name": "mcontext",
                     "fields-width": 64,
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
           }
      },
-     "DCSR": {
-          "name": "DCSR",
+     "dcsr": {
+          "name": "dcsr",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7B0",
@@ -5352,8 +5357,8 @@
                }
           }
      },
-     "DPC": {
-          "name": "DPC",
+     "dpc": {
+          "name": "dpc",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7B1",
@@ -5363,16 +5368,16 @@
           "software-write": "W",
           "ISS_Support": "No",
           "sub-fields": {
-               "DPC": {
-                    "fields-name": "DPC",
+               "dpc": {
+                    "fields-name": "dpc",
                     "fields-width": 64,
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
           }
      },
-     "DSCRATCH0": {
-          "name": "DSCRATCH0",
+     "dscratch0": {
+          "name": "dscratch0",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7B2",
@@ -5382,16 +5387,16 @@
           "software-write": "W",
           "ISS_Support": "No",
           "sub-fields": {
-               "DSCRATCH0": {
-                    "fields-name": "DSCRATCH0",
+               "dscratch0": {
+                    "fields-name": "dscratch0",
                     "fields-width": 64,
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
           }
      },
-     "DSCRATCH1": {
-          "name": "DSCRATCH1",
+     "dscratch1": {
+          "name": "dscratch1",
           "visibility": "External",
           "type": "Debug Control",
           "address": "7B3",
@@ -5401,8 +5406,8 @@
           "software-write": "W",
           "ISS_Support": "No",
           "sub-fields": {
-               "DSCRATCH1": {
-                    "fields-name": "DSCRATCH1",
+               "dscratch1": {
+                    "fields-name": "dscratch1",
                     "fields-width": 64,
                     "fields-range": "63:0",
                     "reset value": 0.0
@@ -5419,7 +5424,7 @@
           "software-read": "R",
           "software-write": "W",
           "Accessibility": "Hypervisor",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "VSXL": {
                     "fields-name": "VSXL",
@@ -5492,7 +5497,7 @@
           "size": 64.0,
           "software-type": "WARL",
           "software-read": "R",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "SynchronousExceptionswarl": {
                     "fields-name": "SynchronousExceptionswarl",
@@ -5500,7 +5505,9 @@
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor",
+          "software-write": "W"
      },
      "hideleg": {
           "name": "hideleg",
@@ -5511,7 +5518,7 @@
           "size": 64.0,
           "software-type": "WARL",
           "software-read": "R",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "Interruptswarl": {
                     "fields-name": "Interruptswarl",
@@ -5519,7 +5526,9 @@
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor",
+          "software-write": "W"
      },
      "hvip": {
           "name": "hvip",
@@ -5531,7 +5540,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hard0_3": {
                     "fields-name": "hard0_3",
@@ -5579,7 +5588,8 @@
                     "reset value": 0.0,
                     "legal value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "hip": {
           "name": "hip",
@@ -5591,7 +5601,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hard0_4": {
                     "fields-name": "hard0_4",
@@ -5652,7 +5662,8 @@
                     "reset value": 0.0,
                     "legal value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "hie": {
           "name": "hie",
@@ -5664,7 +5675,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "hard0_4": {
                     "fields-name": "hard0_4",
@@ -5725,7 +5736,8 @@
                     "reset value": 0.0,
                     "legal value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "hgeip": {
           "name": "hgeip",
@@ -5762,7 +5774,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "GuestExternalInterruptswarl": {
                     "fields-name": "GuestExternalInterruptswarl",
@@ -5776,7 +5788,8 @@
                     "fields-range": "0:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "henvcfg": {
           "name": "henvcfg",
@@ -5787,7 +5800,7 @@
           "size": 64.0,
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "VSTCE": {
                     "fields-name": "VSTCE",
@@ -5843,7 +5856,8 @@
                     "fields-range": "0:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "hcounteren": {
           "name": "hcounteren",
@@ -5855,7 +5869,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "HPM31": {
                     "fields-name": "HPM31",
@@ -6049,7 +6063,8 @@
                     "fields-range": "0:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "htimedelta": {
           "name": "htimedelta",
@@ -6060,7 +6075,7 @@
           "size": 64.0,
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "htimedelta": {
                     "fields-name": "htimedelta",
@@ -6068,7 +6083,8 @@
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "htval": {
           "name": "htval",
@@ -6080,7 +6096,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "htval": {
                     "fields-name": "htval",
@@ -6088,7 +6104,8 @@
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "htinst": {
           "name": "htinst",
@@ -6100,7 +6117,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "htinst": {
                     "fields-name": "htinst",
@@ -6108,7 +6125,8 @@
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "hgatp": {
           "name": "hgatp",
@@ -6120,7 +6138,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "MODE": {
                     "fields-name": "MODE",
@@ -6146,7 +6164,8 @@
                     "fields-range": "43:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "vsstatus": {
           "name": "vsstatus",
@@ -6157,7 +6176,7 @@
           "size": 64.0,
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "SD": {
                     "fields-name": "SD",
@@ -6225,7 +6244,8 @@
                     "fields-range": "1:1",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "vsip": {
           "name": "vsip",
@@ -6333,7 +6353,7 @@
           "size": 64.0,
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "BASESXLEN12warl": {
                     "fields-name": "BASESXLEN12warl",
@@ -6353,7 +6373,8 @@
                     "fields-range": "0:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "vsscratch": {
           "name": "vsscratch",
@@ -6364,7 +6385,7 @@
           "size": 64.0,
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "sscratch": {
                     "fields-name": "sscratch",
@@ -6372,7 +6393,8 @@
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "vsepc": {
           "name": "vsepc",
@@ -6383,7 +6405,7 @@
           "size": 64.0,
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "addr": {
                     "fields-name": "addr",
@@ -6391,7 +6413,8 @@
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "vscause": {
           "name": "vscause",
@@ -6402,7 +6425,7 @@
           "size": 64.0,
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "Interrupt": {
                     "fields-name": "Interrupt",
@@ -6416,7 +6439,8 @@
                     "fields-range": "62:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "vstval": {
           "name": "vstval",
@@ -6428,7 +6452,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "vstval": {
                     "fields-name": "vstval",
@@ -6436,7 +6460,8 @@
                     "fields-range": "63:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "vsatp": {
           "name": "vsatp",
@@ -6448,7 +6473,7 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "sub-fields": {
                "MODE": {
                     "fields-name": "MODE",
@@ -6468,7 +6493,8 @@
                     "fields-range": "43:0",
                     "reset value": 0.0
                }
-          }
+          },
+          "Accessibility": "Hypervisor"
      },
      "vsiselect": {
           "name": "vsiselect",
@@ -6613,8 +6639,9 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "ISS_Support": "Yes",
           "Accessibility": "Machine",
+          "required_feature": "h",
           "sub-fields": {
                "mtinst": {
                     "fields-name": "mtinst",
@@ -6634,7 +6661,9 @@
           "software-type": "WARL",
           "software-read": "R",
           "software-write": "W",
-          "ISS_Support": "No",
+          "Accessibility": "Machine",
+          "ISS_Support": "Yes",
+          "required_feature": "h",
           "sub-fields": {
                "mtval2": {
                     "fields-name": "mtval2",
@@ -6719,6 +6748,237 @@
                     "reset value": 0.0,
                     "software-read": "R",
                     "software-write": "W"
+               }
+          }
+     },
+     "stimecmp": {
+          "name": "stimecmp",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "I_Ext",
+          "address": "14D",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Hypervisor",
+          "ISS_Support": "No",
+          "required_feature": "sstc",
+          "sub-fields": {
+               "stimecmp": {
+                    "fields-name": "stimecmp",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
+               }
+          }
+     },
+     "vstimecmp": {
+          "name": "vstimecmp",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "I_Ext",
+          "address": "24D",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Hypervisor",
+          "ISS_Support": "No",
+          "required_feature": "sstc",
+          "sub-fields": {
+               "vstimecmp": {
+                    "fields-name": "vstimecmp",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
+               }
+          }
+     },
+     "mnscratch": {
+          "name": "mnscratch",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "I_Ext",
+          "address": "740",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Machine",
+          "ISS_Support": "Yes",
+          "required_feature": "smrnmi",
+          "sub-fields": {
+               "mnscratch": {
+                    "fields-name": "mnscratch",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
+               }
+          }
+     },
+     "mnepc": {
+          "name": "mnepc",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "I_Ext",
+          "address": "741",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Machine",
+          "ISS_Support": "Yes",
+          "required_feature": "smrnmi",
+          "sub-fields": {
+               "mnepc": {
+                    "fields-name": "mnepc",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
+               }
+          }
+     },
+     "mncause": {
+          "name": "mncause",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "I_Ext",
+          "address": "742",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Machine",
+          "ISS_Support": "Yes",
+          "required_feature": "smrnmi",
+          "sub-fields": {
+               "mncause": {
+                    "fields-name": "mncause",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
+               }
+          }
+     },
+     "mnstatus": {
+          "name": "mnstatus",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "I_Ext",
+          "address": "744",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Machine",
+          "ISS_Support": "Yes",
+          "required_feature": "smrnmi",
+          "sub-fields": {
+               "mnstatus": {
+                    "fields-name": "mnstatus",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
+               }
+          }
+     },
+     "hvien": {
+          "name": "hvien",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "AIA",
+          "address": "608",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Hypervisor",
+          "ISS_Support": "Yes",
+          "required_feature": "ssaia",
+          "sub-fields": {
+               "hvien": {
+                    "fields-name": "hvien",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
+               }
+          }
+     },
+     "hvictl": {
+          "name": "hvictl",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "AIA",
+          "address": "645",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Hypervisor",
+          "ISS_Support": "Yes",
+          "required_feature": "ssaia",
+          "sub-fields": {
+               "hvictl": {
+                    "fields-name": "hvictl",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
+               }
+          }
+     },
+     "hviprio1": {
+          "name": "hviprio1",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "AIA",
+          "address": "646",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Hypervisor",
+          "ISS_Support": "Yes",
+          "required_feature": "ssaia",
+          "sub-fields": {
+               "hviprio1": {
+                    "fields-name": "hviprio1",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
+               }
+          }
+     },
+     "hviprio2": {
+          "name": "hviprio2",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "AIA",
+          "address": "647",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Hypervisor",
+          "ISS_Support": "Yes",
+          "required_feature": "ssaia",
+          "sub-fields": {
+               "hviprio2": {
+                    "fields-name": "hviprio2",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
+               }
+          }
+     },
+     "srmcfg": {
+          "name": "srmcfg",
+          "visibility": "External",
+          "type": "ISA",
+          "Sub Category": "I_Ext",
+          "address": "181",
+          "size": 64.0,
+          "software-read": "R",
+          "software-write": "W",
+          "Accessibility": "Hypervisor",
+          "ISS_Support": "Yes",
+          "required_feature": "ssqosid",
+          "sub-fields": {
+               "srmcfg": {
+                    "fields-name": "srmcfg",
+                    "fields-width": 64,
+                    "fields-range": "63:0",
+                    "reset value": 0.0
                }
           }
      }

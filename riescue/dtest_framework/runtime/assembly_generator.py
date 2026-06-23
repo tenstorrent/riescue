@@ -243,7 +243,7 @@ class AssemblyGenerator(ABC):
         if self.featmgr.no_random_csr_reads:
             return ""
         elif self.csr_manager is None:
-            self.csr_manager = CsrManagerInterface(self.rng)
+            self.csr_manager = CsrManagerInterface(self.rng, feature_discovery=self.featmgr)
 
         # Pick status CSR from current OS privilege and env (shared by FS and VS)
         def _status_csr() -> str:
@@ -313,7 +313,9 @@ class AssemblyGenerator(ABC):
             RV.RiscvPrivileges.SUPER: {RV.RiscvPrivileges.MACHINE},
             RV.RiscvPrivileges.USER: {RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER},
         }
-        available_privileges -= forbidden_by_privilege.get(RV.RiscvPrivileges.MACHINE, set())
+
+        handler_priv = RV.RiscvPrivileges.MACHINE if self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE else RV.RiscvPrivileges.SUPER
+        available_privileges -= forbidden_by_privilege.get(handler_priv, set())
 
         for privilege in available_privileges:
             if privilege == RV.RiscvPrivileges.MACHINE and self.featmgr.random_machine_csr_list:
@@ -329,6 +331,7 @@ class AssemblyGenerator(ABC):
             RV.RiscvPrivileges.USER: "User",
         }
         # Get up to max_random_csr_reads random CSR to read
+        # CsrManager already filters out CSRs whose required_feature is disabled.
         available_privileges.discard(RV.RiscvPrivileges.USER)  # no user CSRs supported in CsrManager
         available_privilege_list = sorted(available_privileges, key=lambda x: x.value)  # without sorting the set will be randomly ordered based on PYTHONHASHSEED. Sorting for deterministic behavior.
         for _ in range(self.rng.randint(3, self.featmgr.max_random_csr_reads)):
@@ -336,7 +339,6 @@ class AssemblyGenerator(ABC):
             priv_mode_str = priv_mode_to_str[random_priv_mode]
             csr_config = self.csr_manager.get_random_csr(match={"Accessibility": priv_mode_str, "ISS_Support": "Yes"})
             csr_name = list(csr_config.keys())[0]
-
             instrs += f"csrr t0, {csr_name}\n"
 
         for csr in csr_list:

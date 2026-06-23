@@ -54,6 +54,12 @@ class CpuConfigAdapter(Adapter):
             featmgr.io_imsic_sfile_addr = None
             featmgr.io_imsic_sfile_stride = None
         try:
+            featmgr.io_imsic_vsfile_addr = int(cfg["mmap"]["io"]["imsic_vsfile"]["address"], 0)
+            featmgr.io_imsic_vsfile_stride = int(cfg["mmap"]["io"]["imsic_vsfile"]["stride"], 0)
+        except KeyError:
+            featmgr.io_imsic_vsfile_addr = None
+            featmgr.io_imsic_vsfile_stride = None
+        try:
             featmgr.io_maplic_addr = int(cfg["mmap"]["io"]["maplic"]["address"], 0)
             featmgr.io_maplic_size = int(cfg["mmap"]["io"]["maplic"]["size"], 0)
         except KeyError:
@@ -101,6 +107,8 @@ class CpuConfigAdapter(Adapter):
             if any(v < 0 or v > 3 for v in vals):
                 raise ValueError("vs_randomization_values: each value must be 0-3 (0=Off 1=Initial 2=Clean 3=Dirty)")
             featmgr.vs_randomization_values = vals
+        if cpu_config.test_gen.pmp_catchall is not None:
+            featmgr.pmp_catchall = cpu_config.test_gen.pmp_catchall
 
         # Debug mode (from features.debug) and debug ROM (from mmap.io.debug_rom)
         featmgr.debug_mode = cpu_config.debug_mode

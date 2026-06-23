@@ -132,7 +132,7 @@
         "zimop": {"supported": true, "enabled": false, "randomize": 0},
         "zcmop": {"supported": true, "enabled": false, "randomize": 0},
         "zawrs": {"supported": true, "enabled": false, "randomize": 0},
-        "zvqdot": {"supported": true, "enabled": false, "randomize": 0},
+        "zvdot4a8i": {"supported": true, "enabled": false, "randomize": 0},
         "zjpm": {"supported": true, "enabled": false, "randomize": 0},
         "svnapot": {"supported": true, "enabled": true, "randomize": 0},
         "svpbmt": {"supported": true, "enabled": false, "randomize": 0},
@@ -182,6 +182,14 @@
         "big_endian": {"supported": true, "enabled": false, "randomize": 0},
         "debug": {"supported": true, "enabled": true, "randomize": 0}
     },
+  "interrupts_supported": {
+    "msi": true,
+    "mei": true,
+    "mti": true,
+    "ssi": true,
+    "sei": true,
+    "sti": true
+  },
   "mp": "off",
   "mp_mode": "simultaneous",
   "num_cpus": "1"

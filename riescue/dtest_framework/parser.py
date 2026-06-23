@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 # ;#random_addr() arguments that stay string literals (not int(..., 0) parsed).
 _RND_ADDR_STR_KEY_A = r"name|type|pma_memory_type|pma_amo_type|pma_cacheability|"
-_RND_ADDR_STR_KEY_B = r"pma_combining|pma_routing_to|custom_region"
+_RND_ADDR_STR_KEY_B = r"pma_combining|pma_routing_to|custom_region|derive_from"
 _RANDOM_ADDR_STRING_KEYS = re.compile(_RND_ADDR_STR_KEY_A + _RND_ADDR_STR_KEY_B)
 
 
@@ -132,6 +132,9 @@ class Parser:
                 self.parse_trigger_disable(line.strip())
             if line.strip().startswith(";#trigger_enable("):
                 self.parse_trigger_enable(line.strip())
+            if line.strip().startswith(";#rand_mem_breakpoint_pool("):
+                self.parse_rand_mem_breakpoint_pool(line.strip())
+
 
             # Only consider strip after all non-riscv directives are removed
             line = line.strip()
@@ -744,35 +747,23 @@ class Parser:
             self.pool.add_parsed_discrete_test(testname)
 
     @staticmethod
-    def separate_lin_name_map(line: str) -> list[Union[str, list[str]]]:
+    def separate_lin_name_map(line: str) -> tuple[str, list[str]]:
         lin_name_maps: str = re.findall(r"@(.+)", line)[0]
         lin_name_maps_sep = lin_name_maps.split(":")
-        ret: list[Union[str, list[str]]] = []
         if len(lin_name_maps_sep) == 1:
-            ret.append(lin_name_maps.strip())
-            ret.append([])
-        else:
-            ret.append(lin_name_maps_sep[0].strip())
-            maps = lin_name_maps_sep[1].split(",")
-            for i in range(0, len(maps)):
-                maps[i] = maps[i].strip()
-            ret.append(maps)
-        return ret
+            return (lin_name_maps.strip(), [])
+        maps = lin_name_maps_sep[1].split(",")
+        for i in range(0, len(maps)):
+            maps[i] = maps[i].strip()
+        return (lin_name_maps_sep[0].strip(), maps)
 
     def parse_init_mem(self, line):
-        lin_name = re.findall(r"@(.+)", line)[0]
         lin_name_maps = self.separate_lin_name_map(line)
-        # FIXME: this should be a stronger type instead of a tuple of str + list
-        if len(lin_name_maps[1]) == 0:
-            lin_name = lin_name_maps[0]
-            if not isinstance(lin_name, str):
-                raise Exception(f"separate_lin_name_map should have returned a string as the first element when len(lin_name_maps[1]) == 0, but got {type(lin_name)}")
+        lin_name = lin_name_maps[0]
+        maps = lin_name_maps[1]
+        if len(maps) == 0:
             self.pool.add_parsed_init_mem_addr(lin_name)
         else:
-            if not isinstance(lin_name_maps[0], str):
-                raise Exception(f"separate_lin_name_map should have returned a string as the first element when len(lin_name_maps[1]) != 0, but got {type(lin_name_maps[0])}")
-            lin_name = lin_name_maps[0].strip()
-            maps = lin_name_maps[1]
             for m in maps:
                 self.pool.add_parsed_init_mem_addr(f"{lin_name}_{m.strip()}")
 
@@ -897,10 +888,12 @@ class Parser:
         if self.pool.ext_aplic_interrupts[intr_num]["mode"] is not None:
             log.warning("duplicate mode in enable_ext_intr_id directive - ignored")
         else:
-            if val != "m" and val != "s":
+            if val not in ("m", "s", "v"):
                 log.warning("unrecognized mode - ignored")
             else:
                 self.pool.ext_aplic_interrupts[intr_num]["mode"] = val
+                if val == "v":
+                    self.pool.init_guest_imsic = True
 
     def enable_ext_intr_arg_state(self, intr_num, val):
         if self.pool.ext_aplic_interrupts[intr_num]["state"] is not None:
@@ -921,6 +914,7 @@ class Parser:
             "eiid": self.enable_ext_intr_arg_eiid,
             "hart": self.enable_ext_intr_arg_hart,
             "state": self.enable_ext_intr_arg_state,
+            "mode": self.enable_ext_intr_arg_mode,
         }
         self.pool.init_aplic_interrupts = True
         args = re.search(r"^;#enable_ext_intr_id\((.*?)\)", line)
@@ -997,7 +991,21 @@ class Parser:
         hypervisor = False
         priv_mode = "user"
         csr_lower = csr_name.lower() if isinstance(csr_name, str) else ""
-        if csr_lower.startswith("m"):
+        # A CSR given by raw address encodes its minimum privilege in address bits [9:8]
+        # (0b11 = machine, 0b10 = hypervisor/VS, 0b01 = supervisor, 0b00 = user).
+        csr_addr = None
+        try:
+            csr_addr = int(csr_lower, 0)
+        except ValueError:
+            pass
+        if csr_addr is not None:
+            priv_bits = (csr_addr >> 8) & 0x3
+            if priv_bits == 0b11:
+                priv_mode = "machine"
+            elif priv_bits in (0b01, 0b10):
+                priv_mode = "supervisor"
+        elif csr_lower.startswith("m") or csr_lower.startswith("pmp"):
+            # PMP CSRs (pmpcfg*/pmpaddr*) are machine-mode but don't start with "m".
             priv_mode = "machine"
         elif any(csr_lower.startswith(p) for p in ("s", "h", "v")):
             priv_mode = "supervisor"
@@ -1143,6 +1151,26 @@ class Parser:
         self.pool.add_parsed_trigger_config(cfg)
         self.parsed_trigger_id += 1
 
+    def parse_rand_mem_breakpoint_pool(self, line: str) -> None:
+        """Parse ;#rand_mem_breakpoint_pool(addresses=[label1,label2,...]).
+
+        May be specified multiple times in a test; addresses from every instance
+        accumulate into a single pool. The pool is consumed by the rand-mem-BP
+        feature when ``--rand_mem_breakpoint_pct > 0``.
+        """
+        pattern = r"^;#rand_mem_breakpoint_pool\((.+)\)\s*$"
+        match = re.match(pattern, line.strip())
+        if not match:
+            return
+        args = self._parse_directive_args(match.group(1))
+        addrs_raw = args.get("addresses", "")
+        addrs = [tok.strip() for tok in addrs_raw.strip("[]").split(",") if tok.strip()]
+        if not addrs:
+            log.warning(";#rand_mem_breakpoint_pool: empty addresses list, skipping")
+            return
+        log.debug(f"Parsed ;#rand_mem_breakpoint_pool: {len(addrs)} address(es)")
+        self.pool.add_parsed_rand_mem_bp_addresses(addrs)
+
     def parse_trigger_disable(self, line: str) -> None:
         """Parse ;#trigger_disable(index=N)"""
         pattern = r"^;#trigger_disable\((.+)\)"
@@ -1261,6 +1289,7 @@ class Parser:
             items.append(current_item.strip())
 
         return items
+
 
     def _parse_combinations(self, value: str) -> list[dict]:
         """Parse combinations list like [{memory_type=memory, rwx=rwx}, ...]"""
@@ -1386,6 +1415,16 @@ class ParsedRandomAddress:
     secure: bool = False
     resolve_priority: int = 10
     custom_region: Optional[str] = None
+    # Relative masked-address derivation (None/defaults => no derivation, existing behavior).
+    # The linear address of this entry is derived from another resolved random_addr (derive_from)
+    # by applying: new = ((source & derive_and_mask) | derive_or_mask) with derive_not_mask bits
+    # flipped relative to the source (XOR semantics). Resolved in generator.handle_derived_random_addr.
+    derive_from: Optional[str] = None
+    derive_and_mask: int = 0xFFFFFFFFFFFFFFFF
+    derive_or_mask: int = 0
+    derive_not_mask: int = 0
+    # Pin this random_addr to an exact value (skips random generation; reserves the literal).
+    fixed_addr: Optional[int] = None
 
 
 @dataclass

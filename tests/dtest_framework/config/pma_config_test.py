@@ -4,6 +4,7 @@
 import unittest
 
 from riescue.dtest_framework.config.pma_config import (
+    MAX_PMA_REGIONS,
     PmaAttributes,
     PmaRegionConfig,
     PmaHintConfig,
@@ -239,7 +240,7 @@ class PmaConfigTest(unittest.TestCase):
         config = PmaConfig()
         self.assertEqual(len(config.regions), 0)
         self.assertEqual(len(config.hints), 0)
-        self.assertEqual(config.max_regions, 15)
+        self.assertEqual(config.max_regions, MAX_PMA_REGIONS)
 
     def test_config_with_regions(self):
         """Test configuration with regions"""
@@ -256,7 +257,7 @@ class PmaConfigTest(unittest.TestCase):
     def test_max_regions_validation(self):
         """Test max_regions validation"""
         # Valid range
-        for max_regions in [1, 10, 15]:
+        for max_regions in [1, 10, MAX_PMA_REGIONS]:
             config = PmaConfig(max_regions=max_regions)
             self.assertEqual(config.max_regions, max_regions)
 
@@ -266,7 +267,7 @@ class PmaConfigTest(unittest.TestCase):
 
         # Invalid: too high
         with self.assertRaises(ValueError):
-            PmaConfig(max_regions=16)
+            PmaConfig(max_regions=MAX_PMA_REGIONS + 1)
 
     def test_duplicate_region_names(self):
         """Test duplicate region name detection"""

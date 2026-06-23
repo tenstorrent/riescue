@@ -150,6 +150,7 @@ class SysCalls(TrapHandler):
 
             """
 
+
         return code
 
     def os_fn_f0001001(self) -> str:

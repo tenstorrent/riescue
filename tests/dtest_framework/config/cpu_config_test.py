@@ -8,7 +8,7 @@ from pathlib import Path
 
 from riescue.dtest_framework.config import CpuConfig, Memory
 from riescue.dtest_framework.config.memory import IoRange, DramRange
-from riescue.dtest_framework.config.cpu_config import TestGeneration
+from riescue.dtest_framework.config.cpu_config import InterruptsSupported, TestGeneration
 import riescue.lib.enums as RV
 
 
@@ -203,6 +203,39 @@ class TestCpuConfig(unittest.TestCase):
         assert cfg.pma_config is not None  # Type narrowing for pyright
         self.assertEqual(len(cfg.pma_config.regions), 2)
         self.assertEqual(cfg.pma_config.regions[1].adjacent_to, "region1")
+
+    def test_interrupts_supported_default(self):
+        """Missing ``interrupts_supported`` block defaults all six causes to True."""
+        cfg = CpuConfig.from_dict({})
+        for name in ("msi", "mei", "mti", "ssi", "sei", "sti"):
+            self.assertTrue(getattr(cfg.interrupts_supported, name))
+            self.assertTrue(cfg.interrupts_supported.is_cause_supported(name))
+            self.assertTrue(cfg.interrupts_supported.is_cause_supported(name.upper()))
+        # Out-of-set causes pass through as supported.
+        self.assertTrue(cfg.interrupts_supported.is_cause_supported("COI"))
+        self.assertTrue(cfg.interrupts_supported.is_cause_supported("PLATFORM"))
+
+    def test_interrupts_supported_full(self):
+        """Full block round-trips through ``CpuConfig.from_dict``."""
+        block = {"msi": False, "mei": True, "mti": False, "ssi": True, "sei": False, "sti": True}
+        cfg = CpuConfig.from_dict({"interrupts_supported": block})
+        for name, expected in block.items():
+            self.assertEqual(getattr(cfg.interrupts_supported, name), expected)
+            self.assertEqual(cfg.interrupts_supported.is_cause_supported(name), expected)
+
+    def test_interrupts_supported_partial(self):
+        """Omitted subfields default to True; only specified ones flip."""
+        cfg = CpuConfig.from_dict({"interrupts_supported": {"msi": False}})
+        self.assertFalse(cfg.interrupts_supported.msi)
+        for name in ("mei", "mti", "ssi", "sei", "sti"):
+            self.assertTrue(getattr(cfg.interrupts_supported, name))
+
+    def test_interrupts_supported_unknown_field(self):
+        """Unknown subfield raises ``ValueError`` (matches ``TestGeneration.from_dict``)."""
+        with self.assertRaises(ValueError):
+            InterruptsSupported.from_dict({"foo": True})
+        with self.assertRaises(ValueError):
+            CpuConfig.from_dict({"interrupts_supported": {"foo": True}})
 
     def test_pma_config_hints_with_adjacent(self):
         """CpuConfig loads PMA hints with adjacent flag."""

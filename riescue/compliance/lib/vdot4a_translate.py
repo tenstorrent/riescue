@@ -2,20 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-def translate_vqdot_string_to_word(line) -> str:
+def translate_vdot4a_string_to_word(line) -> str:
 
     table = {
-        "vqdot.vv": 0xB000205B,
-        "vqdot.vx": 0xB000605B,
-        "vqdotu.vv": 0xA000205B,
-        "vqdotu.vx": 0xA000605B,
-        "vqdotsu.vv": 0xA800205B,
-        "vqdotsu.vx": 0xA800605B,
-        "vqdotus.vx": 0xB800605B,
+        "vdot4a.vv": 0xB0002057,
+        "vdot4a.vx": 0xB0006057,
+        "vdot4au.vv": 0xA0002057,
+        "vdot4au.vx": 0xA0006057,
+        "vdot4asu.vv": 0xA8002057,
+        "vdot4asu.vx": 0xA8006057,
+        "vdot4aus.vx": 0xB8006057,
     }
 
     stripped = line.strip()
-    assert stripped.startswith("vqdot"), f"Invalid instruction: {stripped}"
+    assert stripped.startswith("vdot4a"), f"Invalid instruction: {stripped}"
 
     instr = stripped.split(" ")[0]  # First string in line is the instruction
     assert instr in table, f"Invalid instruction: {instr}"

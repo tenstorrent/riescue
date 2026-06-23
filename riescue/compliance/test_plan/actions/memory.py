@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 from coretp import Instruction, StepIR
 from coretp.isa import Label
-from coretp.step import Memory, RequestPmpRegion
+from coretp.step import Memory, RequestPmpRegion, RetrieveAddress
 from coretp.rv_enums import PageSize, PageFlags, PmpAttribute
 from riescue.compliance.test_plan.actions import Action, CodeMixin
 from riescue.compliance.test_plan.actions import ConditionalBlockAction
@@ -48,6 +48,10 @@ class MemoryAction(Action):
         # G-stage attributes: VS-nonleaf × G-nonleaf
         nonleaf_gnonleaf_flags: Optional[PageFlags] = None,
         nonleaf_gnonleaf_exclude_flags: Optional[PageFlags] = None,
+        base_pa: Optional[int] = None,
+        base_pa_key: Optional[str] = None,
+        # Secure memory region
+        secure: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -63,6 +67,12 @@ class MemoryAction(Action):
         self.modify_leaf = modify_leaf
         self.modify_nonleaf = modify_nonleaf
         self.or_mask = or_mask
+        # Physical-address hints. ``base_pa`` is a literal int known at action
+        # creation; ``base_pa_key`` is a key that must be resolved against the
+        # FeatMgr (via ``resolve_base_pa(ctx)``) at allocate time.
+        self.base_pa = base_pa
+        self.base_pa_key = base_pa_key
+        self.secure = secure
 
         # VS-stage non-leaf attributes
         self.nonleaf_flags = nonleaf_flags
@@ -93,6 +103,19 @@ class MemoryAction(Action):
             num_pages = step.step.num_pages
         # Default size to 0x1000 (4KB) if not specified
         size = step.step.size if step.step.size is not None else 0x1000
+
+        # base_pa accepts an int (literal PA) or a RetrieveAddress step (config
+        # lookup deferred until allocate time when ctx.featmgr is available).
+        base_pa: Optional[int] = None
+        base_pa_key: Optional[str] = None
+        raw_base_pa = step.step.base_pa
+        if isinstance(raw_base_pa, RetrieveAddress):
+            base_pa_key = raw_base_pa.key
+        elif isinstance(raw_base_pa, int):
+            base_pa = raw_base_pa
+        elif raw_base_pa is not None:
+            raise ValueError(f"Memory.base_pa must be int or RetrieveAddress, got {type(raw_base_pa).__name__}")
+
         return cls(
             step_id=step_id,
             size=size,
@@ -117,11 +140,37 @@ class MemoryAction(Action):
             modify=step.step.modify,
             modify_leaf=step.step.modify_leaf,
             modify_nonleaf=step.step.modify_nonleaf,
+            base_pa=base_pa,
+            base_pa_key=base_pa_key,
+            secure=step.step.secure,
             **kwargs,
         )
 
     def repr_info(self) -> str:
         return f"[size=0x{self.size:x}]" if self.size is not None else "[size=None]"
+
+    def resolve_base_pa(self, ctx: Optional[LoweringContext]) -> Optional[int]:
+        """Resolve ``base_pa``/``base_pa_key`` to a concrete int PA.
+
+        Returns ``None`` if no PA was requested. Raises ``ValueError`` if a
+        key is set but ``ctx`` is missing or the FeatMgr lookup yields ``None``.
+        """
+        if self.base_pa is not None:
+            return self.base_pa
+        if self.base_pa_key is None:
+            return None
+        if ctx is None:
+            raise ValueError(f"MemoryAction.resolve_base_pa: ctx required to resolve key '{self.base_pa_key}'")
+        # Reuse the RetrieveAddressAction key map so there's one source of truth.
+        from riescue.compliance.test_plan.actions.retrieve_address import _KEY_RESOLVERS
+
+        resolver = _KEY_RESOLVERS.get(self.base_pa_key)
+        if resolver is None:
+            raise ValueError(f"MemoryAction.resolve_base_pa: unknown key '{self.base_pa_key}'")
+        value = resolver(ctx.featmgr)
+        if value is None:
+            raise ValueError(f"MemoryAction.resolve_base_pa: FeatMgr field for key '{self.base_pa_key}' is None. " f"Populate cpu_config.json (mmap.io.imsic_mfile / imsic_sfile).")
+        return value
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
         "Not used here, instead this is handled by MemoryRegistry.allocate_data"

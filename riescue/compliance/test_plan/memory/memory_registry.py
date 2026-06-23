@@ -14,6 +14,7 @@ import riescue.lib.enums as RV
 
 if TYPE_CHECKING:
     from riescue.compliance.test_plan.actions import MemoryAction, CodePageAction, RequestPmpAction
+    from riescue.compliance.test_plan.context import LoweringContext
 
 log = logging.getLogger(__name__)
 
@@ -39,10 +40,24 @@ class MemoryRegistry:
         else:
             self.cfg = cfg
 
-    def allocate_data(self, name: str, data_memory: "MemoryAction", **kwargs: Any) -> None:
+    def allocate_data(self, name: str, data_memory: "MemoryAction", ctx: Optional["LoweringContext"] = None, **kwargs: Any) -> None:
+        # Resolve a fixed PA hint when the MemoryAction carries one (either an
+        # explicit literal or a key resolved via FeatMgr). When set, the
+        # generated assembler directives use ;#reserve_memory at this address
+        # instead of ;#random_addr -- this is what wires Memory(base_pa=...)
+        # through to actual page allocation. ctx is only required when the
+        # MemoryAction stores a key that needs FeatMgr resolution.
+        base_pa: Optional[int] = None
+        if hasattr(data_memory, "resolve_base_pa"):
+            base_pa = data_memory.resolve_base_pa(ctx)
+        # Allow an explicit start_addr kwarg from callers to override (used by
+        # request_data which computes its own).
+        start_addr = kwargs.pop("start_addr", base_pa)
+
         self._data[name] = DataPage(
             name=name,
             size=data_memory.size,
+            start_addr=start_addr,
             page_size=data_memory.page_size,
             flags=data_memory.flags,
             exclude_flags=data_memory.exclude_flags,
@@ -52,6 +67,7 @@ class MemoryRegistry:
             modify_leaf=data_memory.modify_leaf,
             modify_nonleaf=data_memory.modify_nonleaf,
             or_mask=data_memory.or_mask,
+            secure=data_memory.secure,
             # Pass inline g-stage and nonleaf fields
             nonleaf_flags=data_memory.nonleaf_flags,
             nonleaf_exclude_flags=data_memory.nonleaf_exclude_flags,
@@ -80,6 +96,7 @@ class MemoryRegistry:
             modify_leaf=code_page.modify_leaf,
             modify_nonleaf=code_page.modify_nonleaf,
             or_mask=code_page.or_mask,
+            secure=code_page.secure,
             # Pass inline g-stage and nonleaf fields
             nonleaf_flags=code_page.nonleaf_flags,
             nonleaf_exclude_flags=code_page.nonleaf_exclude_flags,

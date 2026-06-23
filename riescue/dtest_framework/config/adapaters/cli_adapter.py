@@ -64,6 +64,10 @@ class CliAdapter(Adapter):
             featmgr.randomize_code_location = cmdline.randomize_code_location
         if cmdline.identity_map_code is not None:
             featmgr.identity_map_code = cmdline.identity_map_code
+        if cmdline.map_imsic_pages is not None:
+            featmgr.map_imsic_pages = cmdline.map_imsic_pages
+        if cmdline.map_aclint_pages is not None:
+            featmgr.map_aclint_pages = cmdline.map_aclint_pages
         if cmdline.repeat_times is not None:
             featmgr.repeat_times = cmdline.repeat_times
         if cmdline.log_test_execution is not None:
@@ -100,8 +104,21 @@ class CliAdapter(Adapter):
         if cmdline.skip_instruction_for_unexpected is not None:
             featmgr.skip_instruction_for_unexpected = cmdline.skip_instruction_for_unexpected
 
+        if cmdline.rand_mem_breakpoint_pct is not None:
+            featmgr.rand_mem_breakpoint_pct = cmdline.rand_mem_breakpoint_pct
+        if cmdline.rand_mem_n_triggers is not None:
+            featmgr.rand_mem_n_triggers = cmdline.rand_mem_n_triggers
+        if cmdline.rand_mem_max_fires is not None:
+            featmgr.rand_mem_max_fires = cmdline.rand_mem_max_fires
+        if cmdline.rand_mem_inject_icount_pct is not None:
+            featmgr.rand_mem_inject_icount_pct = cmdline.rand_mem_inject_icount_pct
+        if cmdline.rand_mem_icount_density is not None:
+            featmgr.rand_mem_icount_density = RV.RandMemIcountDensity.str_to_enum(cmdline.rand_mem_icount_density)
+
         if cmdline.setup_pmp is not None:
             featmgr.setup_pmp = cmdline.setup_pmp
+        if cmdline.pmp_catchall is not None:
+            featmgr.pmp_catchall = cmdline.pmp_catchall
         if cmdline.needs_pma is not None:
             featmgr.needs_pma = cmdline.needs_pma
         if cmdline.num_pmas is not None:
@@ -145,6 +162,7 @@ class CliAdapter(Adapter):
             builder.mideleg = 0 if cmdline.deleg_excp_to == "machine" else (1 << 9) | (1 << 5) | (1 << 1) | (1 << 11) | (1 << 7) | (1 << 3)  # Enables SEI, STI, SSI and MEI, MTI, MSI
             builder.hedeleg = 0
             featmgr.hideleg = 0
+            featmgr.medeleg_forced = True
 
         if cmdline.medeleg is not None:
             if cmdline.deleg_excp_to is not None:
@@ -157,6 +175,7 @@ class CliAdapter(Adapter):
                 log.warning("Overriding provided medeleg to never delegate any ecall exceptions (bits 8-11 cleared)")
                 log.warning(f"Original medeleg: {cmdline.medeleg:#x}, effective medeleg: {effective_medeleg:#x}")
             builder.medeleg = effective_medeleg
+            featmgr.medeleg_forced = True
 
         if cmdline.mideleg is not None:
             if cmdline.deleg_excp_to is not None:
@@ -267,6 +286,15 @@ class CliAdapter(Adapter):
             if "S" in cmdline.supported_priv_modes:
                 supported_priv_modes.add(RV.RiscvPrivileges.SUPER)
             if "U" in cmdline.supported_priv_modes:
+                supported_priv_modes.add(RV.RiscvPrivileges.USER)
+            featmgr.supported_priv_modes = supported_priv_modes
+        else:
+            supported_priv_modes = set()
+            if featmgr.feature.is_enabled("m"):
+                supported_priv_modes.add(RV.RiscvPrivileges.MACHINE)
+            if featmgr.feature.is_enabled("s"):
+                supported_priv_modes.add(RV.RiscvPrivileges.SUPER)
+            if featmgr.feature.is_enabled("u"):
                 supported_priv_modes.add(RV.RiscvPrivileges.USER)
             featmgr.supported_priv_modes = supported_priv_modes
 
