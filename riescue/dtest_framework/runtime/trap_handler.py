@@ -14,6 +14,8 @@ from typing import Optional
 import riescue.lib.enums as RV
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 from riescue.dtest_framework.trap_context import MACHINE_CTX, SUPERVISOR_CTX
+from riescue.dtest_framework.parser import ParsedCsrAccess
+from riescue.dtest_framework.pool import Pool
 
 
 class InterruptServiceRoutine:
@@ -83,21 +85,33 @@ class InterruptHandler:
     Reserved interrupts default as an "invalid" vector and cause test failure if they occur.
 
     :param privilege_mode: The privilege mode to use - "M" or "S"
+    :param pool: Test pool holding parsed resources (CSR accesses, vectored interrupts, custom handlers, etc.)
     :param trap_entry: The label of trap entry point; should be same address written to `mtvec`/`stvec`
+    :param default_trap_handler: Label of the default trap handler routine
+    :param test_fail_label: Label jumped to on test failure
     :param xlen: The XLEN to use - 32 or 64
+    :param label_prefix: String prepended to generated labels to keep them unique per delegation mode
+    :param use_pa: Whether generated code addresses memory via physical addresses (True in M mode)
+    :param variable_manager: VariableManager used to allocate/resolve runtime variables
+    :param is_virtualized: Whether the test runs in a virtualized (VS/VU) environment
+    :param deleg_virtualized: Whether this interrupt handler is for a virtualized (V=1) mode
     """
 
-    reserved_interrupt_indicies = [2, 4, 6, 8, 10, 12, 14, 15]
+    reserved_interrupt_indicies = [4, 8, 14, 15]
 
     def __init__(
         self,
         privilege_mode: RV.RiscvPrivileges,
+        pool: Pool,
         trap_entry: str = "trap_entry",
         default_trap_handler: str = "default_trap_handler",
         test_fail_label: str = "test_failed",
         xlen: RV.Xlen = RV.Xlen.XLEN64,
         label_prefix: str = "",
         use_pa: bool = True,
+        variable_manager=None,
+        is_virtualized: bool = False,
+        deleg_virtualized: bool = False,
     ):
         self.privilege_mode = privilege_mode
         if self.privilege_mode not in [RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER]:
@@ -106,9 +120,17 @@ class InterruptHandler:
         if self.privilege_mode == RV.RiscvPrivileges.MACHINE:
             self.xip = "mip"
             self.xret = "mret"
+            self.xepc = "mepc"
+            self.scratch_reg = "mscratch"
         else:
             self.xip = "sip"
             self.xret = "sret"
+            self.xepc = "sepc"
+            self.scratch_reg = "sscratch"
+        self.variable_manager = variable_manager
+        self.pool = pool
+        self.is_virtualized = is_virtualized
+        self.deleg_virtualized = deleg_virtualized
         self.vector_count = xlen.value - 1
 
         self.vector_table: dict[int, InterruptServiceRoutine] = {}  # Maps vector_num -> ISR
@@ -125,6 +147,7 @@ class InterruptHandler:
         self.clear_highest_priority_interrupt_bit_label = f"{label_prefix}clear_highest_priority_interrupt"
         self.interrupt_vector_table_label = f"{label_prefix}interrupt_vector_table"
         self.default_isr_label = f"{label_prefix}clear_all_interrupts"
+        self.check_intr_helper_label = f"{label_prefix}intr_assert_check"
 
         # Setting default ISRs and reserved interrupts
         for interrupt_enum in RV.RiscvInterruptCause:
@@ -188,8 +211,19 @@ class InterruptHandler:
         code.append(self._check_expected_interrupt_bit_macro())
         code.append(self._clear_interrupt_bit_macro())
         code.append(self._invalid_interrupt())
+        code.append(self._check_intr_helper())
         code.append(self._generate_default_isrs())
         code.append(self._clear_highest_interrupt_bit())
+        # trap_entry MUST be 4-byte aligned: its address is written to xtvec, and the
+        # bottom 2 bits of xtvec are the MODE field. An unaligned trap_entry produces a
+        # malformed xtvec (MODE = bits[1:0] of label address) — and the BASE the HW
+        # derives is ``addr & ~3``, which is 2 bytes earlier than the actual label.
+        # Without this .balign 4, any ``la xreg, trap_entry; csrw xtvec, xreg`` sets
+        # reserved MODE=2 and points BASE into the middle of the preceding instruction,
+        # causing the next trap to fetch a spliced/illegal instruction. Also required
+        # so the immediately-following interrupt_vector_table entries line up with
+        # ``BASE + 4*cause`` indexing in HW-vectored mode.
+        code.append(".balign 4, 0")
         code.append(f"{self.trap_entry_label}:")
         code.append(f"    j {self.default_trap_handler_label}")
         code.append(self._generate_interrupt_vector_table())
@@ -242,6 +276,61 @@ class InterruptHandler:
     j {self.test_fail_label}
 """
 
+    def _check_intr_helper(self) -> str:
+        """
+        Shared OS_SETUP_CHECK_INTR fast-path. Every default clear handler calls
+        through here with ``jal t2, <helper>`` AFTER the platform-source clear
+        and the xip bit clear, but BEFORE its own xret.
+
+        Why a single shared routine instead of the Python-time ``indirect`` gate:
+        - The unified trap_handler only runs check_intr() when traps funnel
+          through trap_entry (i.e. mtvec/stvec MODE = direct).
+        - If the test reconfigures MODE to HW-vectored midstream, traps land
+          directly in _CLEAR_<NAME> and that pre-dispatch check is skipped.
+        - Doing the check inside every default ISR closes that gap regardless
+          of whether the vector was registered as indirect at gen time.
+
+        Why AFTER the clear, not before:
+        - The caller's clear body deasserts the platform source (e.g.
+          ``RVMODEL_CLR_MSW_INT``) AND clears the xip pending bit. If the
+          helper xret'd to the stored return PC before that work happened, the
+          interrupt would simply re-fire and we'd trap-loop.
+        - Letting the caller finish the clear first means the helper only has
+          to maybe-redirect xepc and return — the caller's xret cleans up.
+
+        Contract:
+          - Caller invokes with ``jal t2, helper`` (t2 = return PC).
+          - Helper enters hart context via ``csrrw tp, <scratch>, tp``.
+          - If ``check_intr == 0``, restores tp and ``jr t2`` back to caller
+            (xepc untouched — caller's xret returns to the interrupted PC).
+          - If ``check_intr != 0``, loads & clears ``check_intr_return_pc``,
+            clears the flag, restores tp, writes xepc to the stored return PC,
+            then ``jr t2`` back to caller. Caller's xret then lands at the
+            redirected PC.
+          - Clobbers t0/t1; preserves t2 (callers rely on it for the return).
+        """
+        if self.variable_manager is None:
+            return ""
+
+        check_intr = self.variable_manager.get_variable("check_intr")
+        check_intr_return_pc = self.variable_manager.get_variable("check_intr_return_pc")
+        helper = self.check_intr_helper_label
+        done = f"{helper}__done"
+
+        return f"""
+{helper}:
+    csrrw tp, {self.scratch_reg}, tp                # enter hart context
+    {check_intr.load(dest_reg='t0')}
+    beqz t0, {done}
+    {check_intr_return_pc.load_and_clear(dest_reg='t0')}
+    li t1, 0
+    {check_intr.store(src_reg='t1')}
+    csrw {self.xepc}, t0                            # redirect return PC
+{done}:
+    csrrw tp, {self.scratch_reg}, tp                # exit hart context
+    jr t2
+"""
+
     def _clear_highest_interrupt_bit(self) -> str:
         """
         Routine that clears the lowest-numbered pending interrupt bit in xip.
@@ -249,14 +338,20 @@ class InterruptHandler:
         This avoids the previous loop which had two bugs:
           1. Off-by-one: sll used t2 (always 1 after loop exit) instead of the bit-position counter.
           2. Infinite loop when bit 0 was the only set bit (shift to 0, loop never exits).
+
+        Also routes through the shared check_intr helper AFTER the bit clear
+        and BEFORE the xret so platform/custom-cause traps honor
+        OS_SETUP_CHECK_INTR even when the trap lands here directly via
+        HW-vectored dispatch.
         """
+        intr_check_call = f"    jal t2, {self.check_intr_helper_label}\n" if self.variable_manager is not None else ""
         return f"""
 {self.clear_highest_priority_interrupt_bit_label}:
     csrr t0, {self.xip}
     neg t1, t0
     and t0, t0, t1              # isolate lowest set bit: xip & (-xip)
     csrrc x0, {self.xip}, t0
-    {self.xret}
+{intr_check_call}    {self.xret}
 """
 
     def _generate_interrupt_vector_table(self) -> str:
@@ -299,19 +394,162 @@ class InterruptHandler:
                     jump_table.append(vector.indirect_jump_table_entry())
         return "\n" + "\n".join(jump_table)
 
+    def _clear_hvip_via_machine_ecall(self, imm_value: str) -> list[str]:
+        """
+        Emit the ecall sequence that clears ``hvip`` (bits given by ``imm_value``)
+        from M mode, re-using the existing CSR R/W jump table mechanism.
+
+        hvip is an HS-level CSR; reading/writing it from VS mode raises a Virtual
+        Instruction exception. So instead of an inline ``csrrc hvip``, we hand the
+        access off to the machine-mode CSR jump table (see
+        ``OpSys.generate_csr_rw_jump_table`` and ``Macros._csr_ecall_code``):
+
+          - register an ``hvip`` ``clear`` access with ``force_machine_rw=True`` so
+            it is emitted in the machine table (which runs in M mode after the
+            ``0xf0001005`` syscall switches privilege),
+          - load the bit mask into ``t2`` (the jump table does ``csrc hvip, t2``),
+          - stash the CSR id into ``machine_csr_jump_table_flags`` and ecall.
+
+        The syscall mechanism preserves ``t2`` across the privilege switch and
+        returns to the instruction following the ecall, so the ISR can continue
+        with its xip bit clear / check_intr / xret as usual.
+
+        :param imm_value: assembler expression for the hvip bit mask, e.g. ``(1<<VSEI)``
+        """
+        csr_name = "hvip"
+        operation = "clear"
+
+        # Register the force-machine hvip clear in the pool if not already present so
+        # the machine jump table includes a dispatch entry + handler for it. This runs
+        # during TrapHandler.generate(), before OpSys.generate() builds the table.
+        existing = self.pool.get_parsed_csr_accesses()
+        if csr_name not in existing or f"{operation}_force_machine" not in existing[csr_name]:
+            csr_id = self.pool.get_next_csr_id()
+            label = f"csr_access_{csr_name}_machine_key_{csr_id}_{operation}"
+            self.pool.add_parsed_csr_access(
+                ParsedCsrAccess(
+                    csr_name=csr_name,
+                    priv_mode="supervisor",
+                    read_write_set_clear=operation,
+                    label=label,
+                    csr_id=csr_id,
+                    hypervisor=True,
+                    force_machine_rw=True,
+                )
+            )
+        parsed = self.pool.get_parsed_csr_access(csr_name, operation, force_machine_rw=True)
+
+        return [
+            f"    li t2, {imm_value}",
+            "    li x31, machine_csr_jump_table_flags",
+            f"    li t0, {parsed.csr_id}",
+            "    sd t0, 0(x31)",
+            "    li x31, 0xf0001005",
+            "    ecall",
+        ]
+
     def _generate_default_isrs(self) -> str:
         """
-        Generates default ISRs - clear interrupt bit and return
-        """
-        code = []
-        default_isr = f"""
+        Generates default ISRs - clear interrupt bit and return.
 
-{self.default_isr_label}:
-    csrw {self.xip}, x0
-    {self.xret}"""
-        code.append(default_isr)
+        Timer interrupts (MTI/STI) require special handling: the pending bit
+        is sourced from the platform timer comparator, not software, so a
+        plain ``csrc xip, (1<<cause)`` alone is a no-op and the trap
+        immediately re-fires after ``xret``.
+
+        - ``mip.MTIP`` is read-only and reflects the platform machine timer;
+          it is only deasserted by writing ``mtimecmp``.
+        - ``mip.STIP`` is read-only when ``menvcfg.STCE=1`` (Sstc enabled)
+          and reflects ``time >= stimecmp``; it is only deasserted by
+          writing ``stimecmp``. When Sstc is disabled, ``sip.STIP`` is
+          software-writable and the legacy ``csrc`` clear is what works.
+
+        Re-arm the comparators via the staged rvmodel_macros.h helpers so
+        the ACLINT base / Sstc addressing tracks the platform config, and
+        keep the ``csrc xip`` clear afterwards so the legacy / non-Sstc
+        path is also covered. ``clear_interrupt_bit`` also emits ``xret``,
+        so no separate return is needed.
+        """
+        # Every default clear path routes through the shared check_intr helper
+        # AFTER doing its platform-source clear and xip bit clear, but BEFORE
+        # its xret. Doing this unconditionally (rather than gating on the
+        # Python-time `indirect` flag) means the OS_SETUP_CHECK_INTR contract
+        # still holds if the test reconfigures mtvec/stvec MODE to HW-vectored
+        # midstream and the trap lands directly in _CLEAR_<NAME> instead of
+        # going through the unified trap_handler entry where check_intr()
+        # normally runs. We inline the xip bit clear (rather than using the
+        # `clear_interrupt_bit` macro that emits xret) so the helper call can
+        # sit between the clear and the xret.
+        emit_check = self.variable_manager is not None
+        intr_check_call = f"    jal t2, {self.check_intr_helper_label}" if emit_check else ""
+
+        def _bit_clear_and_return(cause_name: str) -> list[str]:
+            return (
+                [
+                    f"    li t0, (1<<{cause_name})",
+                    f"    csrc {self.xip}, t0",
+                ]
+                + ([intr_check_call] if emit_check else [])
+                + [f"    {self.xret}"]
+            )
+
+        code = []
+        default_isr_lines = [
+            f"\n{self.default_isr_label}:",
+            f"    csrw {self.xip}, x0",
+        ]
+        if emit_check:
+            default_isr_lines.append(intr_check_call)
+        default_isr_lines.append(f"    {self.xret}")
+        code.append("\n".join(default_isr_lines))
+
         for interrupt_enum in RV.RiscvInterruptCause:
-            code.extend([f"{self.label_prefix}_CLEAR_{interrupt_enum.name}:", f"    {self.clear_interrupt_bit_macro} {interrupt_enum.name}"])
+            label = f"{self.label_prefix}_CLEAR_{interrupt_enum.name}"
+            body = [f"{label}:"]
+            if interrupt_enum is RV.RiscvInterruptCause.MTI:
+                body.append("    RVMODEL_CLR_MTIMER_INT(t0, t1)")
+            elif interrupt_enum is RV.RiscvInterruptCause.STI:
+                body.append("    RVMODEL_CLR_STIMER_INT(t0, t1)")
+                if self.deleg_virtualized and self.is_virtualized:
+                    # In VS mode, this may come from hvip instead of vstimecmp
+                    body.extend(self._clear_hvip_via_machine_ecall(f"(1<<VSTI)"))
+            elif interrupt_enum is RV.RiscvInterruptCause.MSI:
+                body.append("    RVMODEL_CLR_MSW_INT(t0, t1)")
+            elif interrupt_enum is RV.RiscvInterruptCause.SSI:
+                body.append("    RVMODEL_CLR_SSW_INT(t0, t1)")
+            elif interrupt_enum is RV.RiscvInterruptCause.MEI:
+                body.append("    RVMODEL_CLR_MEXT_INT(t0, t1)")
+            elif interrupt_enum is RV.RiscvInterruptCause.SEI:
+                # Always claim via `stopei`. When this handler runs in VS mode
+                # (a VSEI delegated to VS shows up as scause=9/SEI), `stopei`
+                # with V=1 acts on the VGEIN-selected guest interrupt file, so
+                # it clears the guest file pending bit. `vstopei` is an HS CSR
+                # and raises a virtual-instruction exception from VS mode, so it
+                # must NOT be used here.
+                body.append("    RVMODEL_CLR_SEXT_INT(t0, t1)")
+            elif interrupt_enum is RV.RiscvInterruptCause.VSTI:
+                body.append("    RVMODEL_CLR_VSTIMER_INT(t0, t1)")
+            elif interrupt_enum is RV.RiscvInterruptCause.VSSI:
+                # hvip[2] is the VSSI source. sip[2] is read-only with VTI=1
+                # and raises Virtual Instruction from VS mode — clear hvip directly.
+                body.append(f"    li t2, (1<<{interrupt_enum.name})")
+                body.append("    csrrc x0, hvip, t2")
+            elif interrupt_enum is RV.RiscvInterruptCause.VSEI:
+                # VSEI (scause=10 in HS) comes from IMSIC guest interrupt file 1.
+                # The HGEI macro points hstatus.VGEIN at file 1 (the home), claims
+                # via vstopei to clear the guest file pending bit, then restores
+                # VGEIN=1. t2 holds the guest interrupt file index. Runs in HS.
+                body.append("    li t2, 1")
+                body.append("    RVMODEL_CLR_HGEI_INT(t0, t1, t2)")
+            elif interrupt_enum is RV.RiscvInterruptCause.SGEI:
+                # SGEI (scause=12, HS-only) is raised by IMSIC guest interrupt
+                # file 2 via hgeie[2]. The HGEI macro points hstatus.VGEIN at file 2,
+                # claims via vstopei to clear hgeip[2]/SGEIP, then restores VGEIN=1.
+                # t2 holds the guest interrupt file index.
+                body.append("    li t2, 2")
+                body.append("    RVMODEL_CLR_HGEI_INT(t0, t1, t2)")
+            body.extend(_bit_clear_and_return(interrupt_enum.name))
+            code.extend(body)
         return "\n".join(code)
 
 
@@ -378,6 +616,10 @@ class TrapHandler(AssemblyGenerator):
             label_prefix=self.label_prefix,
             test_fail_label=self.test_fail_label,
             use_pa=(deleg_mode == RV.RiscvPrivileges.MACHINE),
+            variable_manager=self.variable_manager,
+            pool=self.pool,
+            is_virtualized=(self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED),
+            deleg_virtualized=deleg_virtualized,
         )
 
         self.env = self.featmgr.env
@@ -406,6 +648,26 @@ class TrapHandler(AssemblyGenerator):
             self.tval = "mtval"
             self.scratch_reg = "mscratch"
         self.panic_cause = f"{self.label_prefix}TRAP_HANDLER_PANIC_CAUSE"
+
+    def _current_mode_for_handler(self) -> int:
+        """
+        Privilege mode encoding this handler reports to ``CHECK_EXCP_MODE_*`` /
+        ``OS_SETUP_CHECK_INTR``: 1=M, 2=HS, 3=VS.
+
+        The ``_s`` label prefix doubles as the supervisor handler in two distinct
+        configurations (see ``runtime.py:127-131``):
+
+          - bare_metal env: ``_s`` is the only S-mode handler, and the test runs
+            at HS (V=0). Must report 2 (HS).
+          - virtualized env: ``_s`` is the VS handler; the separate ``_hs``
+            handler covers HS. Must report 3 (VS).
+        """
+        if self.deleg_mode_str == "m":
+            return 1
+        if self.deleg_mode_str == "hs":
+            return 2
+        # deleg_mode_str == "s"
+        return 3 if self.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED else 2
 
     def _call_excp_hook(self, hook: str) -> str:
         address_label = f"{hook}_pa" if self.bare else hook
@@ -607,18 +869,58 @@ class TrapHandler(AssemblyGenerator):
         code += "\n" + self.kernel_panic(name=self.trap_panic_label)
 
         if self.pool.init_aplic_interrupts:
+            # Register .os_data pointer cells + equates so trap-handler code can reach
+            # these .data-resident tables via ``li reg, <equate>; ld reg, 0(reg)``.
+            # Direct ``la`` would emit R_RISCV_PCREL_HI20, which can't span the >2GiB
+            # gap between .runtime/.runtime_s and .data in high-VA paged layouts.
+            self.pool.add_interrupt_handler_pointer(f"{self.label_prefix}isr_table_ptr", f"__{self.label_prefix}isr_table")
+            self.pool.add_interrupt_handler_pointer(f"{self.label_prefix}aplic_isr_table_ptr", f"__{self.label_prefix}aplic_isr_table")
+
+            # Populate the direct-mode dispatch table with the same per-cause handlers
+            # used by the HW-vectored interrupt_vector_table. Without this, SET_DIRECT_INTERRUPTS
+            # tests trap into the unified handler, find isr_table[cause] = 0 for any non-APLIC
+            # cause (SSI/STI/MTI/SEI/etc.), and hit ``beqz t1, test_failed``. Slot 11 (MEI) is
+            # special-cased to aplic_isr so APLIC sources still get claimed via mtopei.
+            isr_table_entries = []
+            for i in range(64):
+                if i == RV.RiscvInterruptCause.MEI.value:
+                    label = f"__{self.label_prefix}aplic_isr"
+                elif i in self.interrupt_handler.vector_table:
+                    isr = self.interrupt_handler.vector_table[i]
+                    label = isr.jump_table_label if isr.indirect else isr.label
+                else:
+                    label = "0"
+                isr_table_entries.append(f"                    .dword {label}")
+            isr_table_body = "\n".join(isr_table_entries)
+
+            # Populate every slot of aplic_isr_table with the default per-eid handler
+            # so an MEI delivered for any eid (without an explicit __set_aplic_isr
+            # registration) still routes through the check_intr helper and honors
+            # OS_SETUP_CHECK_INTR — tests that just trigger an MEI and expect it to
+            # be serviced no longer fall off the dispatcher's beqz to test_failed.
+            # 256 slots × 8 bytes = 2048 bytes (matches the original .zero 2048).
+            aplic_default_label = f"__{self.label_prefix}aplic_default_isr"
+            aplic_isr_table_body = "\n".join(f"                    .dword {aplic_default_label}" for _ in range(256))
+
+            # Emit the ISR tables in-place in the current section (.runtime / .runtime_s)
+            # rather than switching to .data. The LD script identity-maps .runtime
+            # (VMA == LMA at 0x80000000+), so ``.dword __isr_table_entry`` resolves to
+            # an address that's valid in M-mode bare access — unlike .data, whose
+            # symbols resolve to VMAs that don't match the LMA where content is loaded.
+            # This also keeps the tables within ±2 GiB of dispatcher code, so the
+            # ``li reg, <equate>; ld reg, 0(reg)`` indirection remains correct (the
+            # cell stores a VMA that's also a usable PA).
             code += "\n"
             code += f"""
-                .section .data
+                .balign 8, 0
                 .size __{self.label_prefix}isr_table, 512
                 __{self.label_prefix}isr_table:
-                    .zero 88
-                    .dword __{self.label_prefix}aplic_isr
-                    .zero 416
+{isr_table_body}
+                .balign 8, 0
                 .size __{self.label_prefix}aplic_isr_table, 8192
                 .globl __{self.label_prefix}aplic_isr_table
                 __{self.label_prefix}aplic_isr_table:
-                    .zero 2048
+{aplic_isr_table_body}
             """
 
         return code
@@ -778,7 +1080,10 @@ class TrapHandler(AssemblyGenerator):
             # APLIC path: xcause is read BEFORE save_context() so the exception-override
             # dispatch can run with no registers spilled (same contract as non-APLIC).
             # Interrupt handlers save context at their own entry and re-read xcause there.
-            topei = f"{self.deleg_mode_str}topei"
+            # HS handler uses "stopei" (not "hstopei" — that CSR doesn't exist in the AIA spec)
+            topei_prefix = "s" if self.deleg_mode_str == "hs" else self.deleg_mode_str
+            topei = f"{topei_prefix}topei"
+            equate_suffix = "_pa" if self.bare else ""
             ret = f"""
             {self.trap_handler_label}:
             csrr t0, {self.xcause}
@@ -791,31 +1096,62 @@ class TrapHandler(AssemblyGenerator):
                 csrr t0, {self.xcause}
                 bclri t0, t0, 63
 
-                li t1, 1
-                sll t1, t1, t0
-                csrrc x0, {self.xip}, t1
-
                 .equ _INTERRUPT_EXCEPTION_MASK, 0x7fffffffffffffff
                 li t1, _INTERRUPT_EXCEPTION_MASK
                 and t0, t0, t1
-                la t1, __{self.label_prefix}isr_table
+                li t1, {self.label_prefix}isr_table_ptr{equate_suffix}
+                ld t1, 0(t1)
                 slli t0, t0, 3
                 add t1, t1, t0
                 ld t1, 0(t1)
+                # Restore {self.tvec} before dispatching. save_context() set {self.tvec} = trap_panic
+                # for nested-fault protection, but the _CLEAR_<NAME> handlers (shared with HW-vectored
+                # mode) xret directly without going through trap_exit — so if we don't restore here,
+                # {self.tvec} stays stuck at trap_panic and the next trap routes to the panic path.
+                # Done before the beqz so the failure branch also leaves {self.tvec} sane.
+                la t0, {self.trap_entry_label}
+                csrw {self.tvec}, t0
                 beqz t1, test_failed
+                # Un-swap (sscratch <-> tp) right before dispatching so the per-cause
+                # ISR sees the same (sscratch=hart_ctx, tp=user_tp) state it would see
+                # on a HW-vectored direct entry. Without this, the ISR's call to
+                # ``intr_assert_check`` (which does its own enter/exit hart_context swap)
+                # would be a *second* swap on top of save_context()'s, ending up with
+                # tp=user_tp inside the helper and faulting on the first hart_ctx load.
+                # Symmetric re-swap below restores save_context()'s post-state so the
+                # rare ISR that ``ret``s instead of ``{self.xret}``ing falls into
+                # trap_exit with the state trap_exit expects.
+                csrrw tp, {self.scratch_reg}, tp
                 jalr t1
+                csrrw tp, {self.scratch_reg}, tp
 
                 j {self.trap_exit_label}
 
                 __{self.label_prefix}aplic_isr:
-                    la t1, __{self.label_prefix}aplic_isr_table
+                    li t1, {self.label_prefix}aplic_isr_table_ptr{equate_suffix}
+                    ld t1, 0(t1)
                     csrrw t0, {topei}, zero
                     srli t0, t0, 16
                     slli t0, t0, 3
                     add t1, t1, t0
                     ld t0, 0(t1)
+                    # Same {self.tvec} restore as above — the per-eiid handler xrets directly.
+                    la t1, {self.trap_entry_label}
+                    csrw {self.tvec}, t1
                     beqz t0, test_failed
                     jr t0
+
+                # Default per-eid ISR for APLIC external interrupts. Used to populate
+                # every aplic_isr_table slot at static-init time so a "trigger MEI and
+                # expect it to be serviced" test (OS_SETUP_CHECK_INTR pattern) works
+                # without the test code explicitly calling __set_aplic_isr first.
+                # The source was already claim-and-cleared by ``csrrw t0, mtopei, zero``
+                # in the dispatcher above, so this handler just routes through the
+                # check_intr helper (which honors OS_SETUP_CHECK_INTR by redirecting
+                # xepc to the stored return PC) and xrets.
+                __{self.label_prefix}aplic_default_isr:
+                    jal t2, {self.interrupt_handler.check_intr_helper_label}
+                    {self.xret}
 
             {self.label_prefix}exception_path:
 {excp_dispatch}            {self.save_context()}
@@ -834,6 +1170,14 @@ class TrapHandler(AssemblyGenerator):
             beq t1, x0, {self.label_prefix}exception_path  # If the interrupt bit is 0, exception
 
                 {self.interrupt_handler_label}:
+                # Enter hart context so check_intr's tp-relative loads work. Per-cause
+                # vector table handlers expect (sscratch=hart_ctx, tp=user_tp) on entry,
+                # so we swap back below before dispatching. check_intr's match path
+                # jumps to trap_exit, which does its own exit_hart_context.
+                {self.variable_manager.enter_hart_context(scratch=self.scratch_reg)}
+                {self.check_intr()}
+                # Restore (sscratch=hart_ctx, tp=user_tp) for vector-table dispatch.
+                {self.variable_manager.exit_hart_context(scratch=self.scratch_reg)}
                 # Dispatch to the interrupt vector table based on xcause.
                 # Strip the interrupt bit (MSB) to get the cause number,
                 # then jump into the vector table at trap_entry + 4*cause.
@@ -959,8 +1303,11 @@ class TrapHandler(AssemblyGenerator):
             unexpected_exception = self.test_fail_label
 
         # Derive current_mode from deleg_mode_str (set in __init__)
-        # matches CHECK_EXCP_MODE_* equates: m=1, hs=2, s=3
-        current_mode = {"m": 1, "hs": 2, "s": 3}[self.deleg_mode_str]
+        # matches CHECK_EXCP_MODE_* equates: m=1, hs=2, s=3 (=VS)
+        # The ``_s`` prefix is reused as the supervisor handler for both HS-only
+        # (bare_metal) and VS-only (virtualized) tests — see runtime.py. In a
+        # bare_metal HS test the handler runs at HS (V=0), so report 2, not 3.
+        current_mode = self._current_mode_for_handler()
 
         code = f"""
             # Check if check_exception is enabled
@@ -1004,7 +1351,10 @@ class TrapHandler(AssemblyGenerator):
          {self.label_prefix}skip_nonzero_tval_check:
         """
 
-        if not self.deleg_virtualized:
+        # htval/mtval2 only exist when the H extension is implemented; emitting
+        # the check on a non-H ISS (e.g., act4 spike without `h`) traps illegal-instr.
+        h_enabled = self.featmgr.feature.is_feature_enabled("h")
+        if not self.deleg_virtualized and h_enabled:
             # compare expected and actual htval values
             code += f"""
             {check_excp_expected_htval.load_and_clear(dest_reg="t0"):<35}  # check_excp_expected_htval
@@ -1102,6 +1452,73 @@ class TrapHandler(AssemblyGenerator):
                 addi gp, zero, 0x1
                 {self._soft_end_test_code()}
             """
+        return code
+
+    def _check_intr_xip_clear(self, t2_has_cause: bool = True) -> str:
+        """Generate xip clear for check_intr, skipping in VS mode where VTI may block sip."""
+        is_vs = self.deleg_mode_str == "s" and self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED
+        if is_vs:
+            return ""
+        return f"                li t3, 1\n" f"                sll t3, t3, t2\n" f"                csrc {self.xip}, t3"
+
+    def check_intr(self) -> str:
+        """
+        Generates code to check for expected interrupts (used by AssertInterrupt).
+
+        When check_intr flag is set, verifies that the interrupt cause matches
+        the expected cause, then clears the pending bit and jumps to the return PC
+        stored by OS_SETUP_CHECK_INTR.
+
+        Assumes xcause (with interrupt bit stripped) is available -- this is called
+        from the interrupt handler path where t0 = xcause from the csrr in default_trap_handler.
+
+        :return: Assembly code string
+        """
+        check_intr = self.variable_manager.get_variable("check_intr")
+        check_intr_expected_cause = self.variable_manager.get_variable("check_intr_expected_cause")
+        check_intr_return_pc = self.variable_manager.get_variable("check_intr_return_pc")
+        check_intr_expected_mode = self.variable_manager.get_variable("check_intr_expected_mode")
+
+        # Derive current_mode from deleg_mode_str — see _current_mode_for_handler
+        # for why bare_metal _s handlers report HS (2), not VS (3).
+        current_mode = self._current_mode_for_handler()
+
+        code = f"""
+                # -- check_intr: interrupt assertion check --
+                {check_intr.load(dest_reg="t2")}
+                beqz t2, {self.label_prefix}skip_check_intr
+
+                # Strip interrupt bit from xcause to get cause number
+                csrr t2, {self.xcause}
+                li t3, (0x1<<(XLEN-1))
+                xor t2, t2, t3              # t2 = cause number (interrupt bit cleared)
+
+                # Check expected handler mode (0 = any, skip check)
+                {check_intr_expected_mode.load_and_clear(dest_reg="t3")}
+                beqz t3, {self.label_prefix}skip_intr_mode_check
+                li t4, {current_mode}
+                bne t3, t4, {self.test_fail_label}
+            {self.label_prefix}skip_intr_mode_check:
+
+                # Check expected cause matches actual cause
+                {check_intr_expected_cause.load_and_clear(dest_reg="t3")}
+                bne t2, t3, {self.test_fail_label}
+
+                # Clear the pending interrupt bit.
+                # Skip in VS mode: sip writes raise Virtual Instruction when VTI=1.
+                # The ISR dispatch on the re-fire will clear hvip instead.
+{self._check_intr_xip_clear(t2_has_cause=True)}
+                # Clear check_intr flag
+                li t3, 0
+                {check_intr.store(src_reg="t3")}
+
+                # Load return PC and jump there via xepc + xret
+                {check_intr_return_pc.load_and_clear(dest_reg="t3")}
+                csrw {self.xepc}, t3
+                j {self.trap_exit_label}
+
+            {self.label_prefix}skip_check_intr:
+        """
         return code
 
     # helper methods

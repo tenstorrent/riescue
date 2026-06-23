@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riescue"
-version = "1.14.0"
+version = "1.15.0"
 description = "RISC-V Directed Test Framework and Compliance Suite"
 readme = "README.md"
 requires-python = ">= 3.9"
@@ -28,7 +28,8 @@ exclude = ["tests*", "taffy*"]
 
 [tool.setuptools.package-data]
 "riescue.dtest_framework.tests" = ["*.s"]
-"riescue.dtest_framework.lib" = ["*.json", "*.h"]
+"riescue.dtest_framework.lib" = ["*.json"]
+"riescue.dtest_framework.lib.rvmodel_macros" = ["*.h"]
 "riescue.compliance.tests" = ["*.json"]
 "riescue.compliance.tests.rv_i" = ["*.json"]
 "riescue.compliance.tests.configs" = ["*.json"]

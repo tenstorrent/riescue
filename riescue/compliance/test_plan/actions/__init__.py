@@ -6,6 +6,7 @@ from .action import Action, CodeMixin
 from .registry import ActionRegistry
 from .label import LabelAction
 from .li import LiAction
+from .retrieve_address import RetrieveAddressAction
 from .conditional_block import ConditionalBlockAction
 from .memory import MemoryAction, CodePageAction, StackPageAction, RequestPmpAction
 from .arithmetic import ArithmeticAction
@@ -31,7 +32,18 @@ from .system import SystemAction
 from .comment import CommentAction
 from .directive import DirectiveAction
 from .set_wait_timeout import SetWaitTimeoutAction
+from .counters import AssignRandomEventToCounterAction
 from .privilege_mode import MachineCodeAction, SupervisorCodeAction, UserCodeAction
+from .interrupt import (
+    EnableInterruptsAction,
+    DisableInterruptsAction,
+    ConfigureInterruptModeAction,
+    DelegateInterruptAction,
+    TriggerInterruptAction,
+    ClearInterruptAction,
+    AssertInterruptAction,
+    RegisterInterruptHandlerAction,
+)
 from .label_step import LabelTestStepAction
 from .debug import (
     ConfigureExecuteTriggerAction,
@@ -60,6 +72,7 @@ __all__ = [
     "ActionRegistry",
     "LabelAction",
     "LiAction",
+    "RetrieveAddressAction",
     "LoadAction",
     "StoreAction",
     "HLoadAction",
@@ -88,9 +101,18 @@ __all__ = [
     "DirectiveAction",
     "ConditionalBlockAction",
     "SetWaitTimeoutAction",
+    "AssignRandomEventToCounterAction",
     "MachineCodeAction",
     "SupervisorCodeAction",
     "UserCodeAction",
+    "EnableInterruptsAction",
+    "DisableInterruptsAction",
+    "ConfigureInterruptModeAction",
+    "DelegateInterruptAction",
+    "TriggerInterruptAction",
+    "ClearInterruptAction",
+    "AssertInterruptAction",
+    "RegisterInterruptHandlerAction",
     "LabelTestStepAction",
     "ConfigureExecuteTriggerAction",
     "ConfigureLoadTriggerAction",

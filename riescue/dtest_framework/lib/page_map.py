@@ -596,9 +596,9 @@ class PageMap:
         )
         lin_addr = self.addrgen.generate_address(constraint=lin_addr_c)
 
-        # Default root page table is at least 4KB aligned
-        phys_mask = 0xFFFFFFFFFFFFE000
-        size = 0x4000
+        # Default root page table is 4KB aligned
+        phys_mask = 0xFFFFFFFFFFFFF000
+        size = 0x1000
         # Hypervisor root page table is at least 16KB aligned
         if self.g_map:
             phys_mask = 0xFFFFFFFFFFE00000

@@ -284,11 +284,15 @@ class RiscvExcpCauses(MyEnum):
 
 class RiscvInterruptCause(MyEnum):
     SSI = 1
+    VSSI = 2
     MSI = 3
     STI = 5
+    VSTI = 6
     MTI = 7
     SEI = 9
+    VSEI = 10
     MEI = 11
+    SGEI = 12
     COI = 13
 
 
@@ -514,8 +518,12 @@ class RiscvPagingModes(MyEnum):
         Return the next larger page table level pagesize for the given mode, skipping
         Svnapot sizes (S64KB) since they don't correspond to page table levels.
         If already at the largest, returns the largest.
+        If mode is DISABLE (no paging), returns the input pagesize unchanged.
         """
         all_pagesizes = cls.supported_pagesizes(mode)
+        # Handle DISABLE mode or other modes with no supported pagesizes
+        if not all_pagesizes:
+            return pagesize
         idx = all_pagesizes.index(pagesize) if pagesize in all_pagesizes else len(all_pagesizes) - 1
         next_idx = idx + 1
         while next_idx < len(all_pagesizes) and all_pagesizes[next_idx] == RiscvPageSizes.S64KB:
@@ -626,6 +634,31 @@ class RiscvMPMode(MyEnum):
             return cls.MP_PARALLEL
         else:
             raise ValueError(f"mp_mode: {mp_mode} is unrecognized")
+
+
+class RandMemIcountDensity(MyEnum):
+    """
+    Random-count range presets for the ``--rand_mem_inject_icount_pct`` feature.
+
+    Each member's value is the ``(min_count, max_count)`` tuple sampled at apply
+    time to build the inline ``_rmbp_icount_tdata1_`` table — so consumers can
+    pull the range directly via ``density.value`` without an external mapping.
+    """
+
+    OFTEN = (1, 100)
+    MODERATE = (1, 1000)
+    SPARSE = (1, 10000)
+
+    @classmethod
+    def str_to_enum(cls, density: str) -> "RandMemIcountDensity":
+        if density == "often":
+            return cls.OFTEN
+        elif density == "moderate":
+            return cls.MODERATE
+        elif density == "sparse":
+            return cls.SPARSE
+        else:
+            raise ValueError(f"rand_mem_icount_density: {density} is unrecognized")
 
 
 class HookPoint(MyEnum):

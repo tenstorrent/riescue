@@ -478,7 +478,7 @@ rvcp_newline_str_data: .asciz "\\n"
 
     def _get_csr_manager(self) -> CsrManagerInterface:
         if self.csr_manager is None:
-            self.csr_manager = CsrManagerInterface(self.rng)
+            self.csr_manager = CsrManagerInterface(self.rng, feature_discovery=self.featmgr)
         return self.csr_manager
 
     def _resolve_csr_config(self, csr_spec: str) -> Optional[Dict[str, Any]]:

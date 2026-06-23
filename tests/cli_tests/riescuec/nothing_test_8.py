@@ -18,7 +18,7 @@ class Nothing8(unittest.TestCase):
         RiescueC.run_cli(args=args.split())
 
     def test_150(self):
-        args = "--json compliance/tests/special/nothing.json --first_pass_iss whisper --groups zvbc,zvkg --rpt_cnt 1 --max_instrs 1000 --rv_zvbc_experimental --rv_zvkg_experimental --seed 0"
+        args = "--json compliance/tests/special/nothing.json --first_pass_iss whisper --groups zvbc,zvkg --rpt_cnt 1 --max_instrs 1000 --seed 0"
         RiescueC.run_cli(args=args.split())
 
     def test_151(self):

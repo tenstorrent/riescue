@@ -3,7 +3,7 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional
 from coretp import Instruction, TestEnv, InstructionCatalog
 from coretp.isa import Label, Register, RISCV_REGISTERS
 
@@ -21,7 +21,8 @@ from riescue.compliance.test_plan.memory import MemoryRegistry
 from riescue.compliance.test_plan.actions import Action, StackPageAction
 from riescue.compliance.test_plan.actions.privilege_mode import MachineCodeAction, SupervisorCodeAction, UserCodeAction, PrivilegeBlockMarkerInstruction
 from riescue.compliance.test_plan.actions.csr import CsrApiInstruction, CsrDirectAccessAction
-from riescue.compliance.test_plan.actions.assertions.assert_exception import AssertExceptionMarkerInstruction
+from riescue.compliance.test_plan.actions.assertions.assert_exception import AssertExceptionAction, AssertExceptionMarkerInstruction
+from riescue.compliance.test_plan.actions.interrupt import AssertInterruptAction, DelegateInterruptAction
 from riescue.dtest_framework.config import FeatMgr
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,10 @@ class CsrAccessContext:
     in_regular: bool = False
     in_privileged: bool = False
     in_assert_exception: bool = False
+    # True if any regular-context access used force_machine_mode. The save/restore read/write
+    # must then also force machine mode -- if M-mode was needed to access the CSR originally
+    # (e.g. a hypervisor CSR written from VS mode), it's needed to save/restore it too.
+    force_machine_rw: bool = False
 
 
 class Transformer:
@@ -66,7 +71,7 @@ class Transformer:
             instruction_catalog=self.catalog,
             featmgr=self.featmgr,
         )
-        canonicalized_tests, code_page_actions, memory, machine_code_actions, supervisor_code_actions, user_code_actions = self.canonicalizer.canonicalize(tests, ctx)
+        canonicalized_tests, code_page_actions, memory = self.canonicalizer.canonicalize(tests, ctx)
         global_functions = []
         # create global functions
         for code_page_action in code_page_actions:
@@ -91,12 +96,19 @@ class Transformer:
 
             # transform DiscreteTest into TestCase
             log.debug(f"Transforming test: {test.name}")
+
+            # Scan original action tree for CSR writes that the post-expansion
+            # instruction-level scan can't see (e.g. raw-directive writes inside
+            # DelegateInterruptAction). Must run before _transform because some
+            # actions empty their nested .code list during expansion.
+            pre_expansion_csr_contexts = self._scan_actions_for_implicit_csr_writes(test.actions, ctx)
+
             test_instructions = self._transform(test.actions, ctx)
 
             # Extract privilege block instructions
             test_instructions = self._extract_privilege_block_instructions(test_instructions, ctx)
 
-            csrs_save_instructions, allocated_csrs = self._save_csrs(test_instructions, ctx, csr_storage_name)
+            csrs_save_instructions, allocated_csrs = self._save_csrs(test_instructions, ctx, csr_storage_name, pre_expansion_csr_contexts)
             restored_csrs = self._restore_csrs(allocated_csrs, ctx, csr_storage_name)
             test_cast_instructions = [Label(test.name)] + csrs_save_instructions + self.initialize_stack(test.name, ctx) + test_instructions + restored_csrs
             test_block = TestCase.from_instructions(test_cast_instructions, header=f";#discrete_test(test={test.name})")
@@ -104,9 +116,9 @@ class Transformer:
             test_blocks.append(test_block)
 
         # Generate privilege mode jump tables
-        machine_code_segment = self._generate_privilege_code_jump_table(machine_code_actions, ctx, "machine", 0xF0001001)
-        supervisor_code_segment = self._generate_privilege_code_jump_table(supervisor_code_actions, ctx, "supervisor", 0xF0001002)
-        user_code_segment = self._generate_privilege_code_jump_table(user_code_actions, ctx, "user", 0xF0001003)
+        machine_code_segment = self._generate_privilege_code_jump_table(ctx, "machine", 0xF0001001)
+        supervisor_code_segment = self._generate_privilege_code_jump_table(ctx, "supervisor", 0xF0001002)
+        user_code_segment = self._generate_privilege_code_jump_table(ctx, "user", 0xF0001003)
 
         text_segment = TextSegment(blocks=test_blocks)  # Test code
 
@@ -129,7 +141,6 @@ class Transformer:
 
     def _generate_privilege_code_jump_table(
         self,
-        code_actions: Union[dict[int, MachineCodeAction], dict[int, SupervisorCodeAction], dict[int, UserCodeAction]],
         ctx: LoweringContext,
         mode_name: str,
         syscall_num: int,
@@ -161,13 +172,13 @@ class Transformer:
             ecall
         ```
 
-        :param code_actions: Dictionary mapping block_index to code action
         :param ctx: LoweringContext for transformation
         :param mode_name: "machine" or "supervisor"
         :param syscall_num: The syscall number used to invoke this mode
-        :return: TestCase containing the jump table, or None if no code actions
+        :return: TestCase containing the jump table, or None if no code blocks
         """
-        if len(code_actions) == 0:
+        block_indices = set(ctx.privilege_block_instructions.for_mode(mode_name).keys())
+        if not block_indices:
             return None
 
         # Generate unique labels using rng
@@ -189,7 +200,7 @@ class Transformer:
 
         # Generate dispatch comparisons
         block_labels: dict[int, str] = {}
-        for block_idx in sorted(code_actions.keys()):
+        for block_idx in sorted(block_indices):
             label = f"{mode_name}_block_{block_idx}_{uuid_suffix}"
             block_labels[block_idx] = label
             lines.append(f"li x31, {block_idx}")
@@ -200,12 +211,12 @@ class Transformer:
         lines.append("")
 
         # Generate code blocks
-        for block_idx in sorted(code_actions.keys()):
+        for block_idx in sorted(block_indices):
             label = block_labels[block_idx]
             lines.append(f"{label}:")
 
             # Use stored instructions
-            block_instructions = ctx.privilege_block_instructions[mode_name].get(block_idx, [])
+            block_instructions = ctx.privilege_block_instructions.for_mode(mode_name)[block_idx]
             for instr in block_instructions:
                 lines.append(f"    {instr.format()}")
 
@@ -221,10 +232,10 @@ class Transformer:
         # Create TestCase from text
         return TestCase.from_text(lines)
 
-    def _extract_csr_write_name(self, instr: Instruction) -> Optional[str]:
-        """Extract CSR name if instruction is a CSR write, None otherwise."""
+    def _extract_csr_write(self, instr: Instruction) -> Optional[tuple[str, bool]]:
+        """Extract (CSR name, force_machine_rw) if instruction is a CSR write, None otherwise."""
         if isinstance(instr, CsrApiInstruction) and instr.api_call != "read":
-            return instr.csr_name
+            return instr.csr_name, instr.force_machine_rw
         if instr.name in ["csrrw", "csrrwi", "csrrs", "csrrsi", "csrrc", "csrrci"]:
             csr_operand = instr.csr_operand()
             if csr_operand is not None:
@@ -237,7 +248,7 @@ class Transformer:
                     main_rs1 = instr.rs1()
                     if main_rs1 is None or (isinstance(main_rs1.val, Register) and main_rs1.val.num == 0) or main_rs1.val in ("x0", "zero"):
                         return None  # read-only CSR
-                return str(csr_operand.val)
+                return str(csr_operand.val), False
         return None
 
     def _create_sd_instruction(self, ctx: LoweringContext, sp, t2, space_index: int) -> Instruction:
@@ -254,7 +265,56 @@ class Transformer:
         sd_imm.val = space_index
         return sd
 
-    def _save_csrs(self, test_instructions: list[Instruction], ctx: LoweringContext, space_name: str):
+    def _scan_actions_for_implicit_csr_writes(
+        self,
+        actions: list[Action],
+        ctx: LoweringContext,
+        in_assert_exception: bool = False,
+        in_privilege_block: bool = False,
+        contexts: Optional[dict[str, CsrAccessContext]] = None,
+    ) -> dict[str, CsrAccessContext]:
+        """
+        Walk the action tree before expansion to surface CSR writes that don't appear as
+        tracked instructions in the post-expansion stream. Today this only flags ``mideleg``
+        from :class:`DelegateInterruptAction`, which lowers to raw ``csrs/csrc/csrw mideleg``
+        directives that ``_extract_csr_write`` can't see.
+
+        Recurses into nested ``code`` lists on AssertException / AssertInterrupt and the
+        privilege-mode code blocks so writes inside those scopes get the right context flags.
+        """
+        if contexts is None:
+            contexts = {}
+
+        is_virtualized = ctx.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED
+
+        for action in actions:
+            if isinstance(action, DelegateInterruptAction):
+                csr_name = "mideleg"
+                ctx_info = contexts.setdefault(csr_name, CsrAccessContext())
+                if in_assert_exception:
+                    ctx_info.in_assert_exception = True
+                elif in_privilege_block and is_virtualized:
+                    ctx_info.in_privileged = True
+                else:
+                    ctx_info.in_regular = True
+
+            # Recurse into nested code lists. AssertException/AssertInterrupt nest user code
+            # behind self.code; PrivilegeCodeAction subclasses expose self.code as a property.
+            if isinstance(action, (AssertExceptionAction, AssertInterruptAction)):
+                nested = action.code or []
+                self._scan_actions_for_implicit_csr_writes(nested, ctx, in_assert_exception=True, in_privilege_block=in_privilege_block, contexts=contexts)
+            elif isinstance(action, (MachineCodeAction, SupervisorCodeAction, UserCodeAction)):
+                self._scan_actions_for_implicit_csr_writes(action.code, ctx, in_assert_exception=in_assert_exception, in_privilege_block=True, contexts=contexts)
+
+        return contexts
+
+    def _save_csrs(
+        self,
+        test_instructions: list[Instruction],
+        ctx: LoweringContext,
+        space_name: str,
+        pre_expansion_csr_contexts: Optional[dict[str, CsrAccessContext]] = None,
+    ):
         """
         Analyze CSR accesses and generate save instructions.
 
@@ -265,12 +325,23 @@ class Transformer:
         CSRs that are ONLY accessed within AssertException blocks are skipped, since those
         accesses are expected to cause exceptions and don't need state preservation.
 
+        ``pre_expansion_csr_contexts`` carries CSR write contexts collected from a pre-expansion
+        scan of the action tree (used for actions like DelegateInterruptAction whose mideleg
+        writes are emitted as raw directives and so are invisible to the instruction-level scan).
+
         Returns:
             tuple: (save_instructions, space_index_to_csr_info)
                 space_index_to_csr_info maps space offset to (csr_name, force_machine_rw)
         """
-        # Track CSRs and their access contexts
+        # Track CSRs and their access contexts; seed from the pre-expansion scan.
         csr_access_contexts: dict[str, CsrAccessContext] = {}
+        if pre_expansion_csr_contexts:
+            for csr_name, ctx_info in pre_expansion_csr_contexts.items():
+                csr_access_contexts[csr_name] = CsrAccessContext(
+                    in_regular=ctx_info.in_regular,
+                    in_privileged=ctx_info.in_privileged,
+                    in_assert_exception=ctx_info.in_assert_exception,
+                )
 
         # Only need to distinguish privileged context when virtualized
         is_virtualized = ctx.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED
@@ -287,33 +358,46 @@ class Transformer:
                     in_assert_exception = False
                 continue
 
-            csr_name = self._extract_csr_write_name(instr)
-            if csr_name:
+            csr_write = self._extract_csr_write(instr)
+            if csr_write:
+                csr_name, force_machine_rw = csr_write
                 if csr_name not in csr_access_contexts:
                     csr_access_contexts[csr_name] = CsrAccessContext()
                 if in_assert_exception:
                     csr_access_contexts[csr_name].in_assert_exception = True
                 else:
                     csr_access_contexts[csr_name].in_regular = True
+                    if force_machine_rw:
+                        csr_access_contexts[csr_name].force_machine_rw = True
 
         # Second pass: analyze CSR accesses in privilege blocks
-        for mode in ["machine", "supervisor", "user"]:
-            if mode in ctx.privilege_block_instructions:
-                for _, block_instrs in ctx.privilege_block_instructions[mode].items():
-                    for instr in block_instrs:
-                        csr_name = self._extract_csr_write_name(instr)
-                        if csr_name:
-                            if csr_name not in csr_access_contexts:
-                                csr_access_contexts[csr_name] = CsrAccessContext()
-                            # Only mark as privileged if virtualized; otherwise treat as regular
-                            if is_virtualized:
-                                csr_access_contexts[csr_name].in_privileged = True
-                            else:
-                                csr_access_contexts[csr_name].in_regular = True
+        for block_instrs in ctx.privilege_block_instructions.all_blocks():
+            for instr in block_instrs:
+                csr_write = self._extract_csr_write(instr)
+                if csr_write:
+                    csr_name, _ = csr_write
+                    if csr_name not in csr_access_contexts:
+                        csr_access_contexts[csr_name] = CsrAccessContext()
+                    # Only mark as privileged if virtualized; otherwise treat as regular
+                    if is_virtualized:
+                        csr_access_contexts[csr_name].in_privileged = True
+                    else:
+                        csr_access_contexts[csr_name].in_regular = True
 
         # Filter out CSRs that are ONLY accessed within AssertException blocks
         # (they don't need save/restore since the access is expected to fault)
         csr_access_contexts = {csr_name: ctx_info for csr_name, ctx_info in csr_access_contexts.items() if ctx_info.in_regular or ctx_info.in_privileged}
+
+        # Exclude CSR-indirect access windows. ``mireg``/``sireg``/``vsireg`` are
+        # not state in their own right -- they're a window into whichever indirect
+        # register is currently selected by ``miselect``/``siselect``/``vsiselect``.
+        # Reading them before the selector is set to a valid value raises an
+        # illegal-instruction (AIA Smaia spec; e.g. miselect=0, or any reserved
+        # range like 0x30-0x6F). The selector pair is already auto-saved, so the
+        # indirect state round-trips correctly via that path. Scenarios that need
+        # to round-trip a specific indirect register must do so explicitly.
+        _CSR_INDIRECT_WINDOWS = ("mireg", "sireg", "vsireg")
+        csr_access_contexts = {csr_name: ctx_info for csr_name, ctx_info in csr_access_contexts.items() if csr_name not in _CSR_INDIRECT_WINDOWS}
 
         # No CSRs to save
         if not csr_access_contexts:
@@ -352,9 +436,12 @@ class Transformer:
         # Save each CSR with appropriate force_machine_rw settings
         for csr_name, ctx_info in sorted(csr_access_contexts.items()):
             if is_virtualized:
-                # In virtualized mode, distinguish between regular and privileged contexts
+                # In virtualized mode, distinguish between regular and privileged contexts.
+                # The csr_rw directive itself decides whether privilege escalation (an
+                # ecall to M-mode) is needed based on the CSR's required privilege, so
+                # regular-context accesses don't force machine RW here.
                 if ctx_info.in_regular:
-                    emit_csr_save(csr_name, force_machine_rw=False)
+                    emit_csr_save(csr_name, force_machine_rw=ctx_info.force_machine_rw)
                 if ctx_info.in_privileged:
                     emit_csr_save(csr_name, force_machine_rw=True)
             else:
@@ -449,7 +536,14 @@ class Transformer:
 
             non_super_csrs = list(csr_configs_exclude_super.keys())
 
-            names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs]
+            csr_configs_exclude_hyper = ctx.get_csr_manager().lookup_csrs(
+                match={"software-write": "W", "ISS_Support": "Yes"},
+                exclude={"Accessibility": "Hypervisor"},
+            )
+
+            non_hyper_csrs = list(csr_configs_exclude_hyper.keys())
+
+            names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs and csr in non_hyper_csrs]
 
         else:
             csr_configs = ctx.get_csr_manager().lookup_csrs(
@@ -478,7 +572,14 @@ class Transformer:
 
                 non_super_csrs = list(csr_configs_exclude_super.keys())
 
-                names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs]
+                csr_configs_exclude_hyper = ctx.get_csr_manager().lookup_csrs(
+                    match={"software-read": "R", "ISS_Support": "Yes"},
+                    exclude={"Accessibility": "Hypervisor"},
+                )
+
+                non_hyper_csrs = list(csr_configs_exclude_hyper.keys())
+
+                names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs and csr in non_hyper_csrs]
 
             else:
                 csr_configs = ctx.get_csr_manager().lookup_csrs(
@@ -538,7 +639,7 @@ class Transformer:
                 elif instr.marker_type == "end":
                     if current_block is not None:
                         mode, block_index = current_block
-                        ctx.privilege_block_instructions[mode][block_index] = current_block_instructions
+                        ctx.privilege_block_instructions.for_mode(mode)[block_index] = current_block_instructions
                         current_block = None
                         current_block_instructions = []
                 # Don't add marker to result

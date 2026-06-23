@@ -6,7 +6,7 @@ misc extensions
 """
 
 from riescue.compliance.lib.instr_setup.vector.base import VectorInstrSetup
-from riescue.compliance.lib.vqdot_translate import translate_vqdot_string_to_word
+from riescue.compliance.lib.vdot4a_translate import translate_vdot4a_string_to_word
 from riescue.compliance.lib.instr_setup.vector.utilities import VecInstrVregInitializer, choose_randomly_but_not
 from riescue.compliance.config import Resource
 
@@ -149,9 +149,9 @@ class VqdotSetup(VectorInstrSetup):
             tail = ", v0.t"
         self.write_pre(f"{instr.label} :")
         if self.scalar_source:
-            self.write_pre("\t" + translate_vqdot_string_to_word(f"\t{instr.name} {vd.name}, {vs2.name}, {rs1.name}{tail}"))
+            self.write_pre("\t" + translate_vdot4a_string_to_word(f"\t{instr.name} {vd.name}, {vs2.name}, {rs1.name}{tail}"))
         else:
-            self.write_pre("\t" + translate_vqdot_string_to_word(f"\t{instr.name} {vd.name}, {vs2.name}, {vs1.name}{tail}"))
+            self.write_pre("\t" + translate_vdot4a_string_to_word(f"\t{instr.name} {vd.name}, {vs2.name}, {vs1.name}{tail}"))
 
     def post_setup(self, modified_arch_state, instr):
         self.turbo_post_setup_all_regs_updates(modified_arch_state, instr, self.work_vreg)

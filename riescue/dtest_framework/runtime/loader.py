@@ -14,6 +14,14 @@ from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 log = logging.getLogger(__name__)
 
 
+# 64-entry PMA scheme: entries 0-15 are direct CSRs (pmacfg 0x7E0-0x7EF, pmamask 0x7F0-0x7FF);
+# entries 16-63 are reached indirectly with miselect = PMA_INDIRECT_SELECT_BASE | entry,
+# mireg = pmacfg[entry], mireg2 = pmamask[entry].
+PMA_INDIRECT_SELECT_BASE = 0x8000000000000000
+PMA_IO_CATCHALL = 0x7C00000000000007  # entry 62: IO/non-cacheable 0-2GB (matches pmacfg14 boot reset)
+PMA_DRAM_CATCHALL = 0xE0000000000001E7  # entry 63: cacheable-coherent RWX 0-2^56 (matches pmacfg15 boot reset)
+
+
 class Loader(AssemblyGenerator):
     """
     Genereates Loader assembly code for initializing the test runtime environment.
@@ -76,6 +84,8 @@ class Loader(AssemblyGenerator):
         elif self.featmgr.wysiwyg:
             return self.wysiwyg_loader()
 
+        smrnmi_init = self.setup_smrnmi() if self.featmgr.is_feature_enabled("smrnmi") else ""
+
         code = f"""
 .section .runtime, "ax"
 .globl _start
@@ -86,6 +96,7 @@ _start:
     {self.set_initial_panic()}
 
 loader__initialize_runtime:
+    {smrnmi_init}
     {self.featmgr.call_hook(RV.HookPoint.PRE_LOADER)}
     {self.initialize_runtime()}
 
@@ -123,6 +134,12 @@ main:
         Since wysiwyg mode doesn't have a scheduler, the loader just initializes the GPRs
         and any init_csr_code and continues to test.
         """
+        # Even in wysiwyg mode we must exit the reset-state NMI-handler context when
+        # the whisper config models Smrnmi, otherwise the first regular trap routes
+        # through the NMI vector (PC=0).
+        smrnmi_init = ""
+        if self.featmgr.is_feature_enabled("smrnmi"):
+            smrnmi_init = self.setup_smrnmi()
 
         code = f"""
 .section .code, "ax"
@@ -133,6 +150,7 @@ _start:
     {self.init_int_registers()}
 
 loader__initialize_runtime:
+    {smrnmi_init}
     {self.init_csr_code()}
 
 loader__done:
@@ -146,9 +164,6 @@ loader__done:
 
         """
         code = ""
-
-        if self.featmgr.is_feature_enabled("smrnmi"):
-            code += self.setup_smrnmi()
 
         if self.featmgr.big_endian:
             code += self.enable_big_endian()
@@ -380,6 +395,21 @@ loader__set_mstatus:
             li t0, 0x{pmp.cfg.value:x}
             csrw {pmp.cfg.name}, t0
             """
+        if self.featmgr.pmp_catchall and not self.featmgr.secure_mode:
+            # Add catchall PMP entries using high-numbered entries (14/15) that tests
+            # are unlikely to modify. This ensures code regions remain accessible even
+            # when tests write arbitrary values to lower pmpaddr entries.
+            # pmpcfg2 bits [63:48] control entries 14-15 on RV64.
+            # This is opt-in via --pmp_catchall or cpu_config test_generation.pmp_catchall.
+            code += """
+            li t0, 0x1FFFFFFFFFFFF
+            csrw pmpaddr14, t0
+            csrw pmpaddr15, t0
+            csrr t1, pmpcfg2
+            li t0, 0x1f1f000000000000
+            or t1, t1, t0
+            csrw pmpcfg2, t1
+            """
         return code
 
     def setup_pma(self) -> str:
@@ -396,12 +426,50 @@ loader__set_mstatus:
         pma_addr = pmacfg_start_addr
         log.info("Setting up PMAs")
         for i, pma in enumerate(pmas):
+            if i >= 16:
+                # Entries 16-63 have no direct CSRs; access via miselect/mireg (pmacfg) and mireg2 (pmamask)
+                code += f"""
+                # Setting up pmacfg{i} (indirect, miselect=0x{PMA_INDIRECT_SELECT_BASE + i:x}) for {str(pma)}
+                li t1, 0x{PMA_INDIRECT_SELECT_BASE + i:x}
+                csrw miselect, t1
+                li t0, 0x{pma.generate_pma_value():x}
+                csrw mireg, t0
+                # Clear pmamask{i}
+                csrw mireg2, x0
+            """
+                continue
             code += f"""
                 # Setting up pmacfg{i} for {str(pma)}
                 li t0, 0x{pma.generate_pma_value():x}
                 csrw 0x{pma_addr:x}, t0
             """
+            code += f"""
+                # Clear pmamask{i}
+                csrw 0x{0x7F0 + i:x}, x0
+            """
             pma_addr += 1
+        code += self._setup_pma_catchall(len(pmas))
+        return code
+
+    def _setup_pma_catchall(self, used: int) -> str:
+        """
+        Re-establish the boot catchalls (pmacfg14/15 whisper-config resets) at the
+        lowest-priority entries 62 (IO 0-2GB) and 63 (DRAM 0-2^56), so test-programmed
+        regions never lose default memory coverage. Entries 62/63 are indirect-only:
+        written via miselect/mireg (pmacfg) and mireg2 (pmamask).
+        """
+        if used > 62:
+            log.warning("PMA regions occupy entries 62/63; catchall writes will overwrite them")
+        code = ""
+        for idx, value, desc in ((62, PMA_IO_CATCHALL, "IO 0-2GB"), (63, PMA_DRAM_CATCHALL, "DRAM 0-2^56")):
+            code += f"""
+                # PMA catchall pmacfg{idx} ({desc})
+                li t1, 0x{PMA_INDIRECT_SELECT_BASE + idx:x}
+                csrw miselect, t1
+                li t0, 0x{value:x}
+                csrw mireg, t0
+                csrw mireg2, x0
+            """
         return code
 
     def setup_hypervisor(self):
@@ -419,6 +487,10 @@ loader__set_mstatus:
         # Handle svadu randomization
         if self.featmgr.svadu:
             henvcfg_val |= 1 << 61
+
+        # Sstc: allow VS-mode access to vstimecmp/time when sstc is enabled.
+        if self.featmgr.is_feature_enabled("sstc"):
+            henvcfg_val |= 1 << 63
 
         code = f"""
             setup_vmm:
@@ -438,6 +510,19 @@ loader__set_mstatus:
                 csrw hideleg, t0
 
             setup_henvcfg:
+        """
+
+        # vstimecmp resets to 0; once henvcfg.STCE=1, time + htimedelta >= vstimecmp fires VSTIP
+        # immediately. Pre-write vstimecmp to all-ones BEFORE writing henvcfg so VSTIP cannot
+        # spuriously latch. (M-mode can write vstimecmp regardless of STCE.)
+        if self.featmgr.is_feature_enabled("sstc"):
+            code += """
+                setup_vstimecmp:
+                    li t0, -1
+                    csrw vstimecmp, t0
+            """
+
+        code += f"""
                 # Setup henvcfg
                 li t0, {henvcfg_val}
                 csrw henvcfg, t0
@@ -562,6 +647,14 @@ loader__setup_mideleg:"""
             menvcfg_val |= 1 << 62  # Enable svpbmt when randomization kicks in for pbmp NCIO
         if self.featmgr.svadu:
             menvcfg_val |= 1 << 61  # Enable svadu when randomization kicks in for ad-bit randomization
+        if self.featmgr.is_feature_enabled("sstc"):
+            menvcfg_val |= 1 << 63  # Enable Sstc so S/HS can access stimecmp/time
+            # stimecmp resets to 0; once STCE=1, time >= stimecmp fires STIP immediately.
+            # Pre-write stimecmp to all-ones before setting STCE so STIP cannot spuriously latch.
+            code += """
+                    li t0, -1
+                    csrw stimecmp, t0
+                    """
 
         if self.featmgr.menvcfg != 0:
             menvcfg_val |= self.featmgr.menvcfg
@@ -626,6 +719,103 @@ __enable_all_interrupts:
             bne     t0, t2, __enable_all_interrupts
         """
 
+        if self.pool.init_guest_imsic:
+            eie_top = 0xC0 + ((self.pool.max_aplic_irq + 1) >> 4)
+            code += f"""
+            # IMSIC guest interrupt file setup.
+            # Two guest files are configured so VSEI and SGEI can be exercised
+            # independently:
+            #   * Guest file 1 -> selected by hstatus.VGEIN, so it drives
+            #     vsip[9]=VSEIP. hgeie[1]=0, so poking file 1 does NOT raise
+            #     hip[12]=SGEIP.
+            #   * Guest file 2 -> hgeie[2]=1, so it drives hip[12]=SGEIP, but it
+            #     is NOT selected by VGEIN in the resting state, so poking file 2
+            #     does NOT raise VSEIP.
+            # vsiselect/vsireg act on the VGEIN-selected file, so each file is
+            # configured with VGEIN pointed at it. VGEIN is left = 1 afterwards
+            # (the home for VSEI delivery); RVMODEL_CLR_HGEI_INT restores VGEIN=1
+            # after it temporarily points VGEIN at the claimed guest file.
+
+            # --- Configure guest file 1 (VSEI): VGEIN = 1 ---
+            li t0, (0x3f << 12)
+            csrc hstatus, t0
+            li t0, (1 << 12)
+            csrs hstatus, t0
+
+            # eidelivery = 1
+            li t0, 0x70
+            csrw vsiselect, t0
+            li t0, 1
+            csrw vsireg, t0
+
+            # eithreshold = 0
+            li t0, 0x72
+            csrw vsiselect, t0
+            csrw vsireg, zero
+
+            # Enable all interrupt IDs (eie 0xC0..0xC0+N, step 2 for RV64)
+            li      t0, 0xc0
+            li      t1, -1
+            li      t2, {eie_top}
+__enable_all_guest_interrupts_f1:
+            csrw    vsiselect, t0
+            csrw    vsireg, t1
+            addi    t0, t0, 2
+            bne     t0, t2, __enable_all_guest_interrupts_f1
+
+            # --- Configure guest file 2 (SGEI): VGEIN = 2 ---
+            li t0, (0x3f << 12)
+            csrc hstatus, t0
+            li t0, (2 << 12)
+            csrs hstatus, t0
+
+            # eidelivery = 1
+            li t0, 0x70
+            csrw vsiselect, t0
+            li t0, 1
+            csrw vsireg, t0
+
+            # eithreshold = 0
+            li t0, 0x72
+            csrw vsiselect, t0
+            csrw vsireg, zero
+
+            # Enable all interrupt IDs (eie 0xC0..0xC0+N, step 2 for RV64)
+            li      t0, 0xc0
+            li      t1, -1
+            li      t2, {eie_top}
+__enable_all_guest_interrupts_f2:
+            csrw    vsiselect, t0
+            csrw    vsireg, t1
+            addi    t0, t0, 2
+            bne     t0, t2, __enable_all_guest_interrupts_f2
+
+            # --- Leave VGEIN = 1 (home for VSEI delivery) ---
+            li t0, (0x3f << 12)
+            csrc hstatus, t0
+            li t0, (1 << 12)
+            csrs hstatus, t0
+
+            # Enable hgeie[2] so hip[12]=SGEIP asserts when guest file 2 has a
+            # pending interrupt. hgeie[1] stays 0 so guest file 1 (VSEI) never
+            # raises SGEIP, keeping the VSEI and SGEI signals independent.
+            li t0, (1 << 2)
+            csrs hgeie, t0
+
+            # Delegate SGEI (mideleg[12]) to HS so SGEI is serviced/checked in
+            # HS rather than trapping to M. Per the priv spec (norm:mideleg_acc_h)
+            # this bit is read-only one whenever GEILEN!=0, so SGEI is always
+            # delegated past M to HS; on a target that hardwires it this csrs is
+            # a no-op. Whisper only sets GEILEN from the top-level
+            # ``guest_interrupt_count`` config tag (not ``imsic.guests``), so
+            # unless that tag is present mideleg[12] is left writable/zero and
+            # SGEI would otherwise trap to M. Setting it explicitly here keeps
+            # SGEI delivery correct regardless of that tag, and is scoped to the
+            # guest-IMSIC bring-up so non-hypervisor tests are unaffected.
+            li t0, (1 << 12)
+            csrs mideleg, t0
+        """
+
         code += f"""
             # APLIC config
             # DomainCfg: IE = 1, DM = 1(MSI)
@@ -671,9 +861,9 @@ __enable_aplic_interrupt_target:
             intr = self.pool.ext_aplic_interrupts[intr_num]
             eiid = intr["eiid"]
             isr_func = intr["isr"]
-            mode = "m"
-            if intr["mode"] is not None:
-                mode = intr["mode"]
+            raw_mode = intr["mode"]
+            # mode=v means S-APLIC domain with Guest Index routing; use saplic helpers
+            mode = "s" if raw_mode == "v" else ("m" if raw_mode is None else raw_mode)
 
             if isr_func is not None:
                 if eiid is None:
@@ -719,6 +909,14 @@ __enable_aplic_interrupt_target:
                     li a0, {intr_num}
                     la a1, {eiid}
                     jal __set_{mode}aplic_target_eiid
+                    """
+
+            if raw_mode == "v":
+                code += "\n"
+                code += f"""
+                    li a0, {intr_num}
+                    li a1, 1
+                    jal __set_saplic_target_guestindex
                     """
 
         return code
@@ -883,15 +1081,31 @@ loader__setup_stateen:
 
     def setup_smrnmi(self) -> str:
         """
-        Set mnstatus.NMIE=1 to enable normal trap handling when Smrnmi is enabled.
+        Exit the reset-state NMI-handler context via mnret when Smrnmi is enabled.
 
-        On reset, mnstatus.NMIE defaults to 0, which causes all M-mode traps to
-        vector to the NMI exception handler address instead of mtvec. Setting NMIE=1
-        restores normal trap vectoring behavior.
+        At reset mnstatus.NMIE=0 -- the hart boots as if it had just entered an
+        NMI handler. Setting NMIE=1 with csrsi flips the bit but leaves the ISS's
+        internal "in NMI handler" flag set (verified on Spike with _smrnmi in
+        --isa: any subsequent trap, including a plain S-mode ecall, routes
+        through the NMI vector (PC=0) instead of mtvec -- producing an
+        instruction-access-fault cascade).
+
+        mnret is the spec-defined atomic exit: clears the in-NMI flag, sets
+        NMIE=1, restores mstatus from mnstatus.MNPP/MNPV, and branches to
+        mnepc. After mnret, normal trap dispatch via mtvec/stvec works.
+
+        The three CSR/mnret ops are emitted as raw .word so this block also
+        assembles under clang-17 (riescuec compliance build), which rejects
+        the mnstatus/mnepc/mnret mnemonics unless -march includes _smrnmi.
         """
         return """
 loader__setup_smrnmi:
-    csrsi 0x744, 0x8  # Set mnstatus.NMIE (bit 3) = 1
+    la t0, loader__setup_smrnmi_after_mnret
+    .word 0x74129073         # csrw mnepc (0x741), t0
+    li t0, 0x1808            # mnstatus: MNPP=M (bits 12:11=0b11), NMIE=1 (bit 3)
+    .word 0x74429073         # csrw mnstatus (0x744), t0
+    .word 0x70200073         # mnret
+loader__setup_smrnmi_after_mnret:
 """
 
     # panic code

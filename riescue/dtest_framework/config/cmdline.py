@@ -217,6 +217,18 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Identity map all contiguously allocated code sections. Forces VA == PA for these sections.",
     )
     test_generation_args.add_argument(
+        "--map_imsic_pages",
+        action="store_true",
+        default=None,
+        help="Identity map IMSIC peripheral pages.",
+    )
+    test_generation_args.add_argument(
+        "--map_aclint_pages",
+        action="store_true",
+        default=None,
+        help="Identity map ACLINT peripheral pages.",
+    )
+    test_generation_args.add_argument(
         "--repeat_times",
         "-rt",
         default=None,
@@ -390,12 +402,62 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Ambigious name - this should be something like 'ignore unexpected exceptions'.",
     )
 
+    rand_mem_bp_args = parser.add_argument_group(
+        "Random Memory Breakpoint",
+        "sdtrig load/store watchpoints randomly armed on a pool of memory addresses supplied via "
+        ";#rand_mem_breakpoint_pool(addresses=[...]) directive(s) in the test. Multiple directives accumulate "
+        "into one pool. The default BREAKPOINT (cause=3) handler round-robin re-arms the firing trigger's "
+        "tdata2 to the next pool address (preserves program order via re-execute), bounded by max_fires.",
+    )
+    rand_mem_bp_args.add_argument(
+        "--rand_mem_breakpoint_pct",
+        default=None,
+        type=int,
+        help="Probability (0-100) of arming the random-memory BP feature this run. 0 = off (default).",
+    )
+    rand_mem_bp_args.add_argument(
+        "--rand_mem_n_triggers",
+        default=None,
+        type=int,
+        help="Number of distinct watchpoints to arm at startup (default 1, capped at 6 to leave room for the " "trace trigger inside the framework's trigger budget).",
+    )
+    rand_mem_bp_args.add_argument(
+        "--rand_mem_max_fires",
+        default=None,
+        type=int,
+        help="Max number of BP fires that re-arm. The (max_fires+1)-th fire takes the disable-all path. " "Default 0 = single-shot per trigger.",
+    )
+    rand_mem_bp_args.add_argument(
+        "--rand_mem_inject_icount_pct",
+        default=None,
+        type=int,
+        help="Inner gate (rolled only when --rand_mem_breakpoint_pct rolls true): probability "
+        "(0-100) of additionally arming an icount trigger on slot 8 with a random count. "
+        "Shares the --rand_mem_max_fires re-arm budget with the mcontrol6 watchpoints; on "
+        "each re-arm the icount count is freshly randomized from the density-selected range. "
+        "0 = off (default).",
+    )
+    rand_mem_bp_args.add_argument(
+        "--rand_mem_icount_density",
+        default=None,
+        choices=["often", "moderate", "sparse"],
+        help="Random count range used for the injected icount trigger: "
+        "often = [1,100], moderate = [1,1000] (default), sparse = [1,10000]. "
+        "Only meaningful when --rand_mem_inject_icount_pct > 0.",
+    )
+
     pma_pmp_args = parser.add_argument_group("PMA/PMP", "Arguments for PMA/PMP tests")
     pma_pmp_args.add_argument(
         "--setup_pmp",
         action="store_true",
         default=None,
         help="Ask riescued to setup PMP registers",
+    )
+    pma_pmp_args.add_argument(
+        "--pmp_catchall",
+        action="store_true",
+        default=None,
+        help="Add PMP catchall entries (14/15) with RWX permissions covering all memory for S/U mode tests",
     )
     pma_pmp_args.add_argument(
         "--needs_pma",
@@ -406,7 +468,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     pma_pmp_args.add_argument(
         "--num_pmas",
         default=None,
-        help="Number of PMACFG registers implemented. Default is 16. Changing this number requires an update in the whisper_config.json",
+        help="Number of PMACFG registers implemented. Changing this number requires a matching whisper config",
         type=int,
     )
 

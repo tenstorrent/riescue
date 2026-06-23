@@ -599,7 +599,11 @@ class Pagetables:
                 base_addr = self.addrgen.generate_address(constraint=phys_addr_c)
             except Exception as e:
                 raise Exception(f"Failed to generate physical address for pagetable with constraint {phys_addr_c} for page {self.page.name} at level {pt_level}") from e
-            if secure_access_generated:
+            # Don't OR bit 55 into base_addr here: in two-stage paging base_addr is a GPA
+            # and must stay within the G-stage's addressable range. Instead, propagate
+            # secure into the G-stage identity mapping's attrs below so that bit 55 ends
+            # up on the HPA in the G-stage leaf PTE (where it belongs).
+            if secure_access_generated and (self.page_map.g_map or self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE):
                 base_addr |= 0x0080000000000000
 
             # Add g-stage mapping if this is a vs-map and g-stage is enabled
@@ -631,6 +635,8 @@ class Pagetables:
                             # print(f'adding g-stage mapping for intermediate {self.page.name} {self.page.lin_addr:x} at level {pt_level} for base {base_addr:x} in map {map.name} \
                             #       {pagesize}')
                             attrs = {"x": 1}
+                            if secure_access_generated:
+                                attrs["secure"] = 1
                             g_stage_max_levels = RV.RiscvPagingModes.max_levels(self.featmgr.paging_g_mode)
                             for attr in ["v", "a", "d", "g", "u", "r", "w", "x", "n", "pbmt"]:
                                 for level in range(g_stage_max_levels):
@@ -663,8 +669,13 @@ class Pagetables:
                 )
                 lin_addr = self.addrgen.generate_address(constraint=lin_addr_c)
 
-                # Add the page with the above virtual -> physical address
-                linear_name = f"{self.page.name}__pt_level{pt_level}"
+                # Add the page with the above virtual -> physical address.
+                # The page name may contain '+' (e.g. multi-page allocations use
+                # names like "page_lin+0x1000"); '+' is not a valid character
+                # in an assembler identifier, so substitute '_' to keep the
+                # generated .equ label syntactically legal. Mirrors the
+                # sanitisation applied to the vsleaf labels below.
+                linear_name = f"{self.page.name}__pt_level{pt_level}".replace("+", "_")
                 physical_name = f"{linear_name}__phys"
                 self.page_map.add_raw_pt_page(
                     linear_name=linear_name,
@@ -719,8 +730,10 @@ class Pagetables:
             )
             lin_addr = self.addrgen.generate_address(constraint=lin_addr_c)
 
-            # Add the page with the above virtual -> physical address
-            linear_name = f"{self.page.name}__pt_level{pt_level}"
+            # Add the page with the above virtual -> physical address.
+            # See note above: replace '+' with '_' so multi-page lin_names
+            # like "page_lin+0x1000" produce assembler-legal labels.
+            linear_name = f"{self.page.name}__pt_level{pt_level}".replace("+", "_")
             physical_name = f"{linear_name}__phys"
             self.page_map.add_raw_pt_page(
                 linear_name=linear_name,
@@ -732,7 +745,7 @@ class Pagetables:
         phys_addr = self.page.phys_addr
         if phys_addr is None:  # FIXME: added because of optional none for phys_addr
             raise ValueError(f"Physical address is None for page {self.page.name}")
-        if pt_attr.secure:
+        if pt_attr.secure and (self.page_map.g_map or self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE):
             phys_addr |= 0x0080000000000000
 
         # NAPOT 64KB: auto-set N bit and create 16 contiguous leaf PTEs

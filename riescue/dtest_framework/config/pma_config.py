@@ -8,6 +8,9 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
+#: Maximum number of PMA regions supported by PmaConfig
+MAX_PMA_REGIONS = 64  # TT 64-entry scheme; entries 62/63 re-used for runtime catchalls
+
 
 @dataclass
 class PmaAttributes:
@@ -235,19 +238,19 @@ class PmaConfig:
 
     :param regions: List of explicitly configured PMA regions
     :param hints: List of PMA hints for automatic generation
-    :param max_regions: Maximum number of PMA regions (default 15, leaving 1 for default)
+    :param max_regions: Maximum number of PMA regions (defaults to MAX_PMA_REGIONS)
     :param default_region: Configuration for default catch-all region
     """
 
     regions: list[PmaRegionConfig] = field(default_factory=list)
     hints: list[PmaHintConfig] = field(default_factory=list)
-    max_regions: int = 15
+    max_regions: int = MAX_PMA_REGIONS
     default_region: Optional[dict] = None
 
     def __post_init__(self):
         """Validate PMA configuration"""
-        if self.max_regions < 1 or self.max_regions > 15:
-            raise ValueError(f"max_regions must be between 1 and 15, got {self.max_regions}")
+        if self.max_regions < 1 or self.max_regions > MAX_PMA_REGIONS:
+            raise ValueError(f"max_regions must be between 1 and {MAX_PMA_REGIONS}, got {self.max_regions}")
 
         # Check for duplicate region names
         region_names = [r.name for r in self.regions]
@@ -316,7 +319,7 @@ class PmaConfig:
                 except Exception as e:
                     raise ValueError(f"Error parsing PMA hint at index {idx}: {e}") from e
 
-        max_regions = cfg.get("max_regions", 15)
+        max_regions = cfg.get("max_regions", MAX_PMA_REGIONS)
         if isinstance(max_regions, str):
             max_regions = int(max_regions, 0)
         else:

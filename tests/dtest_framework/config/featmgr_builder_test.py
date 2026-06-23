@@ -11,6 +11,7 @@ from pathlib import Path
 
 from riescue.lib.rand import RandNum
 from riescue.lib.enums import RiscvPrivileges, RiscvPagingModes, RiscvTestEnv, RiscvBaseArch, RiscvSecureModes
+from riescue.lib.feature_discovery import FeatureDiscovery
 from riescue.dtest_framework.config import FeatMgrBuilder, FeatMgr
 from riescue.dtest_framework.config.candidate import Candidate
 from riescue.dtest_framework.parser import ParsedTestHeader
@@ -20,12 +21,27 @@ import riescue.lib.enums as RV
 from tests.dtest_framework.config.data.example_conf import CandidateConf, PrivConfig
 
 
+# Privilege-mode features the cli_adapter consults when no --supported_priv_modes flag is supplied.
+# Listed explicitly here (rather than loaded from a JSON cpu_config) so the test platform's
+# advertised priv modes are visible in-source and decoupled from any external fixture.
+_DEFAULT_SUPPORTED_PRIV_FEATURES = {
+    "m": {"supported": True, "enabled": True},
+    "s": {"supported": True, "enabled": True},
+    "u": {"supported": True, "enabled": True},
+}
+
+
 class FeatMgrBuilderBase(unittest.TestCase):
     "Standalone class so tests aren't repeated"
 
     def setUp(self):
         self.rng = RandNum(seed=42)  # Fixed seed for reproducibility
         self.builder = FeatMgrBuilder()
+        # No cpu_config.json is loaded in these tests, so seed FeatureDiscovery directly so that
+        # CliAdapter's "no --supported_priv_modes" branch sees M/S/U as enabled. Without this,
+        # featmgr.feature.is_enabled("m"/"s"/"u") all return False on the empty default, leaving
+        # supported_priv_modes={} and causing build() to raise.
+        self.builder.featmgr.feature = FeatureDiscovery(dict(_DEFAULT_SUPPORTED_PRIV_FEATURES))
 
     def parse_args(self, args: list[str]) -> argparse.Namespace:
         parser = argparse.ArgumentParser()

@@ -61,6 +61,7 @@ class CheckResource(ABC):
         """
         pass
 
+
     def _fletcher_update(self) -> str:
         """Return the Fletcher fold sequence with mod 2^64-1 reduction (value already in t0)."""
         return """

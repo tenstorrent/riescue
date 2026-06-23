@@ -25,10 +25,11 @@ class CsrReadAction(Action):
 
     register_fields = []
 
-    def __init__(self, csr_name: str, direct_read: bool = False, **kwargs):
+    def __init__(self, csr_name: str, direct_read: bool = False, force_machine_mode: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.csr_name = csr_name
         self.direct_read = direct_read
+        self.force_machine_mode = force_machine_mode
         self.constraints = {}  # Will be manually picking a CSR instruction
         self.expanded = False
 
@@ -43,6 +44,7 @@ class CsrReadAction(Action):
             step_id=step_id,
             csr_name=step.step.csr_name,
             direct_read=step.step.direct_read,
+            force_machine_mode=step.step.force_machine_mode,
         )
 
     def expand(self, ctx: LoweringContext) -> Optional[list["Action"]]:
@@ -63,7 +65,14 @@ class CsrReadAction(Action):
         if ctx_priv_str == "s" and ctx.env.virtualized:
             ctx_priv_str = "vs"
         ctx_priv_mode = priv_modes.index(ctx_priv_str)
-        if ctx_priv_mode <= which_priv_mode:
+
+        api_access = ctx_priv_mode > which_priv_mode
+        # force_machine_mode overrides the privilege check - use API access
+        # BUT only if we're not already in M-mode (where direct access works)
+        if self.force_machine_mode and ctx_priv_mode != 0:  # 0 = M-mode index
+            api_access = True
+
+        if not api_access:
             return None  # non-api path: fall through to pick_instruction
 
         # api path: CsrApiInstruction writes its result to hardcoded t2, and later CsrApi calls
@@ -71,7 +80,7 @@ class CsrReadAction(Action):
         # (which reference self.step_id) resolve to an allocator-chosen virtual register.
         api_id = ctx.new_value_id()
         return [
-            CsrApiReadAction(step_id=api_id, csr_name=self.csr_name, direct_read=self.direct_read),
+            CsrApiReadAction(step_id=api_id, csr_name=self.csr_name, direct_read=self.direct_read, force_machine_mode=self.force_machine_mode),
             MvFromT2Action(step_id=self.step_id, src1=api_id),
         ]
 
@@ -103,6 +112,11 @@ class CsrReadAction(Action):
         if ctx_priv_mode <= which_priv_mode:
             api_access = False
 
+        # force_machine_mode overrides the privilege check - use API access
+        # BUT only if we're not already in M-mode (where direct access works)
+        if self.force_machine_mode and ctx_priv_mode != 0:  # 0 = M-mode index
+            api_access = True
+
         if not api_access:
             selected_instruction = ctx.instruction_catalog.get_instruction("csrr")
 
@@ -113,8 +127,9 @@ class CsrReadAction(Action):
             return selected_instruction
         else:
             instruction_id = ctx.new_value_id()
-            print(f"csrr_instruction_id: {instruction_id}")
-            selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=None, direct_read_write=self.direct_read, name="csrr", api_call="read", instruction_id=instruction_id)
+            selected_instruction = CsrApiInstruction(
+                csr_name=self.csr_name, src=None, direct_read_write=self.direct_read, name="csrr", api_call="read", force_machine_rw=self.force_machine_mode, instruction_id=instruction_id
+            )
             return selected_instruction
 
 
@@ -143,6 +158,7 @@ class CsrWriteAction(Action):
         value: Optional[int] = None,
         src: Optional[str] = None,
         direct_write: bool = False,
+        force_machine_mode: bool = False,
         **kwargs,
     ):
         """
@@ -154,6 +170,7 @@ class CsrWriteAction(Action):
         self.write_value = value
         self.src = src
         self.direct_write = direct_write
+        self.force_machine_mode = force_machine_mode
         self.constraints = {}  # Will be manually picking a CSR instruction
         self.expanded = False
 
@@ -202,6 +219,7 @@ class CsrWriteAction(Action):
             step_id=step_id,
             csr_name=step.step.csr_name,
             direct_write=step.step.direct_write,
+            force_machine_mode=step.step.force_machine_mode,
             operation=operation,
             value=write_value,
             src=src,
@@ -235,6 +253,11 @@ class CsrWriteAction(Action):
         ctx_priv_mode = priv_modes.index(ctx_priv_str)
         if ctx_priv_mode <= which_priv_mode:
             api_access = False
+
+        # force_machine_mode overrides the privilege check - use API access
+        # BUT only if we're not already in M-mode (where direct access works)
+        if self.force_machine_mode and ctx_priv_mode != 0:  # 0 = M-mode index
+            api_access = True
 
         if self.expanded:
             return None
@@ -302,6 +325,11 @@ class CsrWriteAction(Action):
         if ctx_priv_mode <= which_priv_mode:
             api_access = False
 
+        # force_machine_mode overrides the privilege check - use API access
+        # BUT only if we're not already in M-mode (where direct access works)
+        if self.force_machine_mode and ctx_priv_mode != 0:  # 0 = M-mode index
+            api_access = True
+
         use_imm = False
         if self.write_value is not None and self.src is None:
             # if immediate is less than 32 use an immediate. Otherwise, use a register
@@ -318,7 +346,9 @@ class CsrWriteAction(Action):
                     selected_instruction = ctx.instruction_catalog.get_instruction("csrrw")
             else:
                 instruction_id = ctx.new_value_id()
-                selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrw", api_call="write", instruction_id=instruction_id)
+                selected_instruction = CsrApiInstruction(
+                    csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrw", api_call="write", force_machine_rw=self.force_machine_mode, instruction_id=instruction_id
+                )
         elif self.operation == CsrOperation.SET:
             if not api_access:
                 if use_imm:
@@ -327,7 +357,9 @@ class CsrWriteAction(Action):
                     selected_instruction = ctx.instruction_catalog.get_instruction("csrrs")
             else:
                 instruction_id = ctx.new_value_id()
-                selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrs", api_call="set", instruction_id=instruction_id)
+                selected_instruction = CsrApiInstruction(
+                    csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrs", api_call="set", force_machine_rw=self.force_machine_mode, instruction_id=instruction_id
+                )
                 selected_instruction.instruction_id = ctx.new_value_id()
         elif self.operation == CsrOperation.CLEAR:
             if not api_access:
@@ -337,7 +369,9 @@ class CsrWriteAction(Action):
                     selected_instruction = ctx.instruction_catalog.get_instruction("csrrc")
             else:
                 instruction_id = ctx.new_value_id()
-                selected_instruction = CsrApiInstruction(csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrc", api_call="clear", instruction_id=instruction_id)
+                selected_instruction = CsrApiInstruction(
+                    csr_name=self.csr_name, src=self.src, direct_read_write=self.direct_write, name="csrc", api_call="clear", force_machine_rw=self.force_machine_mode, instruction_id=instruction_id
+                )
         else:
             raise ValueError(f"Invalid operation: {self.operation}")
 
@@ -492,17 +526,18 @@ class MvT2Instruction(Instruction):
 class CsrApiReadAction(Action):
     register_fields = []
 
-    def __init__(self, csr_name: str, direct_read: bool = False, **kwargs: Any):
+    def __init__(self, csr_name: str, direct_read: bool = False, force_machine_mode: bool = False, **kwargs: Any):
         super().__init__(**kwargs)
         self.csr_name = csr_name
         self.direct_read = direct_read
+        self.force_machine_mode = force_machine_mode
         self.constraints = {}
 
     def repr_info(self) -> str:
         return f"'{self.csr_name}'"
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
-        return CsrApiInstruction(csr_name=self.csr_name, src=None, direct_read_write=self.direct_read, name="csrr", api_call="read", instruction_id="")
+        return CsrApiInstruction(csr_name=self.csr_name, src=None, direct_read_write=self.direct_read, name="csrr", api_call="read", force_machine_rw=self.force_machine_mode, instruction_id="")
 
 
 class MvFromT2Action(Action):
@@ -561,6 +596,8 @@ class CsrDirectAccessAction(Action):
         src_value: Optional[int] = None,
         src: Optional[str] = None,
         target_is_x0: bool = False,
+        unimpl: bool = False,
+        ro: bool = False,
         **kwargs,
     ):
         """
@@ -571,6 +608,8 @@ class CsrDirectAccessAction(Action):
         :param src_value: Integer value for src1 (used for immediate or LI)
         :param src: Step ID dependency for src1
         :param target_is_x0: Destination is x0 (discard result)
+        :param unimpl: Pick a random unimplemented CSR address during expand()
+        :param ro: Pick from the read-only unimplemented pool
         """
         super().__init__(**kwargs)
         self.op = op
@@ -578,6 +617,8 @@ class CsrDirectAccessAction(Action):
         self.src_value = src_value
         self.src = src
         self.target_is_x0 = target_is_x0
+        self.unimpl = unimpl
+        self.ro = ro
         self.constraints = {}
         self.expanded = False
 
@@ -602,19 +643,32 @@ class CsrDirectAccessAction(Action):
         else:
             src = "zero"
 
+        unimpl = getattr(step.step, "unimpl", False)
+        ro = getattr(step.step, "ro", False)
+        csr_name = None if unimpl else step.step.csr_name
+
         return cls(
             step_id=step_id,
             op=step.step.op,
-            csr_name=step.step.csr_name,
+            csr_name=csr_name,
             src_value=src_value,
             src=src,
             target_is_x0=step.step.target_is_x0,
+            unimpl=unimpl,
+            ro=ro,
             **kwargs,
         )
 
     def _is_immediate_op(self) -> bool:
         """Check if this is an immediate CSR operation."""
         return self.op in ["csrrwi", "csrrsi", "csrrci"]
+
+    def _pick_unimpl_csr_name(self, ctx: LoweringContext) -> str:
+        """
+        Return a hex CSR address for an unimplemented-CSR access.
+
+        """
+        raise NotImplementedError("unimpl CSR access requires an implementation-specific action; pass the implementation --conf")
 
     def _randomize_csr(self, ctx: LoweringContext) -> str:
         """Select a random CSR valid for current privilege mode and operation."""
@@ -649,7 +703,14 @@ class CsrDirectAccessAction(Action):
 
             non_super_csrs = list(csr_configs_exclude_super.keys())
 
-            names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs]
+            csr_configs_exclude_hyper = ctx.get_csr_manager().lookup_csrs(
+                match={"software-write": "W", "ISS_Support": "Yes"},
+                exclude={"Accessibility": "Hypervisor"},
+            )
+
+            non_hyper_csrs = list(csr_configs_exclude_hyper.keys())
+
+            names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs and csr in non_hyper_csrs]
 
         else:
             csr_configs = ctx.get_csr_manager().lookup_csrs(
@@ -678,7 +739,14 @@ class CsrDirectAccessAction(Action):
 
                 non_super_csrs = list(csr_configs_exclude_super.keys())
 
-                names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs]
+                csr_configs_exclude_hyper = ctx.get_csr_manager().lookup_csrs(
+                    match={"software-read": "R", "ISS_Support": "Yes"},
+                    exclude={"Accessibility": "Hypervisor"},
+                )
+
+                non_hyper_csrs = list(csr_configs_exclude_hyper.keys())
+
+                names_to_csrs += [csr for csr in non_machine_csrs if csr in non_super_csrs and csr in non_hyper_csrs]
 
             else:
                 csr_configs = ctx.get_csr_manager().lookup_csrs(
@@ -707,7 +775,10 @@ class CsrDirectAccessAction(Action):
 
         # Randomize CSR if not specified
         if self.csr_name is None:
-            self.csr_name = self._randomize_csr(ctx)
+            if self.unimpl:
+                self.csr_name = self._pick_unimpl_csr_name(ctx)
+            else:
+                self.csr_name = self._randomize_csr(ctx)
 
         # If we have an integer value and it's not an immediate operation,
         # we need to load it into a register first

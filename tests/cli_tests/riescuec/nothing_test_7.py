@@ -10,7 +10,7 @@ from riescue.riescuec import RiescueC
 class Nothing7(unittest.TestCase):
 
     def test_113(self):
-        args = "--json compliance/tests/special/nothing.json --first_pass_iss whisper --groups rv_zvfbfwma --rpt_cnt 1 --max_instrs 1000 --rv_zvfbfwma_experimental --seed 0"
+        args = "--json compliance/tests/special/nothing.json --first_pass_iss whisper --groups rv_zvfbfwma --rpt_cnt 1 --max_instrs 1000 --seed 0"
         RiescueC.run_cli(args=args.split())
 
     def test_114(self):
@@ -26,7 +26,7 @@ class Nothing7(unittest.TestCase):
         RiescueC.run_cli(args=args.split())
 
     def test_128(self):
-        args = "--json compliance/tests/special/nothing.json --groups rv_zvfbfmin -rvf --rpt_cnt 1 --max_instrs 5000 --seed 0"
+        args = "--json compliance/tests/special/nothing.json --groups rv_zvfbfmin --rpt_cnt 1 --max_instrs 5000 --seed 0"
         RiescueC.run_cli(args=args.split())
 
     def test_129(self):

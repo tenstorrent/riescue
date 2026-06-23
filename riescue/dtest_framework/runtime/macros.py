@@ -88,6 +88,7 @@ class Macros(AssemblyGenerator):
         code = ""
         self.gen_os_setup_check_excp()
         self.gen_os_skip_check_excp()
+        self.gen_os_setup_check_intr()
         self.gen_os_get_hartid()
         self.gen_mutex_acquire_amo()
         self.gen_mutex_release_amo()
@@ -98,6 +99,7 @@ class Macros(AssemblyGenerator):
         self.gen_critical_section_amo()
         self.gen_critical_section_lr_sc()
         self.gen_barrier_amo()
+        self.gen_barrier_some_amo()
         self.gen_interrupts_macros()
 
         for macro in self.macros:
@@ -229,6 +231,51 @@ class Macros(AssemblyGenerator):
         """
         self.macros.append(macro)
 
+    def gen_os_setup_check_intr(self):
+        """
+        Generates OS_SETUP_CHECK_INTR macro for interrupt assertion checking.
+
+        Stores the expected interrupt cause and return PC in the hart context.
+        The trap handler's interrupt path checks these values when an interrupt fires.
+
+        Clobbers t3, tp
+        """
+        name = "OS_SETUP_CHECK_INTR"
+        macro = Macro(name=name)
+        macro.args = [
+            "__expected_cause",
+            "__trigger_label",
+            "__return_pc",
+            "__expected_mode=0",
+        ]
+
+        check_intr = self.variable_manager.get_variable("check_intr")
+        check_intr_expected_cause = self.variable_manager.get_variable("check_intr_expected_cause")
+        check_intr_return_pc = self.variable_manager.get_variable("check_intr_return_pc")
+        check_intr_expected_mode = self.variable_manager.get_variable("check_intr_expected_mode")
+
+        macro.code = f"""
+            {self.get_hart_context()}
+
+            # Set check_intr flag to enable interrupt assertion
+            li t3, 1
+            {check_intr.store(src_reg="t3")}
+
+            # Store expected interrupt cause
+            li t3, \\__expected_cause
+            {check_intr_expected_cause.store(src_reg="t3")}
+
+            # Store return PC (where to resume after interrupt handled)
+            la t3, \\__return_pc
+            {check_intr_return_pc.store(src_reg="t3")}
+
+            # Store expected handler mode (0 = any)
+            li t3, \\__expected_mode
+            {check_intr_expected_mode.store(src_reg="t3")}
+
+        """
+        self.macros.append(macro)
+
     def gen_os_get_hartid(self):
         """
         Macro to retrieve mhartid from hart-local context.
@@ -288,6 +335,159 @@ class Macros(AssemblyGenerator):
             max_tries=50000,
             use_zawrs=self.featmgr.is_feature_enabled("zawrs"),
         )
+        self.macros.append(macro)
+
+    def gen_barrier_some_amo(self):
+        """
+        OS_SYNC_SOME_HARTS: a barrier across a SUBSET of the programmed harts.
+
+        Same arguments as ``OS_SYNC_HARTS`` plus:
+
+        - ``__shared_space``: symbol/equate naming the base of a caller-provided shared region
+        - ``__num_harts``: number of participating harts
+
+        When ``__num_harts >= <num programmed harts>`` the macro is identical to
+        ``OS_SYNC_HARTS`` (full barrier on the global barrier variables). Otherwise it runs
+        the same barrier algorithm against barrier variables laid out inside ``__shared_space``,
+        so only ``__num_harts`` harts rendezvous (the rest never call the macro).
+
+        Shared-region layout (stride = xlen/8 bytes; field index * stride)::
+
+            0: barrier_lock            1: barrier_arrive_counter   2: barrier_depart_counter
+            3: barrier_flag            4: num_harts_ended (subset-local)
+            5: init_lock               6: init_done
+
+        The region must be at least ``7 * stride`` bytes (exposed as the
+        ``OS_SYNC_SOME_HARTS_REGION_SIZE`` equate), 8-byte aligned, and **zero-initialized**
+        before the first call: the lazy init lock and the subset-local ``num_harts_ended``
+        (read by the init-lock acquire) must start at 0. A page-aligned ``;#random_addr``
+        region that the test zeroes (as the mp_example plugins already do) satisfies this.
+        Use a consistent ``__num_harts`` per region: init runs once (gated by ``init_done``)
+        and the barrier self-resets, so the region is reusable across calls.
+
+        Because ``num_harts_ended`` is subset-local it is never incremented by end-of-test
+        (which bumps the global counter), so the graceful early-bail path does not fire for
+        subset barriers; the ``place_acquire_lock`` ``max_tries`` timeout (-> os_failed) is the
+        deadlock backstop.
+
+        Clobbers a0-a3, t0-t2 (and, on failure/early-bail paths, gp, a0, a1, ra).
+        """
+        name = "OS_SYNC_SOME_HARTS"
+        macro = Macro(name=name)
+        macro.args = [
+            "__test_label:req",
+            "__shared_space:req",
+            "__num_harts:req",
+            "__lock_addr_reg=a0",
+            "__arrive_counter_addr_reg=a1",
+            "__depart_counter_addr_reg=a2",
+            "__flag_addr_reg=a3",
+            "__swap_val_reg=t0",
+            "__work_reg_1=t1",
+            "__work_reg_2=t2",
+            "__end_test_label=end_test_addr",
+        ]
+
+        stride = self.xlen // 8
+        off_lock = 0 * stride
+        off_arrive = 1 * stride
+        off_depart = 2 * stride
+        off_flag = 3 * stride
+        off_ended = 4 * stride
+        off_init_lock = 5 * stride
+        off_init_done = 6 * stride
+
+        use_zawrs = self.featmgr.is_feature_enabled("zawrs")
+        n = "\\__test_label\\()_sub"  # label prefix for the subset branch
+
+        # Full-set path: byte-for-byte identical to OS_SYNC_HARTS.
+        full_barrier = Routines.place_barrier(
+            name="\\__test_label\\()",
+            lock_addr_reg="\\__lock_addr_reg",
+            arrive_counter_addr_reg="\\__arrive_counter_addr_reg",
+            depart_counter_addr_reg="\\__depart_counter_addr_reg",
+            flag_addr_reg="\\__flag_addr_reg",
+            swap_val_reg="\\__swap_val_reg",
+            work_reg_1="\\__work_reg_1",
+            work_reg_2="\\__work_reg_2",
+            num_cpus=self.featmgr.num_cpus,
+            end_test_label="\\__end_test_label",
+            max_tries=50000,
+            use_zawrs=use_zawrs,
+        )
+
+        # Subset path: acquire the per-region init lock (reuses place_acquire_lock for mutual
+        # exclusion, the max_tries timeout, and the release/acquire ordering edge), lazily
+        # initialize the barrier fields exactly once, release, then run the barrier on the
+        # region fields. \__lock_addr_reg (a0) holds the init-lock address across the section
+        # for the release; \__work_reg_1 (t1) holds the init_done address; \__work_reg_2 (t2)
+        # is a scratch field-address/value; \__arrive_counter_addr_reg (a1) holds the depart
+        # value (= \__num_harts). The barrier reloads all of its own addresses afterward.
+        init_acquire = Routines.place_acquire_lock(
+            name=n + "_init",
+            lock_addr_reg="\\__lock_addr_reg",
+            swap_val_reg="\\__swap_val_reg",
+            work_reg="\\__work_reg_1",
+            end_test_label="\\__end_test_label",
+            max_tries=50000,
+            use_zawrs=use_zawrs,
+            lock_sym=f"\\__shared_space + {off_init_lock}",
+            ended_sym=f"\\__shared_space + {off_ended}",
+        )
+        init_release = Routines.place_release_lock(name=n + "_init", lock_addr_reg="\\__lock_addr_reg")
+        init_body = f"""
+            li \\__work_reg_1, \\__shared_space + {off_init_done}
+            lw \\__work_reg_2, 0(\\__work_reg_1)
+            bnez \\__work_reg_2, {n}_init_done
+                li \\__work_reg_2, \\__shared_space + {off_lock}
+                sw x0, 0(\\__work_reg_2)              # barrier_lock = 0
+                li \\__work_reg_2, \\__shared_space + {off_arrive}
+                sw x0, 0(\\__work_reg_2)              # barrier_arrive_counter = 0
+                li \\__work_reg_2, \\__shared_space + {off_flag}
+                sw x0, 0(\\__work_reg_2)              # barrier_flag = 0
+                li \\__work_reg_2, \\__shared_space + {off_ended}
+                sw x0, 0(\\__work_reg_2)              # num_harts_ended (subset-local) = 0
+                li \\__work_reg_2, \\__shared_space + {off_depart}
+                li \\__arrive_counter_addr_reg, \\__num_harts
+                sw \\__arrive_counter_addr_reg, 0(\\__work_reg_2)   # barrier_depart_counter = num_harts
+                fence
+                li \\__work_reg_2, 1
+                sw \\__work_reg_2, 0(\\__work_reg_1) # init_done = 1
+            {n}_init_done:
+        """
+
+        subset_barrier = Routines.place_barrier(
+            name=n,
+            lock_addr_reg="\\__lock_addr_reg",
+            arrive_counter_addr_reg="\\__arrive_counter_addr_reg",
+            depart_counter_addr_reg="\\__depart_counter_addr_reg",
+            flag_addr_reg="\\__flag_addr_reg",
+            swap_val_reg="\\__swap_val_reg",
+            work_reg_1="\\__work_reg_1",
+            work_reg_2="\\__work_reg_2",
+            num_cpus="\\__num_harts",
+            end_test_label="\\__end_test_label",
+            max_tries=50000,
+            use_zawrs=use_zawrs,
+            lock_sym=f"\\__shared_space + {off_lock}",
+            arrive_sym=f"\\__shared_space + {off_arrive}",
+            depart_sym=f"\\__shared_space + {off_depart}",
+            flag_sym=f"\\__shared_space + {off_flag}",
+            ended_sym=f"\\__shared_space + {off_ended}",
+        )
+
+        macro.code = f"""
+        .if \\__num_harts >= {self.featmgr.num_cpus}
+        {full_barrier}
+        .else
+        {init_acquire}
+        {init_body}
+        {init_release}
+        {subset_barrier}
+        .endif
+        """
+
+        self.register_equate("OS_SYNC_SOME_HARTS_REGION_SIZE", str(7 * stride))
         self.macros.append(macro)
 
     def gen_mutex_acquire_amo(self):
@@ -519,6 +719,10 @@ class Macros(AssemblyGenerator):
             can_direct_access = self.test_priv == RV.RiscvPrivileges.MACHINE
         elif csr_name.startswith("s"):
             can_direct_access = self.test_priv in (RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER) and not is_virtualized
+        elif csr_name.startswith("v") or csr_name.startswith("h"):
+            # VS/HS-mode CSRs: accessible directly from HS (non-virtualized super),
+            # but need ecall in virtualized mode (VS mode can't access them directly)
+            can_direct_access = self.test_priv in (RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER) and not is_virtualized
         else:
             raise ValueError(f"Unexpected CSR name prefix: {csr_name}")
 
@@ -531,13 +735,43 @@ class Macros(AssemblyGenerator):
         return macro
 
     def interrupt_control_macros(self) -> list:
+        # In VS mode (super + virtualized), vsstatus/vstvec are HS-mode only and
+        # raise Virtual Instruction from VS mode. Use the VS-mode aliases instead:
+        #   vsstatus → sstatus,  vstvec → stvec
+        # ENABLE/DISABLE_VSIE write vsstatus (CSR 0x200, the VS-shadow sstatus).
+        # Use _make_csr_macro so virtualized mode gets the ecall path (inline csrsi
+        # vsstatus raises Virtual Instruction from VS mode).
+        # SET_DIRECT/VECTORED_INTERRUPTS_VS configure vstvec; in VS mode (is_virtualized)
+        # vstvec is accessed via stvec (CSR 0x105, the VS-mode alias). From VU mode
+        # (user + virtualized) neither stvec nor vstvec is reachable directly, so route
+        # through the supervisor CSR jump table (which runs in HS, where vstvec is a
+        # directly-accessible CSR) via ;#csr_rw — mirroring SET_DIRECT_INTERRUPTS_S.
+        is_virtualized = self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED
+
+        vstvec_csr = "stvec" if is_virtualized else "vstvec"
+        vs_tvec_direct = self.test_priv in (RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER)
+
+        set_direct_vs = Macro(name="SET_DIRECT_INTERRUPTS_VS")
+        set_vectored_vs = Macro(name="SET_VECTORED_INTERRUPTS_VS")
+        if vs_tvec_direct:
+            set_direct_vs.code = f"\ncsrci {vstvec_csr}, 0x1"
+            set_vectored_vs.code = f"\ncsrsi {vstvec_csr}, 0x1"
+        else:
+            # VU mode: clear/set vstvec.MODE through the HS-mode CSR jump table.
+            set_direct_vs.code = self._csr_ecall_code("vstvec", set_bit=False, imm_value="0x1")
+            set_vectored_vs.code = self._csr_ecall_code("vstvec", set_bit=True, imm_value="0x1")
+
         return [
             self._make_csr_macro("DISABLE_MIE", "mstatus", False, "(1<<3)"),
             self._make_csr_macro("DISABLE_SIE", "sstatus", False, "(1<<1)"),
             self._make_csr_macro("ENABLE_MIE", "mstatus", True, "(1<<3)"),
             self._make_csr_macro("ENABLE_SIE", "sstatus", True, "(1<<1)"),
+            self._make_csr_macro("ENABLE_VSIE", "vsstatus", True, "(1<<1)"),
+            self._make_csr_macro("DISABLE_VSIE", "vsstatus", False, "(1<<1)"),
             self._make_csr_macro("SET_DIRECT_INTERRUPTS", "mtvec", False, "0x1"),
             self._make_csr_macro("SET_VECTORED_INTERRUPTS", "mtvec", True, "0x1"),
             self._make_csr_macro("SET_DIRECT_INTERRUPTS_S", "stvec", False, "0x1"),
             self._make_csr_macro("SET_VECTORED_INTERRUPTS_S", "stvec", True, "0x1"),
+            set_direct_vs,
+            set_vectored_vs,
         ]

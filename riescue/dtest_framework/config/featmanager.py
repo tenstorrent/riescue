@@ -119,6 +119,8 @@ class FeatMgr:
     io_imsic_mfile_stride: Optional[int] = None
     io_imsic_sfile_addr: Optional[int] = None
     io_imsic_sfile_stride: Optional[int] = None
+    io_imsic_vsfile_addr: Optional[int] = None
+    io_imsic_vsfile_stride: Optional[int] = None
     eot_pass_value: int = 1
     eot_fail_value: int = 3
 
@@ -140,6 +142,8 @@ class FeatMgr:
     code_offset: Optional[int] = None  # unused?
     randomize_code_location: bool = False
     identity_map_code: bool = False
+    map_imsic_pages: bool = False
+    map_aclint_pages: bool = False
     repeat_times: int = 3
     cfiles: Optional[list[Path]] = None
     inc_path: Optional[list[Path]] = None
@@ -175,14 +179,31 @@ class FeatMgr:
     interrupts_enabled: bool = True
     skip_instruction_for_unexpected: bool = False
 
+    # Random memory breakpoint feature (driven by ;#rand_mem_breakpoint_pool directive).
+    # See riescue/dtest_framework/runtime/rand_mem_breakpoint.py for the apply logic.
+    # ``medeleg_forced`` is set by the cli_adapter when the user supplies ``--medeleg``
+    # or ``--deleg_excp_to`` so the rand-mem-bp apply step can respect their choice
+    # rather than silently clearing medeleg bit 3 (BREAKPOINT) for the feature.
+    rand_mem_breakpoint_pct: int = 0
+    rand_mem_n_triggers: int = 1
+    rand_mem_max_fires: int = 0
+    # Inner gate rolled only when rand_mem_breakpoint_pct rolls true. When this in turn
+    # rolls true, an icount trigger is armed on slot 8 with a freshly-randomized count
+    # drawn from the (min, max) tuple carried by ``rand_mem_icount_density.value``.
+    # Shares the ``rand_mem_max_fires`` budget with the mcontrol6 watchpoints.
+    rand_mem_inject_icount_pct: int = 0
+    rand_mem_icount_density: RV.RandMemIcountDensity = RV.RandMemIcountDensity.MODERATE
+    medeleg_forced: bool = False
+
     # CSR R/W handling
     machine_mode_jump_table_for_csr_rw: str = "csr_machine_0"
     supervisor_mode_jump_table_for_csr_rw: str = "csr_super_0"
 
     # PMA / PMP
     setup_pmp: bool = False
+    pmp_catchall: bool = False  # Add PMP catchall entries (14/15) for S/U mode tests
     needs_pma: bool = False
-    num_pmas: int = 16
+    num_pmas: int = 64  # TT scheme: 64 PMA entries; 0-15 direct CSRs, 16-63 via miselect/mireg/mireg2
 
     # Debug mode (RISC-V Debug Spec Ch.4): ;#discrete_debug_test() and/or config
     debug_mode: bool = False

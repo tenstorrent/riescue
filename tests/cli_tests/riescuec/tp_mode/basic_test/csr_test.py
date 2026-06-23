@@ -26,11 +26,11 @@ class CsrTest(BasicTestBase):
 
     def test_csr_read(self):
         """
-        Test reading cycles CSR, an unprivileged CSR that's Read-only
+        Test reading fflags CSR, an unprivileged CSR that has no CSR dependencies
         """
 
-        read_time = CsrRead(csr_name="time")
-        steps: list[TestStep] = [read_time]
+        read_fflags = CsrRead(csr_name="fflags")
+        steps: list[TestStep] = [read_fflags]
         # text = self.generator_from_steps(steps, "rv64imafdc_zicsr")
         # self.assertNotIn("None", text)
         # self.assertIn("csr", text, "No CSR instructions found in generated test")

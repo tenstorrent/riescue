@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+import shlex
 import shutil
 import sys
 import logging
@@ -20,6 +21,7 @@ from riescue.dtest_framework.generator import Generator
 from riescue.dtest_framework.lib.discrete_test import DiscreteTest
 from riescue.lib.cli_base import CliBase
 from riescue.lib.toolchain import Toolchain, Compiler, Spike, Whisper
+from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
 
 
 log = logging.getLogger("riescue")  # special case because riescued can be a main module
@@ -116,6 +118,12 @@ class RiescueD(CliBase):
             default=None,
             help="Path to cpu feature configuration. Defaults to dtest_framework/lib/config.json",
         )
+        parser.add_argument(
+            "--csr_config",
+            type=Path,
+            default=None,
+            help="Path to CSR config JSON. Defaults to riescue/lib/csr_manager/csr_config.json",
+        )
 
         run_args = parser.add_argument_group(
             "Run Control",
@@ -161,8 +169,8 @@ class RiescueD(CliBase):
 
         # Print reproducible command (argv already has all args; append seed if auto-generated)
         argv = sys.argv[1:] if args is None else list(args)
-        seed_suffix = f" --seed {rd.rng.get_seed()}" if cl_args.seed is None else ""
-        print("# Reproducible: riescued.py " + " ".join(argv) + seed_suffix)
+        seed_suffix = ["--seed", str(rd.rng.get_seed())] if cl_args.seed is None else []
+        print("# Reproducible: riescued.py " + shlex.join(argv + seed_suffix))
         rd.run(
             cl_args,
             elaborate_only=cl_args.elaborate_only,
@@ -216,6 +224,11 @@ class RiescueD(CliBase):
         test_logfile = self.run_dir / f"{self.testname}.testlog"
         RiescueLogger.from_clargs(args=cl_args, default_logger_file=test_logfile)
 
+        _csr_config = getattr(cl_args, "csr_config", None)
+        if _csr_config is not None:
+            _csr_config = self._resolve_path(_csr_config)
+        CsrManagerInterface.set_csr_config_path(_csr_config)
+
         featmgr = self.configure(args=cl_args, conf=conf)
         self.generate(featmgr)
         if elaborate_only:
@@ -223,7 +236,8 @@ class RiescueD(CliBase):
             return self.generated_files
 
         self.build(featmgr)
-        if featmgr.selfcheck:
+        run_selfcheck = featmgr.selfcheck
+        if run_selfcheck:
             if self.toolchain.whisper is None:
                 raise ValueError("Whisper is required for selfcheck mode. Provide Whisper in toolchain configuration")
             self.simulate(
@@ -296,7 +310,11 @@ class RiescueD(CliBase):
         if featmgr.rvmodel_macros is not None:
             featmgr.rvmodel_macros = self._resolve_path(featmgr.rvmodel_macros)
         else:
-            featmgr.rvmodel_macros = self.package_path / "dtest_framework/lib/rvmodel_macros_htif.h"
+            featmgr.rvmodel_macros = self.package_path / "dtest_framework/lib/rvmodel_macros/rvmodel_macros_htif.h"
+            log.warning(
+                f"--rvmodel_macros not provided; falling back to default {featmgr.rvmodel_macros.name}. "
+                f"Other variants in dtest_framework/lib/rvmodel_macros/ (e.g. rvmodel_macros_uart.h) are NOT being used."
+            )
 
         # Call various generators
         test_gen = Generator(rng=self.rng, pool=self.pool, featmgr=featmgr, run_dir=self.run_dir)
@@ -391,6 +409,7 @@ class RiescueD(CliBase):
             output_file=self.generated_files.dis,
             cwd=self.run_dir,
             args=disassembler_args,
+            timeout=300,
         )
 
         return self.generated_files

@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections import defaultdict
 
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, Iterator, TYPE_CHECKING
 
-from coretp import TestEnv, InstructionCatalog
+from coretp import TestEnv, InstructionCatalog, Instruction
 from coretp.isa import Register
 from riescue.lib.rand import RandNum
 from riescue.compliance.test_plan.memory import MemoryRegistry
@@ -56,6 +56,23 @@ class _IDTracker:
 
 
 @dataclass
+class PrivilegeBlockInstructions:
+    """Instructions belonging to each privilege-mode code block, keyed by block index."""
+
+    machine: dict[int, list[Instruction]] = field(default_factory=dict)
+    supervisor: dict[int, list[Instruction]] = field(default_factory=dict)
+    user: dict[int, list[Instruction]] = field(default_factory=dict)
+
+    def for_mode(self, mode: str) -> dict[int, list[Instruction]]:
+        return getattr(self, mode)
+
+    def all_blocks(self) -> Iterator[list[Instruction]]:
+        yield from self.machine.values()
+        yield from self.supervisor.values()
+        yield from self.user.values()
+
+
+@dataclass
 class LoweringContext:
     """
     Context for lowering actions into Instructions. Used for `class:Expander` / `class:Elaborator`
@@ -71,15 +88,9 @@ class LoweringContext:
     featmgr: FeatMgr
 
     def __post_init__(self):
-        from coretp import Instruction
-
         self.id_tracker = _IDTracker()
         self.global_function_clobbers: dict[str, list[Register]] = {}  # maps function name to list of clobbered registers
-        self.privilege_block_instructions: dict[str, dict[int, list[Instruction]]] = {
-            "machine": {},
-            "supervisor": {},
-            "user": {},
-        }
+        self.privilege_block_instructions = PrivilegeBlockInstructions()
         self._built = False
         self._csr_manager: Optional["CsrManagerInterface"] = None
 
@@ -88,7 +99,7 @@ class LoweringContext:
         if self._csr_manager is None:
             from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
 
-            self._csr_manager = CsrManagerInterface(self.rng)
+            self._csr_manager = CsrManagerInterface(self.rng, feature_discovery=self.featmgr.feature)
         return self._csr_manager
 
     def new_label(self) -> str:

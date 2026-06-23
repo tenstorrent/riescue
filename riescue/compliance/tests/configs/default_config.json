@@ -1575,7 +1575,7 @@
                                 }
                         }
                 },
-                "Xsfvqdotq_ext" : {
+                "rv_zvdot4a8i" : {
                         "configs" : {
                                 "vlmul" : ["m1", "m2", "m4", "m8", "mf2", "mf4", "mf8"],
                                 "vsew"  : ["32"],
@@ -1590,13 +1590,13 @@
                                         "configs" : {
                                         },
                                         "instrs" : {
-                                                "vqdot.vv" : {"configs":{}},
-                                                "vqdot.vx" : {"configs":{}},
-                                                "vqdotu.vv" : {"configs":{}},
-                                                "vqdotu.vx" : {"configs":{}},
-                                                "vqdotsu.vv" : {"configs":{}},
-                                                "vqdotsu.vx" : {"configs":{}},
-                                                "vqdotus.vx" : {"configs":{}}
+                                                "vdot4a.vv" : {"configs":{}},
+                                                "vdot4a.vx" : {"configs":{}},
+                                                "vdot4au.vv" : {"configs":{}},
+                                                "vdot4au.vx" : {"configs":{}},
+                                                "vdot4asu.vv" : {"configs":{}},
+                                                "vdot4asu.vx" : {"configs":{}},
+                                                "vdot4aus.vx" : {"configs":{}}
                                         }
                                 }
                         }

@@ -4,7 +4,6 @@
 from typing import Generator
 
 from riescue.compliance.test_plan.actions import Action, MemoryAction, CodePageAction, CodeMixin, RequestPmpAction
-from riescue.compliance.test_plan.actions.privilege_mode import MachineCodeAction, SupervisorCodeAction, UserCodeAction
 from riescue.compliance.test_plan.types import DiscreteTest
 from riescue.compliance.test_plan.context import LoweringContext
 
@@ -23,43 +22,31 @@ class Canonicalizer:
     def __init__(self):
         pass
 
-    def canonicalize(
-        self, tests: list[DiscreteTest], ctx: LoweringContext
-    ) -> tuple[list[DiscreteTest], list[CodePageAction], list[MemoryAction], dict[int, MachineCodeAction], dict[int, SupervisorCodeAction], dict[int, UserCodeAction]]:
+    def canonicalize(self, tests: list[DiscreteTest], ctx: LoweringContext) -> tuple[list[DiscreteTest], list[CodePageAction], list[MemoryAction]]:
         """
         Canonicalize instructions by ensuring all IDs are unique. Modifies ``DiscreteTest`` objects in place.
         Allocates global memory objects
         Pulls out global code
 
         :param tests: List of ``DiscreteTest`` objects to canonicalize.
-        :return: Tuple of (canonicalized tests, global functions, memory actions, machine code actions, supervisor code actions, user code actions)
+        :return: Tuple of (canonicalized tests, global functions, memory actions)
         """
         canonicalized_tests = []
         all_functions = []
         all_memory = []
-        all_machine_code_actions: dict[int, MachineCodeAction] = {}
-        all_supervisor_code_actions: dict[int, SupervisorCodeAction] = {}
-        all_user_code_actions: dict[int, UserCodeAction] = {}
         for test in tests:
-            canonicalized_test, global_functions, memory, machine_code_actions, supervisor_code_actions, user_code_actions = self._canonicalize_test(test, ctx)
+            canonicalized_test, global_functions, memory = self._canonicalize_test(test, ctx)
             canonicalized_tests.append(canonicalized_test)
             all_functions.extend(global_functions)
             all_memory.extend(memory)
-            all_machine_code_actions.update(machine_code_actions)
-            all_supervisor_code_actions.update(supervisor_code_actions)
-            all_user_code_actions.update(user_code_actions)
-        return canonicalized_tests, all_functions, all_memory, all_machine_code_actions, all_supervisor_code_actions, all_user_code_actions
+        return canonicalized_tests, all_functions, all_memory
 
-    def _canonicalize_test(
-        self, test: DiscreteTest, ctx: LoweringContext
-    ) -> tuple[DiscreteTest, list[CodePageAction], list[MemoryAction], dict[int, MachineCodeAction], dict[int, SupervisorCodeAction], dict[int, UserCodeAction]]:
+    def _canonicalize_test(self, test: DiscreteTest, ctx: LoweringContext) -> tuple[DiscreteTest, list[CodePageAction], list[MemoryAction]]:
         """
         Canonicalizes ``DiscreteTest`` objects by assinging unique labels.
         Currently modifies ``DiscreteTest`` object in place.
 
-        :return: Tuple of ``DiscreteTest`` object, list of global functions, list of memory actions,
-                 dict of machine code actions (keyed by block_index), dict of supervisor code actions (keyed by block_index),
-                 dict of user code actions (keyed by block_index)
+        :return: Tuple of ``DiscreteTest`` object, list of global functions, list of memory actions
 
         This assumes that all values are local to a DiscreteTest object. Global values are not currently supported.
         They can be supported later by adding a separate global_step_ids set.
@@ -71,9 +58,6 @@ class Canonicalizer:
         global_functions: dict[str, CodePageAction] = {}
         memory_actions: dict[str, MemoryAction] = {}
         memory_request_actions: dict[str, RequestPmpAction] = {}
-        machine_code_actions: dict[int, MachineCodeAction] = {}
-        supervisor_code_actions: dict[int, SupervisorCodeAction] = {}
-        user_code_actions: dict[int, UserCodeAction] = {}
 
         # 1 gather all the step IDs from DT, gather global functions
         for action in self._action_generator(test.actions):
@@ -85,18 +69,6 @@ class Canonicalizer:
                 global_function_id = ctx.new_code_memory_id()
                 local_step_id_to_canonical[action.step_id] = global_function_id
                 global_functions[global_function_id] = action
-            elif isinstance(action, MachineCodeAction):
-                # Collect MachineCodeAction for jump table generation
-                local_step_id_to_canonical[action.step_id] = ctx.new_value_id()
-                machine_code_actions[action.block_index] = action
-            elif isinstance(action, SupervisorCodeAction):
-                # Collect SupervisorCodeAction for jump table generation
-                local_step_id_to_canonical[action.step_id] = ctx.new_value_id()
-                supervisor_code_actions[action.block_index] = action
-            elif isinstance(action, UserCodeAction):
-                # Collect UserCodeAction for jump table generation
-                local_step_id_to_canonical[action.step_id] = ctx.new_value_id()
-                user_code_actions[action.block_index] = action
             elif isinstance(action, RequestPmpAction):
                 new_memory_request_id = ctx.new_memory_id()
                 local_step_id_to_canonical[action.step_id] = new_memory_request_id
@@ -120,15 +92,15 @@ class Canonicalizer:
 
         # 4 add memory actions to MemoryRegistry
         for memory_action in memory_actions.values():
-            ctx.mem_reg.allocate_data(memory_action.step_id, memory_action)
+            ctx.mem_reg.allocate_data(memory_action.step_id, memory_action, ctx=ctx)
 
         for memory_request_action in memory_request_actions.values():
-            ctx.mem_reg.allocate_data(memory_request_action.step_id, memory_request_action)
+            ctx.mem_reg.allocate_data(memory_request_action.step_id, memory_request_action, ctx=ctx)
 
         # 5 remove memory and code actions from actions
         test.actions = self._pop_memory_actions(test.actions)
         test.actions = self._pop_global_functions(test.actions)
-        return test, list(global_functions.values()), list(memory_actions.values()), machine_code_actions, supervisor_code_actions, user_code_actions
+        return test, list(global_functions.values()), list(memory_actions.values())
 
     def _action_generator(self, actions: list[Action]) -> Generator[Action, None, None]:
         """

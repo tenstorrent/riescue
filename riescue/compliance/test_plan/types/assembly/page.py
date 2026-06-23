@@ -46,6 +46,7 @@ class Page(AssemblyBase):
     modify_leaf: bool = False
     modify_nonleaf: bool = False
     buffer_page: bool = True  #: Indicates that the memory isn't shared with other tests and memory after shouldn't be accessed. Adds a buffer page after the memory.
+    secure: bool = False  #: Whether memory should be allocated from the secure region (sets PA bit 55)
 
     # VS-stage non-leaf attributes
     nonleaf_flags: Optional[PageFlags] = None
@@ -232,6 +233,8 @@ class Page(AssemblyBase):
             page_flags.append("modify_leaf_pt=1")
         if self.modify_nonleaf:
             page_flags.append("modify_nonleaf_pt=1")
+        if self.secure:
+            page_flags.append("secure=1")
         page_flags_str = ", ".join(page_flags)
 
         # Generate multiple page mappings based on num_pages
@@ -283,6 +286,8 @@ class Page(AssemblyBase):
             if or_mask:
                 lin += f", or_mask={or_mask}"
                 phys += f", or_mask={or_mask}"
+            if self.secure:
+                phys += ", secure=1"
             # code.append(f";#random_addr(name={self.name},  type=linear, size=0x{size:x}, and_mask={and_mask}")
             # code.append(f";#random_addr(name={self.phys_name},  type=physical, size=0x{self.size:x}, and_mask={and_mask}, or_mask={or_mask})")
         else:
@@ -291,6 +296,8 @@ class Page(AssemblyBase):
             if or_mask:
                 lin += f", or_mask={or_mask}"
                 phys += f", or_mask={or_mask}"
+            if self.secure:
+                phys += ", secure=1"
 
             # code.append(f";#reserve_memory(name={self.name}, start_addr=0x{self.start_addr:x},  type=linear, size=0x{size:x}, or_mask={or_mask})")
             # code.append(f";#reserve_memory(name={self.phys_name}, start_addr=0x{self.start_addr:x},  type=physical, size=0x{self.size:x}, or_mask={or_mask})")

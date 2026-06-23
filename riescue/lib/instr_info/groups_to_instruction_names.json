@@ -1235,13 +1235,13 @@
             "vfmv.s.f"
         ],
         "vec_int_quad_widening_4d_dot_prod":[
-            "vqdot.vv",
-            "vqdot.vx",
-            "vqdotu.vv",
-            "vqdotu.vx",
-            "vqdotsu.vv",
-            "vqdotsu.vx",
-            "vqdotus.vx"
+            "vdot4a.vv",
+            "vdot4a.vx",
+            "vdot4au.vv",
+            "vdot4au.vx",
+            "vdot4asu.vv",
+            "vdot4asu.vx",
+            "vdot4aus.vx"
         ],
         "vector_sha2_secure_hash":[
             "vsha2ch.vv",

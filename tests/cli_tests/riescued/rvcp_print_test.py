@@ -208,7 +208,7 @@ class RvcpPrintTest(BaseRiescuedTest):
             "--run_iss",
             "--print_rvcp_passed",
             "--rvmodel_macros",
-            "dtest_framework/lib/rvmodel_macros_uart.h",
+            "dtest_framework/lib/rvmodel_macros/rvmodel_macros_uart.h",
             "--seed",
             "0",
         ]

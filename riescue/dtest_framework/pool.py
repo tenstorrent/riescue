@@ -36,6 +36,7 @@ from riescue.dtest_framework.lib.discrete_test import DiscreteTest
 from riescue.dtest_framework.lib.page_map import PageMap, Page
 
 
+
 log = logging.getLogger(__name__)
 
 
@@ -85,12 +86,16 @@ class Pool:
         self.parsed_csr_accesses: dict[str, dict[str, ParsedCsrAccess]] = {}
         self.parsed_sections: list[str] = []
         self.init_aplic_interrupts = False
+        self.init_guest_imsic = False
         self.ext_aplic_interrupts = dict[int, dict[str, Optional[Union[int, str]]]()]()
         self.max_aplic_irq: int = 1023
         self.parsed_pma_hints: dict[str, ParsedPmaHint] = dict()
         self.parsed_trigger_configs: list[ParsedTriggerConfig] = []
         self.parsed_trigger_disable: list[ParsedTriggerDisable] = []
         self.parsed_trigger_enable: list[ParsedTriggerEnable] = []
+        # Address pool from one or more ;#rand_mem_breakpoint_pool(addresses=[...]) directives.
+        # All instances accumulate into this list; duplicates are filtered later by the apply step.
+        self.parsed_rand_mem_bp_pool: list[str] = []
 
         # Structures to hold processed data
         self.discrete_tests: dict[str, DiscreteTest] = dict()
@@ -324,6 +329,14 @@ class Pool:
     def get_parsed_trigger_enable(self) -> list[ParsedTriggerEnable]:
         return self.parsed_trigger_enable
 
+    # parsed_rand_mem_bp_pool — accumulates addresses across multiple
+    # ;#rand_mem_breakpoint_pool(addresses=[...]) directive instances.
+    def add_parsed_rand_mem_bp_addresses(self, addrs: list[str]) -> None:
+        self.parsed_rand_mem_bp_pool.extend(addrs)
+
+    def get_parsed_rand_mem_bp_pool(self) -> list[str]:
+        return self.parsed_rand_mem_bp_pool
+
     # random structures
     # random_data setters and getters
     def add_random_datum(self, key: str, val: int) -> None:
@@ -492,6 +505,7 @@ class Pool:
         if phys_address is not None:
             assert lin_address is not None
             self.sections[section_name] = SectionInfo(vma=lin_address, lma=phys_address)
+
 
     # discrete_test setters and getters
     def add_discrete_test(self, discrete_test: DiscreteTest) -> None:

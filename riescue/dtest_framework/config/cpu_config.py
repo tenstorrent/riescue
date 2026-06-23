@@ -31,6 +31,7 @@ class TestGeneration:
     fs_randomization_values: Optional[List[int]] = None
     vs_randomization: Optional[int] = None
     vs_randomization_values: Optional[List[int]] = None
+    pmp_catchall: Optional[bool] = None  # Enable PMP catchall entries for S/U mode tests
 
     @classmethod
     def from_dict(cls, cfg: dict) -> TestGeneration:
@@ -50,6 +51,39 @@ class TestGeneration:
 
 
 @dataclass(frozen=True)
+class InterruptsSupported:
+    """
+    Per-cause flags declaring which standard RISC-V interrupt causes the target
+    supports. Names are the lowercased ``InterruptCause`` enum members from
+    coretp (MSI/MEI/MTI/SSI/SEI/STI). RiescueC and Voyager2 read this to filter
+    unsupported causes out of delegation/enable/disable/clear bitmasks and to
+    NOP unsupported TriggerInterrupt/AssertInterrupt steps.
+
+    All fields default to ``True`` so cpuconfigs without the block keep the
+    existing behavior.
+    """
+
+    msi: bool = True
+    mei: bool = True
+    mti: bool = True
+    ssi: bool = True
+    sei: bool = True
+    sti: bool = True
+
+    @classmethod
+    def from_dict(cls, cfg: dict) -> InterruptsSupported:
+        known = {f.name for f in fields(cls)}
+        unknown = set(cfg) - known
+        if unknown:
+            raise ValueError(f"InterruptsSupported does not support field(s) {sorted(unknown)}")
+        return cls(**{k: bool(v) for k, v in cfg.items()})
+
+    def is_cause_supported(self, cause_name: str) -> bool:
+        """Causes outside the six-bit set (e.g. COI, PLATFORM) pass through as supported."""
+        return getattr(self, cause_name.lower(), True)
+
+
+@dataclass(frozen=True)
 class CpuConfig:
     """
     Data class containing infomration about the CPU and memory map.
@@ -59,6 +93,7 @@ class CpuConfig:
 
     memory: Memory = field(default_factory=Memory)
     features: FeatureDiscovery = field(default_factory=lambda: FeatureDiscovery({}))
+    interrupts_supported: InterruptsSupported = field(default_factory=InterruptsSupported)
     test_gen: TestGeneration = field(default_factory=TestGeneration)
     isa: list[str] = field(default_factory=list)
     reset_pc: int = DEFAULT_RESET_PC
@@ -95,6 +130,7 @@ class CpuConfig:
 
         memory = Memory.from_dict(cfg.get("mmap", {}))
         features = FeatureDiscovery.from_dict_with_overrides(cfg, feature_overrides)
+        interrupts_supported = InterruptsSupported.from_dict(cfg.get("interrupts_supported", {}))
         tg = TestGeneration.from_dict(cfg.get("test_generation", {}))
 
         # reset PC might be encoded as a string ``0x8000_0000`` or direct integer ``0`` ; need to support both
@@ -138,6 +174,7 @@ class CpuConfig:
         return cls(
             memory=memory,
             features=features,
+            interrupts_supported=interrupts_supported,
             isa=cfg.get("isa", []),
             reset_pc=reset_pc,
             test_gen=tg,

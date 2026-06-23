@@ -17,6 +17,7 @@ from riescue.dtest_framework.runtime.trap_handler import TrapHandler
 from riescue.dtest_framework.runtime.macros import Macros
 from riescue.dtest_framework.runtime.eot import Eot
 from riescue.dtest_framework.runtime.selfcheck import Selfcheck
+
 from riescue.dtest_framework.runtime.test_execution_logger import TestExecutionLogger
 from riescue.dtest_framework.runtime.variable import VariableManager
 from riescue.dtest_framework.config import FeatMgr
@@ -73,6 +74,12 @@ class Runtime:
         # armed icount trigger that would fire on the very next user instr
         # after xret, masking the test's actual readback / next step.
         self.variable_manager.register_hart_variable("check_excp_disable_triggers", 0)
+
+        # Interrupt assertion checking variables (analogous to check_excp for exceptions)
+        self.variable_manager.register_hart_variable("check_intr", 0x0, size=1)
+        self.variable_manager.register_hart_variable("check_intr_expected_cause", 0xFF)
+        self.variable_manager.register_hart_variable("check_intr_return_pc", -1)
+        self.variable_manager.register_hart_variable("check_intr_expected_mode", 0)
 
         # GPR save area for trap handler (32 registers)
         self.variable_manager.register_hart_variable("gpr_save_area", value=0, element_count=32)

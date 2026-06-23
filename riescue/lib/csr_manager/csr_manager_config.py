@@ -10,6 +10,18 @@ from riescue.lib.rand import RandNum
 # FIXME: This relies heavily on Voyager2. It should be moved to riescue/voyager2 or made generic
 
 
+def csr_asm_name(csr_key: str, csr_obj: "CsrConfig") -> str:
+    """Return the CSR token for use in assembly. Custom CSRs use their hex address
+    because GAS only knows standard RISC-V CSR names."""
+    if csr_obj.config.get("type") == "Custom":
+        addr = csr_obj.config.get("address", "")
+        try:
+            return f"0x{int(str(addr), 16):03X}"
+        except (ValueError, TypeError):
+            pass
+    return csr_key.lower()
+
+
 class FieldConfig:
     "CSR and field Config"
 
@@ -35,11 +47,15 @@ class CsrConfig:
 # 3)UserAPIs  :- Some handly user APIs to perform functions like filter csrs according to the requirement,
 #                 and give out instructions to access a csr
 class CsrManager:
-    def __init__(self, rng: RandNum):
+    def __init__(self, rng: RandNum, feature_discovery=None):
         self.rng = rng
         self.CSR_Reg = {}
         self.utils = CsrManagerUtils()
         self.Instruction_helper = None
+        # Feature provider with ``is_feature_enabled(name) -> bool``. Used by ``lookup_csrs``
+        # to drop CSRs whose ``required_feature`` (declared in csr_config.json) is not enabled.
+        # ``None`` disables feature filtering (backward-compatible).
+        self.feature_discovery = feature_discovery
 
     def create_csr_config(self, csr_name: str, config_dict: dict):
         csr_config = CsrConfig(config_dict)
@@ -60,6 +76,9 @@ class CsrManager:
     # User APIs
     def lookup_csrs(self, match: dict, exclude: dict = {}):
         csr_config_dict = self.utils.utils_get_csrs(self.CSR_Reg, match, exclude)
+        fd = self.feature_discovery
+        if fd is not None:
+            csr_config_dict = {name: csr for name, csr in csr_config_dict.items() if csr.config.get("required_feature") is None or fd.is_feature_enabled(csr.config["required_feature"])}
         return csr_config_dict
 
     def get_random_csr(self, match: dict, exclude: dict = {}):
@@ -90,7 +109,9 @@ class CsrManager:
         if imm is None:
             imm = self.rng.get_rand_bits(5)
 
-        csr_name = list(csr_config.keys())[0]
+        _csr_key = list(csr_config.keys())[0]
+        _csr_obj = list(csr_config.values())[0]
+        csr_name = csr_asm_name(_csr_key, _csr_obj)
 
         if len(rd) == 0:
             rd = reg2
@@ -101,7 +122,7 @@ class CsrManager:
         if access_type == "write_subfield":
 
             csr_config_ = list(csr_config.values())[0]
-            csr_name = list(csr_config.keys())[0]
+            csr_name = csr_asm_name(list(csr_config.keys())[0], csr_config_)
             subfield_name = list(subfield.keys())[0]
             subfield_val = list(subfield.values())[0]
             value_from_reg = value_in_reg

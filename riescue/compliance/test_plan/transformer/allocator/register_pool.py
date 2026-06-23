@@ -1,12 +1,15 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 from typing import Optional
 
 from coretp.isa import Register, RISCV_REGISTERS
 from coretp.rv_enums import RegisterClass, OperandType
 
 from riescue.compliance.test_plan.context import LoweringContext
+
+log = logging.getLogger(__name__)
 
 
 class RegisterPool:

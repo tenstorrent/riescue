@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 class PmaGenerator:
     """
     Generates PMA regions from hints and configuration.
-    Respects the 16 PMA limit (15 usable + 1 default).
+    Respects the PMA region limit from ``PmaConfig.max_regions``.
 
     :param pma_config: PMA configuration from cpuconfig.json (optional)
     :param memory: Memory configuration with DRAM/IO ranges
