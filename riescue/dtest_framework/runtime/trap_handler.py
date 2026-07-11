@@ -408,7 +408,7 @@ class InterruptHandler:
             it is emitted in the machine table (which runs in M mode after the
             ``0xf0001005`` syscall switches privilege),
           - load the bit mask into ``t2`` (the jump table does ``csrc hvip, t2``),
-          - stash the CSR id into ``machine_csr_jump_table_flags`` and ecall.
+          - stash the CSR id into this hart's ``machine_csr_jump_table_flags`` (hart-local) and ecall.
 
         The syscall mechanism preserves ``t2`` across the privilege switch and
         returns to the instruction following the ecall, so the ISR can continue
@@ -439,11 +439,14 @@ class InterruptHandler:
             )
         parsed = self.pool.get_parsed_csr_access(csr_name, operation, force_machine_rw=True)
 
+        # csr_id -> this hart's flag; tp is the test's in the ISR, so address via the scratch CSR.
+        assert self.variable_manager is not None
+        flag = self.variable_manager.get_variable("machine_csr_jump_table_flags")
         return [
             f"    li t2, {imm_value}",
-            "    li x31, machine_csr_jump_table_flags",
-            f"    li t0, {parsed.csr_id}",
-            "    sd t0, 0(x31)",
+            f"    csrr t1, {self.scratch_reg}",
+            f"    li t5, {parsed.csr_id}",
+            "    " + flag.store(src_reg="t5", base_reg="t1"),
             "    li x31, 0xf0001005",
             "    ecall",
         ]
@@ -999,12 +1002,51 @@ class TrapHandler(AssemblyGenerator):
         save_context += self.variable_manager.enter_hart_context(scratch=self.scratch_reg)
         if self.featmgr.save_restore_gprs:
             save_context += "\n\t" + self.save_gprs(self.scratch_reg)
+            # save_gprs spilled the *clobbered* t0/t1 (the trap-entry prologue uses
+            # them to classify interrupt-vs-exception). Overwrite their slots with
+            # the originals stashed by dispatch_save_prologue() so the interrupted
+            # code sees t0/t1 unchanged on return -- required for transparent
+            # asynchronous traps (icount/sdtrig breakpoints landing mid-sequence).
+            disp = self.variable_manager.get_variable("trap_dispatch_save")
+            gpr = self.variable_manager.get_variable("gpr_save_area")
+            save_context += "\n\t" + "\n\t".join(
+                [
+                    "# Restore original t0/t1 into their GPR save slots",
+                    disp.load("t0", index=0),
+                    gpr.store("t0", index=5),
+                    disp.load("t0", index=1),
+                    gpr.store("t0", index=6),
+                ]
+            )
 
         save_context += f"""
             la t0, {self.trap_panic_label}
             csrw {self.tvec}, t0
         """
         return save_context
+
+    def dispatch_save_prologue(self) -> str:
+        """Stash t0/t1 before the mcause classification clobbers them.
+
+        The trap handler reads xcause into t0 and builds the interrupt-bit mask in
+        t1 *before* save_context() spills the GPRs, so the interrupted code's t0/t1
+        would otherwise be lost. Swap in the hart context, spill t0/t1 to the
+        ``trap_dispatch_save`` scratch, then swap back so the classification and any
+        FeatMgr exception-override dispatch run with exactly the entry register
+        state. save_context() copies these originals into gpr_save_area[5]/[6].
+        """
+        if not self.featmgr.save_restore_gprs:
+            return ""
+        disp = self.variable_manager.get_variable("trap_dispatch_save")
+        return "\n\t".join(
+            [
+                "# Preserve dispatch temporaries (t0/t1) across the trap",
+                f"csrrw tp, {self.scratch_reg}, tp",
+                disp.store("t0", index=0),
+                disp.store("t1", index=1),
+                f"csrrw tp, {self.scratch_reg}, tp",
+            ]
+        )
 
     def restore_trap_handler(self) -> str:
         """
@@ -1086,6 +1128,7 @@ class TrapHandler(AssemblyGenerator):
             equate_suffix = "_pa" if self.bare else ""
             ret = f"""
             {self.trap_handler_label}:
+            {self.dispatch_save_prologue()}
             csrr t0, {self.xcause}
             li t1, (0x1<<(XLEN-1))              # Isolate interrupt bit
             and t1, t1, t0
@@ -1164,6 +1207,7 @@ class TrapHandler(AssemblyGenerator):
             # Exceptions fall through to save context and enter the exception handler.
             ret = f"""
             {self.trap_handler_label}:
+            {self.dispatch_save_prologue()}
             csrr t0, {self.xcause}
             li t1, (0x1<<(XLEN-1))              # Isolate interrupt bit
             and t1, t1, t0

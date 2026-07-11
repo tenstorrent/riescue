@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+import sys
+import shlex
 import logging
 import argparse
 from pathlib import Path
@@ -15,6 +17,7 @@ from riescue.compliance.config import experimental_toolchain_from_args
 from riescue.lib.toolchain import Compiler, Disassembler, Spike, Whisper, Toolchain
 from riescue.lib.rand import initial_random_seed
 from riescue.lib.cli_base import CliBase
+from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
 
 log = logging.getLogger(__name__)
 
@@ -85,10 +88,26 @@ class RiescueC(CliBase):
         mode = ComplianceMode(cl_args.mode)  # "choices" in add_arguments should guard against invalid modes
         riescue_c = cls()
 
+        # Point the CSR manager at --csr_config (e.g. csr_config_internal.json) before any
+        # CsrManagerInterface is built. Resolve cwd-relative first, then relative to the package
+        # and its parent (repo root) -- mirrors RiescueD._resolve_path.
+        if getattr(cl_args, "csr_config", None) is not None:
+            csr_config = Path(cl_args.csr_config).resolve()
+            if not csr_config.exists():
+                csr_config = (riescue_c.package_path / cl_args.csr_config).resolve()
+            if not csr_config.exists():
+                csr_config = (riescue_c.package_path.parent / cl_args.csr_config).resolve()
+            CsrManagerInterface.set_csr_config_path(csr_config)
+
         seed = cl_args.seed
         if seed is None:
             seed = initial_random_seed()
         run_dir = cl_args.run_dir
+
+        # Print reproducible command (argv already has all args; append seed if auto-generated)
+        argv = sys.argv[1:] if args is None else list(args)
+        seed_suffix = ["--seed", str(seed)] if cl_args.seed is None else []
+        print("# Reproducible: riescue_c.py " + shlex.join(argv + seed_suffix))
 
         toolchain = experimental_toolchain_from_args(cl_args)
 

@@ -218,10 +218,10 @@ class AddressCluster:
             start_entry, end_entry = entry[0], entry[1]
             if self.rng.percent() < 50:
                 # case (1) -> allocate before the entry
-                start = (start_entry - size) & mask
+                start = ((start_entry - size) & mask) | constraint.or_mask
             else:
                 # case (2) -> allocate after the entry
-                start = (end_entry + 1) & mask
+                start = ((end_entry + 1) & mask) | constraint.or_mask
             end = start + size - 1
 
             # Look for reasons why this selection will not work

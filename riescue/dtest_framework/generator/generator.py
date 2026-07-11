@@ -22,9 +22,11 @@ from riescue.dtest_framework.parser import PmaInfo, ParsedPageMapping, Parser, P
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.config.pma_config import MAX_PMA_REGIONS
 from riescue.dtest_framework.lib.page_map import Page, PageMap
+from riescue.dtest_framework.lib.pma_generator import PmaGenerator, PmaRandomizer
 from riescue.dtest_framework.generator.assembly_writer import AssemblyWriter
 from riescue.dtest_framework.artifacts import GeneratedFiles
-from riescue.dtest_framework.config.memory import IoRange
+from riescue.dtest_framework.config.memory import DramRange, IoRange
+from riescue.lib.enums import PmpAttributes
 
 log = logging.getLogger(__name__)
 
@@ -191,24 +193,10 @@ class Generator:
         # This ensures that after PMP test scenarios restore original CSR values,
         # there's always a valid PMP entry allowing S-mode code execution.
         # The catchall is added as the last entry in pmpcfg0 (entry 1 if only DRAM range exists).
-        from riescue.dtest_framework.config.memory import DramRange
-        from riescue.lib.enums import PmpAttributes
-
         # Use a large power-of-two size to cover all practical memory addresses
         # size = 2^52 results in pmpaddr = 0x1FFFFFFFFFFFF (NAPOT covering 0x0 to 0x10000000000000)
         catchall_range = DramRange(start=0, size=2**52, permissions=PmpAttributes.R_W_X)
         self.pool.pmp_regions.add_region(range=catchall_range)
-
-        # Generate PMA regions from hints and configuration
-        self._generate_pma_from_hints(memory)
-
-        # Pre-allocate PMA regions for all in_pma=1 addresses
-        # This ensures all PMA regions are determined during initialization
-        self._pre_allocate_pma_regions_for_in_pma(memory)
-
-        self.addrgen = addrgen.AddrGen(
-            self.rng, memory, self.featmgr.addrgen_limit_indices, self.featmgr.addrgen_limit_way_predictor_multihit, pma_regions=self.pool.pma_regions  # Pass PMA regions for address checking
-        )
 
         # Set the linear and physical address bits
         self.linear_addr_bits = RV.RiscvPagingModes.linear_addr_bits(self.featmgr.paging_mode)
@@ -228,6 +216,33 @@ class Generator:
         self.featmgr.physical_addr_bits = self.physical_addr_bits
         log.debug(f"Using physical address bits: {self.physical_addr_bits}")
 
+        # Generate PMA regions from hints and configuration
+        self._generate_pma_from_hints(memory)
+
+        # Generate randomized decoy PMA regions (no-op unless enable_pma_randomization)
+        self._generate_random_pma_regions(memory)
+
+        # PMA placement bookkeeping: fully-reserved regions, per-region page spans, promised capacity
+        # Values keep a PmaInfo reference so id() keys stay live (consolidation copies can be GC'd)
+        self._fully_reserved_region_ids: set[int] = set()
+        self._pma_region_page_spans: dict[int, tuple["PmaInfo", list[tuple[int, int]]]] = {}
+        self._pma_region_promised: dict[int, tuple["PmaInfo", int]] = {}
+        # Derived buddy addrs placed inside their source's double-span allocation (see generate_addr)
+        self._span_placed_buddies: set[str] = set()
+
+        # Pre-allocate PMA regions for all in_pma=1 addresses
+        # This ensures all PMA regions are determined during initialization
+        self._pre_allocate_pma_regions_for_in_pma(memory)
+
+        self.addrgen = addrgen.AddrGen(
+            self.rng,
+            memory,
+            self.featmgr.addrgen_limit_indices,
+            self.featmgr.addrgen_limit_way_predictor_multihit,
+            pma_regions=self.pool.pma_regions,  # Pass PMA regions for address checking
+            excluded_pma_regions=self.pool.pma_random_regions,  # decoys: generated addresses must avoid these
+        )
+
     def _generate_pma_from_hints(self, memory) -> None:
         """
         Generate PMA regions from hints and configuration.
@@ -240,8 +255,6 @@ class Generator:
 
         :param memory: Memory configuration object
         """
-        from riescue.dtest_framework.lib.pma_generator import PmaGenerator
-
         # Get PMA config from feature manager
         pma_config = None
         if hasattr(self.featmgr, "cpu_config") and self.featmgr.cpu_config:
@@ -275,6 +288,99 @@ class Generator:
         if total_regions > max_regions:
             log.warning(f"Total PMA regions ({total_regions}) exceeds max_regions limit ({max_regions}). " f"Some regions may not be used.")
 
+    def _generate_random_pma_regions(self, memory) -> None:
+        """
+        Generate randomized decoy PMA regions when enable_pma_randomization is set.
+
+        Decoys are placed anywhere below 2^physical_addr_bits except fixed/known windows; generated
+        addresses avoid them via the AddrGen exclusion list, and the loader emits them at higher
+        priority than the memory-map regions so they are live under first-match-wins.
+
+        :param memory: Memory configuration object
+        """
+        if not self.featmgr.enable_pma_randomization:
+            return  # keep zero rng draws when disabled
+
+        blocked = self._fixed_blocked_intervals(memory)
+        for region in self.pool.pma_regions.consolidated_entries(merge_named=False):
+            if region.pma_name.startswith("pma_"):
+                blocked.append((region.pma_address, region.get_end_address()))
+
+        randomizer = PmaRandomizer(self.rng, self.featmgr.pma_random_mask_pct, self.physical_addr_bits)
+        self.pool.pma_random_regions.extend(randomizer.generate(self.featmgr.pma_random_regions, blocked))
+        log.info(f"Generated {len(self.pool.pma_random_regions)} randomized decoy PMA regions")
+
+    def _fixed_blocked_intervals(self, memory) -> "list[tuple[int, int]]":
+        """
+        Collect every fixed/known physical [start, end) interval decoys and masks must avoid.
+
+        :param memory: Memory configuration object
+        :return: List of blocked intervals (secure/reserved/custom, reset_pc, IO windows, fixed addrs)
+        """
+        blocked: list[tuple[int, int]] = []
+        for mem_range in memory.secure_ranges + memory.reserved_ranges + memory.custom_ranges:
+            blocked.append((mem_range.start, mem_range.start + mem_range.size))
+        blocked.append((self.featmgr.reset_pc, self.featmgr.reset_pc + 0x100_0000))
+        for io_addr, io_size in (
+            (self.featmgr.io_htif_addr, 0x1000),
+            (self.featmgr.io_imsic_mfile_addr, 0x10_0000),
+            (self.featmgr.io_imsic_sfile_addr, 0x10_0000),
+            (self.featmgr.io_imsic_vsfile_addr, 0x10_0000),
+            (self.featmgr.io_maplic_addr, self.featmgr.io_maplic_size or 0x10_0000),
+            (self.featmgr.io_saplic_addr, self.featmgr.io_saplic_size or 0x10_0000),
+            (self.featmgr.debug_rom_address, self.featmgr.debug_rom_size or 0x1000),
+        ):
+            if io_addr is not None:
+                blocked.append((io_addr, io_addr + io_size))
+        for parsed_addr in self.pool.get_parsed_addrs().values():
+            if parsed_addr.fixed_addr is not None:
+                blocked.append((parsed_addr.fixed_addr, parsed_addr.fixed_addr + max(parsed_addr.size or 0, 0x1000)))
+        for parsed_res_mem in self.pool.get_parsed_res_mems().values():
+            start = int(parsed_res_mem.start_addr, 16) if common.is_hex_number(parsed_res_mem.start_addr) else int(parsed_res_mem.start_addr)
+            blocked.append((start, start + parsed_res_mem.size))
+        for page_mapping in self.pool.get_parsed_page_mappings().values():
+            if page_mapping.phys_addr_specified:
+                phys_addr = int(page_mapping.phys_addr, 0)
+                blocked.append((phys_addr, phys_addr + (page_mapping.phys_address_size or 0x1000)))
+        return blocked
+
+    def _apply_carveout_masks(self) -> None:
+        """
+        Randomly mask named pma_* carve-out regions; force masks on pma_masked=1 regions.
+
+        A masked region still matches its own NAPOT base window (mask bits sit above the size),
+        so pages placed inside keep their attributes while whisper's masked-compare matching is
+        exercised on every access. Scattered windows are safety-checked against every foreign
+        allocation; masked regions are registered with addrgen so later page-table allocation
+        avoids their windows. Runs after all test allocations, before writer.write().
+        """
+        if not self.featmgr.enable_pma_randomization:
+            return  # keep zero rng draws when disabled
+
+        carveouts = [r for r in self.pool.pma_regions.consolidated_entries(merge_named=False) if r.pma_name.startswith("pma_") and r.pma_address != 0]
+        if not carveouts:
+            return
+
+        blocked = self._fixed_blocked_intervals(self.featmgr.memory)
+        blocked.extend(self.addrgen.allocated_physical_intervals())
+        blocked.extend((decoy.pma_address, decoy.get_end_address()) for decoy in self.pool.pma_random_regions)
+
+        randomizer = PmaRandomizer(self.rng, self.featmgr.pma_carveout_mask_pct, self.physical_addr_bits)
+        for region in carveouts:
+            # Drop intervals fully inside the region's own span: every mask matches its own base window
+            span_start, span_end = region.pma_address, region.get_end_address()
+            blocked_other = [iv for iv in blocked if not (iv[0] >= span_start and iv[1] <= span_end)]
+            if region.pma_mask_requested:
+                if not randomizer.apply_random_mask(region, blocked_other, force=True):
+                    raise ValueError(
+                        f"pma_masked region '{region.pma_name}' (base=0x{region.pma_address:x}, size=0x{region.pma_size:x}): " f"no safe pmamask found after {randomizer.MASK_ATTEMPTS} attempts"
+                    )
+            else:
+                randomizer.apply_random_mask(region, blocked_other)
+            if region.pma_mask:
+                self.addrgen.exclude_pma_region(region)
+                log.info(f"Masked carve-out region {region.pma_name}: mask=0x{region.pma_mask:x}")
+
     def _pre_allocate_pma_regions_for_in_pma(self, memory) -> None:
         """
         Pre-allocate PMA regions for all addresses with in_pma=1.
@@ -284,8 +390,6 @@ class Generator:
 
         :param memory: Memory configuration object
         """
-        from riescue.dtest_framework.lib.pma import PmaInfo
-
         # Get PMA config to check max_regions
         pma_config = None
         if hasattr(self.featmgr, "cpu_config") and self.featmgr.cpu_config:
@@ -309,6 +413,12 @@ class Generator:
             log.debug("No addresses with in_pma=1 found, skipping pre-allocation")
             return
 
+        if not self.featmgr.enable_pma_randomization:
+            for addr_name, parsed_addr in in_pma_addresses:
+                if parsed_addr.pma_masked:
+                    # Legacy loader emits pmacfg=0 for pma_valid regions, so a masked-legacy region is nonsense
+                    raise ValueError(f"random_addr {addr_name}: pma_masked=1 requires --enable_pma_randomization")
+
         log.info(f"Pre-allocating PMA regions for {len(in_pma_addresses)} addresses with in_pma=1")
 
         # Track pre-allocated regions (name -> PmaInfo)
@@ -325,16 +435,19 @@ class Generator:
             if parsed_addr.pma_info is None:
                 parsed_addr.pma_info = PmaInfo()
 
-            # Set default pma_size if not specified
-            if parsed_addr.pma_info.pma_size == 0:
-                parsed_addr.pma_info.pma_size = parsed_addr.size
+            # Default pma_size if unspecified; the region must cover the whole allocation
+            parsed_addr.pma_info.pma_size = max(parsed_addr.pma_info.pma_size, parsed_addr.size)
 
-            # Try to find matching existing PMA hint region
-            matching_region = self._find_matching_pma_region(parsed_addr.pma_info)
+            # Try to find matching existing PMA hint region (bound decoys by the page's addressable range)
+            matching_region = self._find_matching_pma_region(
+                parsed_addr.pma_info,
+                max_end=1 << (parsed_addr.addr_bits or self.linear_addr_bits),
+                require_masked=bool(parsed_addr.pma_masked),
+            )
 
             # If no hint region matches, check if we've already pre-allocated a region with matching attributes
             if not matching_region:
-                # Create a key from PMA attributes to check for sharing
+                # Create a key from PMA attributes to check for sharing (masked requests never share unmasked)
                 attr_key = (
                     parsed_addr.pma_info.pma_memory_type,
                     parsed_addr.pma_info.pma_cacheability,
@@ -344,18 +457,24 @@ class Generator:
                     parsed_addr.pma_info.pma_execute,
                     parsed_addr.pma_info.pma_amo_type,
                     parsed_addr.pma_info.pma_routing_to,
+                    bool(parsed_addr.pma_masked),
                 )
                 # Check if we've already pre-allocated a region with these attributes
                 if attr_key in pre_allocated_by_attrs:
-                    existing_pre_alloc = pre_allocated_by_attrs[attr_key]
-                    # Check if the existing region is large enough
-                    if existing_pre_alloc.pma_size >= parsed_addr.pma_info.pma_size:
+                    if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
+                        pass  # VA==PA: every mapped page anchors its own region at its lin address; no sharing
+                    else:
+                        # Share and grow the region so every sharer fits, incl. coarse-aligned ones (alignment from and_mask)
+                        existing_pre_alloc = pre_allocated_by_attrs[attr_key]
+                        request_step = parsed_addr.and_mask & -parsed_addr.and_mask if parsed_addr.and_mask else 0x1000
+                        existing_pre_alloc.pma_size += max(parsed_addr.pma_info.pma_size, request_step)
                         matching_region = existing_pre_alloc
-                        log.debug(f"Reusing pre-allocated region '{existing_pre_alloc.pma_name}' " f"for address {addr_name} (matching attributes)")
+                        log.debug(f"Sharing pre-allocated region '{existing_pre_alloc.pma_name}' " f"for address {addr_name}, grown to 0x{existing_pre_alloc.pma_size:x}")
 
             if matching_region:
                 # Reuse existing PMA hint region
                 log.debug(f"Reusing PMA hint region '{matching_region.pma_name}' " f"for address {addr_name}")
+                self._promise_region_capacity(matching_region, parsed_addr.pma_info.pma_size)
                 # Store reference to existing region
                 self._pre_allocated_pma_regions[addr_name] = matching_region
                 # Update parsed_addr to point to existing region
@@ -376,6 +495,7 @@ class Generator:
                     pma_combining=parsed_addr.pma_info.pma_combining,
                     pma_routing_to=parsed_addr.pma_info.pma_routing_to,
                     pma_valid=True,
+                    pma_mask_requested=bool(parsed_addr.pma_masked),
                 )
 
                 # Store pre-allocated region
@@ -393,6 +513,7 @@ class Generator:
                     pma_info.pma_execute,
                     pma_info.pma_amo_type,
                     pma_info.pma_routing_to,
+                    pma_info.pma_mask_requested,
                 )
                 pre_allocated_by_attrs[attr_key] = pma_info
 
@@ -406,17 +527,20 @@ class Generator:
         new_regions = len(self._pre_allocated_pma_regions) - reused
         log.info(f"Pre-allocated PMA regions: {reused} reused from hints, {new_regions} new regions. " f"Remaining slots: {available_slots}")
 
-    def _find_matching_pma_region(self, pma_info: "PmaInfo") -> Optional["PmaInfo"]:
+    def _find_matching_pma_region(self, pma_info: "PmaInfo", max_end: Optional[int] = None, require_masked: bool = False) -> Optional["PmaInfo"]:
         """
         Find an existing PMA region that matches the given PMA attributes.
 
         :param pma_info: PMA info to match against
+        :param max_end: Skip decoy regions ending above this bound (page addressability limit)
+        :param require_masked: Only match regions that carry (or will carry) a forced pmamask
         :return: Matching PmaInfo if found, None otherwise
         """
-        from riescue.dtest_framework.lib.pma import PmaInfo
-
-        # Check consolidated entries (final PMA regions)
-        for region in self.pool.pma_regions.consolidated_entries():
+        # Check consolidated entries (final PMA regions); named regions stay unmerged so capacity tracking keys stay stable
+        for region in self.pool.pma_regions.consolidated_entries(merge_named=False):
+            # Masked requests only match masked/to-be-masked regions, and vice versa
+            if require_masked != (region.pma_mask != 0 or region.pma_mask_requested):
+                continue
             # Check if attributes match (excluding address and size)
             if (
                 region.pma_memory_type == pma_info.pma_memory_type
@@ -429,47 +553,110 @@ class Generator:
                 and region.pma_routing_to == pma_info.pma_routing_to
             ):
                 # Check if region has enough space (at least the requested size)
-                if region.pma_size >= pma_info.pma_size:
+                if region.pma_size >= pma_info.pma_size and self._pma_region_has_capacity(region, pma_info.pma_size):
                     return region
+
+        # Unmasked randomized decoys are also valid placement targets (masked ones match scattered
+        # windows, and decoy masks are not cross-validated against sibling decoys' spans; TODO)
+        for region in self.pool.pma_random_regions:
+            if region.pma_mask != 0 or require_masked:
+                continue
+            if max_end is not None and region.get_end_address() > max_end:
+                continue  # decoy lies beyond what this page's addr_bits can address
+            if region.attrib_matches(pma_info) and region.pma_size >= pma_info.pma_size and self._pma_region_has_capacity(region, pma_info.pma_size):
+                return region
 
         return None
 
-    def _generate_address_in_pma_region(self, region: "PmaInfo", constraints: addrgen.AddressConstraint) -> Optional[int]:
-        """
-        Generate an address within the specified PMA region.
+    def _promise_region_capacity(self, region: "PmaInfo", size: int) -> None:
+        """Record a promised placement so later matches can't overflow the region."""
+        self._pma_region_promised[id(region)] = (region, self._promised_bytes(region) + size)
 
-        :param region: PMA region to generate address within
-        :param constraints: Address constraints (size, mask, etc.)
-        :return: Generated address or None if not possible
-        """
-        # Ensure address fits within region
-        min_addr = region.pma_address
-        region_end = region.get_end_address()
-        max_addr = region_end - constraints.size
+    def _promised_bytes(self, region: "PmaInfo") -> int:
+        entry = self._pma_region_promised.get(id(region))
+        return entry[1] if entry else 0
 
-        # Check if region is large enough
-        if max_addr < min_addr or region.pma_size < constraints.size:
-            return None  # Region too small
+    def _pma_region_has_capacity(self, region: "PmaInfo", size: int) -> bool:
+        """Reject regions whose promised placements would overflow them."""
+        return region.pma_size - self._promised_bytes(region) >= size
 
-        # Ensure we have valid range
-        if max_addr <= min_addr:
-            return None
-
-        # Generate address within region bounds
+    def _anchor_pma_region(self, region: "PmaInfo", constraints: addrgen.AddressConstraint) -> None:
+        """Anchor a new in_pma region: pow2 size, size-aligned base, whole region reserved, decoys avoided."""
+        region.pma_size = 1 << max(12, (region.pma_size - 1).bit_length())
+        # Base alignment must satisfy both the NAPOT region size and the page constraint's alignment
+        alignment = max(region.pma_size, max(constraints.mask & -constraints.mask, 0x1000))
+        region_constraint = addrgen.AddressConstraint(
+            type=RV.AddressType.PHYSICAL,
+            qualifiers=constraints.qualifiers,
+            bits=constraints.bits,
+            size=region.pma_size,
+            mask=(~(alignment - 1)) & 0xFFFFFFFFFFFFFFFF,
+        )
         try:
-            address = self.rng.random_in_range(min_addr, max_addr)
-        except ValueError:
-            return None  # Invalid range
+            region.pma_address = self.addrgen.generate_address(constraint=region_constraint)
+        except Exception as e:
+            raise addrgen.AddrGenError(f"Could not anchor PMA region '{region.pma_name}' (size 0x{region.pma_size:x})") from e
+        self._fully_reserved_region_ids.add(id(region))
+        self.pool.pma_regions.add_entry(region)
+        log.debug(f"Anchored PMA region '{region.pma_name}' at 0x{region.pma_address:x}, size 0x{region.pma_size:x}")
 
-        # Apply alignment mask
-        address = address & constraints.mask
-        # Ensure it's still within bounds after alignment
-        if address < min_addr:
-            address = (min_addr + constraints.mask) & ~constraints.mask
-        if address + constraints.size > region_end:
-            return None  # Can't fit after alignment
+    def _place_in_pma_region(self, region: "PmaInfo", constraints: addrgen.AddressConstraint) -> Optional[int]:
+        """Collision-free random placement inside a region; reserves the span unless the region is fully reserved."""
+        size = constraints.size
+        step = max(constraints.mask & -constraints.mask, 0x1000)  # alignment granularity from the AND-mask
+        first = (region.pma_address + step - 1) & ~(step - 1)
+        last = min(region.get_end_address(), 1 << constraints.bits) - size
+        if last < first:
+            return None
+        num_slots = (last - first) // step + 1
+        fully_reserved = id(region) in self._fully_reserved_region_ids
+        taken = self._pma_region_page_spans.setdefault(id(region), (region, []))[1]
+        for _ in range(32):
+            address = first + self.rng.random_in_range(0, num_slots) * step
+            span_end = address + size
+            if any(start < span_end and address < end for start, end in taken):
+                continue
+            if not fully_reserved and self.addrgen.physical_overlap(address, size):
+                continue
+            taken.append((address, span_end))
+            if not fully_reserved:
+                self.addrgen.reserve_memory(address_type=RV.AddressType.PHYSICAL, start_address=address, size=size)
+            log.debug(f"Placed 0x{address:x} (+0x{size:x}) in PMA region '{region.pma_name}'")
+            return address
+        return None
 
-        return address
+    def _pma_mapped_region_for_lin(self, lin_name: str) -> Optional[tuple["PmaInfo", str]]:
+        """Paging-disable: return (region, phys_name) of the pre-allocated PMA region mapped to this lin name."""
+        if not self.pool.parsed_page_mapping_with_lin_name_exists(lin_name):
+            return None
+        for map_key in self.pool.get_parsed_page_mapping_with_lin_name(lin_name):
+            parsed_page_mapping = self.pool.get_parsed_page_mapping(lin_name, map_key)
+            if parsed_page_mapping.phys_name in self._pre_allocated_pma_regions:
+                return self._pre_allocated_pma_regions[parsed_page_mapping.phys_name], parsed_page_mapping.phys_name
+        return None
+
+    def _resolved_lin_for_phys(self, phys_name: str) -> Optional[int]:
+        """Return the already-resolved linear address whose page mapping references phys_name."""
+        for (lin_name, _), parsed_page_mapping in self.pool.get_parsed_page_mappings().items():
+            if parsed_page_mapping.phys_name == phys_name and lin_name in self.pool.get_random_addrs():
+                return self.pool.get_random_addr(lin_name).address
+        return None
+
+    def _resolved_request_size(self, phys_name: str) -> int:
+        """Bytes phys_name's placement will request: directive size grown by any resolved mapping pagesize."""
+        size = self.pool.get_parsed_addr(phys_name).size if self.pool.parsed_random_addr_exists(addr_name=phys_name) else 0x1000
+        for (_, _), parsed_page_mapping in self.pool.get_parsed_page_mappings().items():
+            if parsed_page_mapping.phys_name != phys_name:
+                continue
+            if parsed_page_mapping.final_pagesize:  # unresolved (0) when paging is disabled
+                size = max(size, RV.RiscvPageSizes.memory(parsed_page_mapping.final_pagesize))
+            if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
+                size = max(size, parsed_page_mapping.gstage_vs_leaf_address_size)
+        return size
+
+    def _pma_region_demand(self, region: "PmaInfo") -> int:
+        """Total bytes all sharers of this pre-allocated region will place (mapping pagesizes resolve after pre-allocation)."""
+        return sum(self._resolved_request_size(name) for name, shared in self._pre_allocated_pma_regions.items() if shared is region)
 
     def generate(self, file_in: Path, generated_files: GeneratedFiles):
         """
@@ -492,6 +679,8 @@ class Generator:
         self.generate_addr()
         self.handle_page_mappings()
         self.generate_init_mem()
+        # After all test allocations are final but before writer.write() allocates page tables
+        self._apply_carveout_masks()
 
         self.writer.write(rasm=file_in, generated_files=generated_files)
 
@@ -910,16 +1099,37 @@ class Generator:
 
         return lin_addr
 
+    def _is_pinned_buddy_shape(self, random_addr) -> bool:
+        """
+        True when a derived random_addr fully pins to source^not_mask AND the buddy is the block
+        directly above the source: not_mask is a single bit equal to the request size, and the
+        source's and_mask clears that bit. Such buddies are placed inside the source's
+        double-span allocation instead of being allocated separately (see generate_addr).
+        """
+        if random_addr.derive_from is None:
+            return False
+        not_mask = random_addr.derive_not_mask
+        if random_addr.derive_and_mask != 0xFFFFFFFFFFFFFFFF or random_addr.derive_or_mask != 0:
+            return False
+        if not_mask == 0 or (not_mask & (not_mask - 1)) != 0 or not_mask != random_addr.size:
+            return False
+        if not self.pool.parsed_random_addr_exists(addr_name=random_addr.derive_from):
+            return False
+        source = self.pool.get_parsed_addr(random_addr.derive_from)
+        return source.size == random_addr.size and (source.and_mask & not_mask) == 0
+
     def handle_derived_random_addr(self, random_addr: ParsedRandomAddress):
         """
         Resolve a LINEAR random_addr whose address is derived from another, already-resolved
-        random_addr (``derive_from``) via AND/OR/NOT masks. Only the mask-selected bits are
-        constrained relative to the source ``S``; the remaining bits are randomized by addrgen
-        to a free, non-overlapping address ("pinned bits + random rest"). NOT = XOR/flip.
-
-            effective_or  = derive_or_mask  | (derive_not_mask & ~S)   # flip-to-1 where S had 0
-            effective_and = derive_and_mask & ~(derive_not_mask & S)   # flip-to-0 where S had 1
-            new_LA = generate_address(mask=effective_and, or_mask=effective_or)
+        random_addr (``derive_from``). Bits selected by ``derive_and_mask`` are copied from the
+        source ``S``, flipped where ``derive_not_mask`` is set (XOR semantics); ``derive_or_mask``
+        bits are forced to 1; remaining (unselected) bits are randomized by addrgen to a free,
+        non-overlapping address. With the default all-ones ``derive_and_mask`` the result is
+        exactly ``S ^ derive_not_mask`` — e.g. not_mask=0x1000 on an 8KB-aligned source pins the
+        VA-adjacent buddy page above it. Buddy-shaped deriveds (``_is_pinned_buddy_shape``) are
+        placed directly inside their source's double-span reservation; any other pinned target
+        that overlaps an existing allocation fails loudly (AddrGenError) instead of silently
+        landing elsewhere.
         """
         addr_name = random_addr.name
         src_name = random_addr.derive_from
@@ -933,6 +1143,14 @@ class Generator:
         if random_addr.addr_bits is None:
             random_addr.addr_bits = self.linear_addr_bits
 
+        if addr_name in self._span_placed_buddies:
+            # The source allocated [S, S+2*size); the buddy slot is already reserved.
+            width_mask = (1 << random_addr.addr_bits) - 1
+            address = self.canonicalize_lin_addr((source_addr & width_mask) ^ random_addr.derive_not_mask)
+            log.debug(f"Adding span-placed buddy addr: {addr_name}, addr: {address:016x}")
+            self.pool.add_random_addr(addr_name=addr_name, addr=Address(name=addr_name, type=RV.AddressType.LINEAR, address=address))
+            return
+
         address_size = random_addr.size
         address_mask = random_addr.and_mask
         # Respect the alignment/mask of the page_mapping that references this linear name (mirrors
@@ -942,9 +1160,18 @@ class Generator:
                 parsed_page_mapping = self.pool.get_parsed_page_mapping(addr_name, map_key)
                 address_mask = address_mask & parsed_page_mapping.address_mask
 
+        # Pin math runs on the raw addr_bits-wide value (the pool stores the canonicalized form);
+        # canonicalize_lin_addr() re-extends the result below.
+        addr_width_mask = (1 << random_addr.addr_bits) - 1
+        source_raw = source_addr & addr_width_mask
         not_mask = random_addr.derive_not_mask
-        effective_or = random_addr.derive_or_mask | (not_mask & ~source_addr)
-        effective_and = (address_mask & random_addr.derive_and_mask & ~(not_mask & source_addr)) & 0xFFFFFFFFFFFFFFFF
+        selected = random_addr.derive_and_mask
+        # pin-to-1: source's set bits (selected, unflipped) + or_mask + flip-to-1; pin-to-0: the rest
+        # of the selected/flipped bits. Unselected bits stay random within address_mask.
+        pin_one = (random_addr.derive_or_mask | (source_raw & selected & ~not_mask) | (not_mask & ~source_raw)) & addr_width_mask
+        pin_zero = (((~source_raw & selected & ~not_mask) | (not_mask & source_raw)) & ~pin_one) & 0xFFFFFFFFFFFFFFFF
+        effective_or = pin_one
+        effective_and = ((address_mask & ~pin_zero) | pin_one) & 0xFFFFFFFFFFFFFFFF
         if effective_and == 0:
             raise ValueError(f"derived random_addr {addr_name!r}: effective and-mask is 0 (and_mask/not_mask cleared every bit); cannot generate")
 
@@ -964,9 +1191,13 @@ class Generator:
         log.debug(f"Adding derived addr: {addr_name}, addr: {address:016x}")
         self.pool.add_random_addr(addr_name=addr_name, addr=Address(name=addr_name, type=RV.AddressType.LINEAR, address=address))
 
-    def handle_random_addr(self, random_addr: ParsedRandomAddress):
+    def handle_random_addr(self, random_addr: ParsedRandomAddress, lin_span_override: Optional[int] = None):
         """
         Generate addresses for left over random_addrs
+
+        :param lin_span_override: when set (pinned-buddy sources, see generate_addr), the LINEAR
+            allocation reserves this many bytes at the source's alignment so the derived buddy
+            block above the source stays free.
         """
         addr_name = random_addr.name
         addr_type = random_addr.type
@@ -1002,7 +1233,8 @@ class Generator:
             log.debug(f"Random Address {addr_name} already exists in a page mapping")
             for map_key in self.pool.get_parsed_page_mapping_with_lin_name(addr_name):
                 parsed_page_mapping = self.pool.get_parsed_page_mapping(addr_name, map_key)
-                address_mask = parsed_page_mapping.address_mask
+                # AND-combine so a directive's stricter and_mask survives alongside the mapping's page alignment
+                address_mask = address_mask & parsed_page_mapping.address_mask
                 log.debug(f"parsed_page_mapping address_mask: 0x{address_mask:x}")
                 phys_address_size = RV.RiscvPageSizes.memory(parsed_page_mapping.final_pagesize)
                 phys_address_mask = RV.RiscvPageSizes.address_mask(parsed_page_mapping.final_pagesize)
@@ -1032,15 +1264,44 @@ class Generator:
                 type=RV.AddressType.LINEAR,
                 # address_bits=int(re.findall(r'linear(\d+)', random_addr.type)[0]),
                 bits=random_addr.addr_bits,
-                size=address_size,
+                size=lin_span_override or address_size,
                 mask=address_mask,
                 or_mask=random_addr.or_mask,
             )
             log.debug(f"Adding addr: {addr_name}, constraint: {address_contstaint}")
-            try:
-                address_orig = self.addrgen.generate_address(constraint=address_contstaint)
-            except Exception as e:
-                raise Exception(f"Encountered exception generating linear address for {addr_name}") from e
+            # Paging disabled + PMA-mapped page: VA==PA, so the LIN address decides the physical
+            # placement and must land inside the phys directive's PMA region.
+            pma_owner = owner_phys_name = None
+            if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE and no_custom_region:
+                owner = self._pma_mapped_region_for_lin(addr_name)
+                if owner is not None:
+                    pma_owner, owner_phys_name = owner
+            if pma_owner is not None:
+                if owner_phys_name in self.pool.get_random_addrs():
+                    # VA==PA and the phys partner already resolved (declared first): adopt its slot
+                    address_orig = self.pool.get_random_addr(owner_phys_name).address
+                else:
+                    if pma_owner.pma_address == 0:
+                        # Anchor in the space the phys directive asks for (io=1 means an MMIO window)
+                        phys_is_io = self.pool.parsed_random_addr_exists(addr_name=owner_phys_name) and self.pool.get_parsed_addr(owner_phys_name).io
+                        anchor_constraint = addrgen.AddressConstraint(
+                            type=RV.AddressType.PHYSICAL,
+                            qualifiers={RV.AddressQualifiers.ADDRESS_MMIO if phys_is_io else RV.AddressQualifiers.ADDRESS_DRAM},
+                            bits=min(random_addr.addr_bits, self.physical_addr_bits),
+                            size=address_size,
+                            mask=address_mask,
+                        )
+                        pma_owner.pma_size = max(pma_owner.pma_size, self._pma_region_demand(pma_owner))
+                        self._anchor_pma_region(pma_owner, anchor_constraint)
+                    address_orig = self._place_in_pma_region(pma_owner, address_contstaint)
+                    if address_orig is None:
+                        raise addrgen.AddrGenError(f"Could not place '{addr_name}' inside PMA region '{pma_owner.pma_name}' (paging disabled)")
+                self.addrgen.reserve_memory(address_type=RV.AddressType.LINEAR, start_address=address_orig, size=lin_span_override or address_size)
+            else:
+                try:
+                    address_orig = self.addrgen.generate_address(constraint=address_contstaint)
+                except Exception as e:
+                    raise Exception(f"Encountered exception generating linear address for {addr_name}") from e
             address = self.canonicalize_lin_addr(address_orig)
             log.debug(f"Adding addr: {addr_name}, addr: {address:016x}")
 
@@ -1084,17 +1345,33 @@ class Generator:
             # Check if this address has a pre-allocated PMA region
             use_pma_region = False
             if addr_name in self._pre_allocated_pma_regions:
+                if random_addr.custom_region is not None:
+                    raise ValueError(f"random_addr {addr_name}: in_pma=1 cannot be combined with custom_region (region placement ignores the bound)")
+                # Anchor new regions wholesale (aligned + fully reserved), then collision-free placement
                 pre_allocated_region = self._pre_allocated_pma_regions[addr_name]
-
-                # If region already has an address (reused from hint), generate within it
-                # But only if the region is large enough and address is set
-                if pre_allocated_region.pma_address != 0 and pre_allocated_region.pma_size >= phys_address_size:
-                    log.debug(f"Using pre-allocated PMA region '{pre_allocated_region.pma_name}' " f"for address {addr_name}")
-                    address = self._generate_address_in_pma_region(pre_allocated_region, address_contstaint)
+                lin_address = self._resolved_lin_for_phys(addr_name) if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE else None
+                if lin_address is not None:
+                    # VA==PA: the page mapping forces phys=lin, so adopt lin and anchor the region on it
+                    if pre_allocated_region.pma_address == 0:
+                        pre_allocated_region.pma_size = 1 << max(12, (pre_allocated_region.pma_size - 1).bit_length())
+                        base = lin_address & ~(pre_allocated_region.pma_size - 1)
+                        if base != lin_address:
+                            log.warning(f"PMA region '{pre_allocated_region.pma_name}' NAPOT-aligns below its page " f"(0x{base:x} < 0x{lin_address:x}); attributes bleed onto the neighbor")
+                        pre_allocated_region.pma_address = base
+                        self._fully_reserved_region_ids.add(id(pre_allocated_region))
+                        self.pool.pma_regions.add_entry(pre_allocated_region)
+                        self.addrgen.reserve_memory(address_type=RV.AddressType.PHYSICAL, start_address=base, size=pre_allocated_region.pma_size)
+                    address = lin_address
+                    use_pma_region = True
+                else:
+                    if pre_allocated_region.pma_address == 0:
+                        # Mapping pagesizes resolve after pre-allocation; grow to what every sharer will place
+                        pre_allocated_region.pma_size = max(pre_allocated_region.pma_size, self._pma_region_demand(pre_allocated_region))
+                        self._anchor_pma_region(pre_allocated_region, address_contstaint)
+                    address = self._place_in_pma_region(pre_allocated_region, address_contstaint)
                     if address is None:
-                        log.warning(f"Could not generate address within PMA region " f"'{pre_allocated_region.pma_name}' for {addr_name}, " f"falling back to normal generation")
-                    else:
-                        use_pma_region = True
+                        raise addrgen.AddrGenError(f"Could not place '{addr_name}' (size 0x{phys_address_size:x}) " f"inside PMA region '{pre_allocated_region.pma_name}'")
+                    use_pma_region = True
 
             if not use_pma_region:
                 # Normal address generation
@@ -1102,33 +1379,6 @@ class Generator:
                     address = self.addrgen.generate_address(constraint=address_contstaint)
                 except Exception as e:
                     raise Exception(f"Encountered exception generating physical address for {addr_name}") from e
-
-                # If we have a pre-allocated region (but no address yet), update it
-                if addr_name in self._pre_allocated_pma_regions:
-                    pre_allocated_region = self._pre_allocated_pma_regions[addr_name]
-                    if pre_allocated_region.pma_address == 0:
-                        # For shared regions, we need to ensure the address is within the region
-                        # But since we don't know the region address yet, we'll set it to the first generated address
-                        # and subsequent addresses in the same region will be generated within it
-                        pre_allocated_region.pma_address = address
-                        # Only add to pool if not already added (might be shared with other addresses)
-                        existing_region = self.pool.pma_regions.find_region_for_address(address)
-                        if existing_region is None or existing_region.pma_address != address:
-                            # Add to pool (will be consolidated later)
-                            self.pool.pma_regions.add_entry(pre_allocated_region)
-                        log.debug(f"Updated pre-allocated PMA region '{pre_allocated_region.pma_name}' " f"with address 0x{address:x} for {addr_name}")
-                    else:
-                        # Region already has an address (shared region), try to generate within it
-                        # But only if the region is large enough and we can fit the address
-                        if pre_allocated_region.pma_size >= phys_address_size:
-                            # Calculate valid range within the region
-                            region_min = pre_allocated_region.pma_address
-                            region_max = pre_allocated_region.get_end_address() - phys_address_size
-                            if region_max >= region_min:
-                                address_in_region = self._generate_address_in_pma_region(pre_allocated_region, address_contstaint)
-                                if address_in_region is not None:
-                                    address = address_in_region
-                                    log.debug(f"Generated address 0x{address:x} within shared PMA region " f"'{pre_allocated_region.pma_name}' for {addr_name}")
 
             if marked_secure and self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE:
                 address = address | (1 << 55)
@@ -2677,7 +2927,27 @@ class Generator:
                     page_count = 1
                 return page_count
 
-            # C sections: contiguous VA, independent PA per section
+            # C sections: contiguous VA, independent PA per section.
+            #
+            # Reserve the entire contiguous VA region up front (on the first C section) so the
+            # randomly-chosen base is guaranteed to fit ALL C sections. The sections below are then
+            # placed at forced, contiguous VAs inside this reserved block. Without reserving the
+            # whole block first, only each section's own block is validated against existing
+            # reservations; the forced march for later sections can then run past the base block
+            # and silently overlap an already-placed section (e.g. hart_context), corrupting its
+            # mapping. This mirrors how other multi-page regions (hart_context, runtime, data)
+            # reserve the full block in their first allocation and then fill it with forced pages.
+            if self.next_c_section_lin_addr is None:
+                region_size = 0x1000 * sum(get_page_count(s) for s in self.c_used_sections)
+                lin_addr_bits = min(self.linear_addr_bits, self.pool.get_min_linear_addr_bits_for_page_maps())
+                region_constraint = addrgen.AddressConstraint(
+                    type=RV.AddressType.LINEAR,
+                    bits=lin_addr_bits,
+                    mask=common.address_mask_from_size(region_size),
+                    size=region_size,
+                )
+                self.next_c_section_lin_addr = self.canonicalize_lin_addr(self.addrgen.generate_address(constraint=region_constraint))
+
             num_total_pages = get_page_count(section)
             page_name = section
             is_code = True if "runtime" in section else False
@@ -2729,6 +2999,7 @@ class Generator:
                 iscode=False,
                 phys_name=f"__section_{ctx}",
             )
+            hc_base_phys = phys_addr
 
             # Additional pages (page table entries only, no linker sections)
             alloc_lin_addr = lin_addr + page_size
@@ -2747,6 +3018,36 @@ class Generator:
                 )
                 alloc_lin_addr = lin_addr + page_size
                 alloc_phys_addr = phys_addr + page_size
+
+            # U=1 alias of hart_context for user-mode access.
+            # Same physical pages, fresh VA, U bit set. Used by OS_SETUP_CHECK_EXCP
+            # when force_user=1 so VU/U-mode code can write hart context without
+            # needing sstatus.SUM=1 on the supervisor-only hart_context mapping.
+            if self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE:
+                (alias_lin_addr, _) = self.add_section_handler(
+                    name="hart_context_user",
+                    size=page_size * num_pages,
+                    iscode=False,
+                    phys_name=f"__section_{ctx}_user",
+                    start_addr=hc_base_phys,
+                    skip_linker=True,
+                    always_user=True,
+                )
+                alloc_alias_lin_addr = alias_lin_addr + page_size
+                alloc_alias_phys_addr = hc_base_phys + page_size
+                for i in range(1, num_pages):
+                    (alias_lin_addr, _) = self.add_section_handler(
+                        name=f"__page_{ctx}_user_{i}",
+                        size=page_size,
+                        iscode=False,
+                        phys_name=f"__section___page_{ctx}_user_{i}",
+                        start_addr=alloc_alias_phys_addr,
+                        start_lin_addr=alloc_alias_lin_addr,
+                        skip_linker=True,
+                        always_user=True,
+                    )
+                    alloc_alias_lin_addr = alias_lin_addr + page_size
+                    alloc_alias_phys_addr = alloc_alias_phys_addr + page_size
 
             # Hart stacks (each is already 1 page)
             for hid in range(self.featmgr.num_cpus):
@@ -3158,15 +3459,26 @@ class Generator:
                 self.handle_normal_page_mappings(page_mapping)
 
         # Now handle random_address entries.
+        # Sources with exactly one pinned-buddy derived (buddy VA = source VA + size, see
+        # _is_pinned_buddy_shape) allocate a double span so the buddy slot can never be stolen:
+        # the allocator's NEAR heuristic packs later allocations directly adjacent to earlier
+        # ones, which otherwise lands something on the buddy page between Pass A and Pass B.
+        buddy_deriveds_by_source: dict[str, list[str]] = {}
+        for addr_name, rand_addr in self.pool.get_parsed_addrs().items():
+            if self._is_pinned_buddy_shape(rand_addr):
+                buddy_deriveds_by_source.setdefault(rand_addr.derive_from, []).append(addr_name)
+        span_sources = {name for name, deriveds in buddy_deriveds_by_source.items() if len(deriveds) == 1}
+        self._span_placed_buddies = {buddy_deriveds_by_source[name][0] for name in span_sources}
         # Pass A: non-derived addresses (sources resolve here). This preserves the original RNG
         # draw order for all existing (non-derived) random_addrs => fully backwards compatible.
         for addr_name, rand_addr in self.pool.get_parsed_addrs().items():
-            if addr_name not in self.pool.get_random_addrs() and getattr(rand_addr, "derive_from", None) is None:
+            if addr_name not in self.pool.get_random_addrs() and rand_addr.derive_from is None:
                 log.debug(f"random_addr {addr_name}")
-                self.handle_random_addr(random_addr=rand_addr)
+                span = rand_addr.size * 2 if addr_name in span_sources else None
+                self.handle_random_addr(random_addr=rand_addr, lin_span_override=span)
         # Pass B: derived addresses, whose source address is guaranteed resolved by Pass A.
         for addr_name, rand_addr in self.pool.get_parsed_addrs().items():
-            if addr_name not in self.pool.get_random_addrs() and getattr(rand_addr, "derive_from", None) is not None:
+            if addr_name not in self.pool.get_random_addrs() and rand_addr.derive_from is not None:
                 log.debug(f"derived random_addr {addr_name}")
                 self.handle_derived_random_addr(random_addr=rand_addr)
 

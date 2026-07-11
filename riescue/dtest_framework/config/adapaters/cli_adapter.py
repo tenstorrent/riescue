@@ -10,6 +10,7 @@ from argparse import Namespace
 import riescue.lib.enums as RV
 from .adapter import Adapter
 from ..candidate import Candidate
+from ..pma_config import MAX_PMA_REGIONS
 
 if TYPE_CHECKING:
     from ..builder import FeatMgrBuilder
@@ -122,7 +123,25 @@ class CliAdapter(Adapter):
         if cmdline.needs_pma is not None:
             featmgr.needs_pma = cmdline.needs_pma
         if cmdline.num_pmas is not None:
+            if not 2 <= cmdline.num_pmas <= MAX_PMA_REGIONS:
+                raise ValueError(f"--num_pmas must be between 2 and {MAX_PMA_REGIONS}, got {cmdline.num_pmas}")
             featmgr.num_pmas = cmdline.num_pmas
+        if cmdline.enable_pma_randomization is not None:
+            featmgr.enable_pma_randomization = cmdline.enable_pma_randomization
+        if cmdline.pma_random_regions is not None:
+            if cmdline.pma_random_regions < 0:
+                raise ValueError(f"--pma_random_regions must be >= 0, got {cmdline.pma_random_regions}")
+            featmgr.pma_random_regions = cmdline.pma_random_regions
+        if cmdline.pma_random_mask_pct is not None:
+            if not 0 <= cmdline.pma_random_mask_pct <= 100:
+                raise ValueError(f"--pma_random_mask_pct must be 0-100, got {cmdline.pma_random_mask_pct}")
+            featmgr.pma_random_mask_pct = cmdline.pma_random_mask_pct
+        if cmdline.pma_carveout_mask_pct is not None:
+            if not 0 <= cmdline.pma_carveout_mask_pct <= 100:
+                raise ValueError(f"--pma_carveout_mask_pct must be 0-100, got {cmdline.pma_carveout_mask_pct}")
+            featmgr.pma_carveout_mask_pct = cmdline.pma_carveout_mask_pct
+        if featmgr.enable_pma_randomization:
+            featmgr.needs_pma = True
 
         if cmdline.no_random_csr_reads is not None:
             featmgr.no_random_csr_reads = cmdline.no_random_csr_reads
@@ -249,6 +268,14 @@ class CliAdapter(Adapter):
             featmgr.vs_randomization_values = vals
         if cmdline.num_cpus is not None:
             featmgr.num_cpus = cmdline.num_cpus
+
+        if cmdline.hart_ids is not None:
+            featmgr.hart_ids = cmdline.hart_ids
+            if cmdline.num_cpus is None:
+                # An explicit hart-id list defines the number of harts.
+                featmgr.num_cpus = len(cmdline.hart_ids)
+            elif len(cmdline.hart_ids) != cmdline.num_cpus:
+                raise ValueError(f"--hart_ids has {len(cmdline.hart_ids)} entries but --num_cpus is {cmdline.num_cpus}; they must match")
 
         if cmdline.private_maps is not None:
             featmgr.private_maps = cmdline.private_maps

@@ -32,6 +32,11 @@ class TestConfigAdapter(Adapter):
         if test_header.cpus:
             featmgr.num_cpus = self.setup_num_cpus(test_header.cpus)
 
+        # Handle ;#test.hart_ids
+        if test_header.hart_ids:
+            featmgr.hart_ids = self.setup_hart_ids(test_header.hart_ids)
+            featmgr.num_cpus = len(featmgr.hart_ids)
+
         # Handle ;#test.arch
         if test_header.arch:
             builder.arch = self.setup_arch(test_header.arch)
@@ -95,6 +100,23 @@ class TestConfigAdapter(Adapter):
             raise ValueError(f"Invalid number of CPUs: {num_cpus_raw}, expected unsigned integer")
         else:
             return int(num_cpus_raw)
+
+    def setup_hart_ids(self, hart_ids_header: str) -> list[int]:
+        "Parse a ;#test.hart_ids directive (comma-separated mhartid values) into a list of ints."
+        ids = []
+        for tok in hart_ids_header.split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            try:
+                ids.append(int(tok, 0))
+            except ValueError:
+                raise ValueError(f"Invalid hart id '{tok}' in ;#test.hart_ids, expected integers")
+        if not ids:
+            raise ValueError("';#test.hart_ids' must contain at least one hart id")
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"';#test.hart_ids' must be unique, got {ids}")
+        return ids
 
     def setup_env(self, env_header: str) -> Candidate[RV.RiscvTestEnv]:
         "CLI args needs to double check that the test_env_any is not specified"

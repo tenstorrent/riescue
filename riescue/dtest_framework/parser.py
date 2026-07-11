@@ -209,7 +209,7 @@ class Parser:
                 if re.match(r"in_pma", var):
                     rnd_inst.pma_info = PmaInfo()
                     rnd_inst.pma_info.__setattr__(var, val)
-                if re.match(r"pma_", var):
+                if re.match(r"pma_", var) and var != "pma_masked":
                     if rnd_inst.pma_info is None:
                         rnd_inst.pma_info = PmaInfo()
                     rnd_inst.pma_info.__setattr__(var, val)
@@ -226,6 +226,8 @@ class Parser:
                         val = match[0]
                     # val = int(val, 0)
                 rnd_inst.__setattr__(var, val)
+            if rnd_inst.pma_masked and not rnd_inst.in_pma:
+                raise ValueError(f"random_addr {rnd_inst.name}: pma_masked=1 requires in_pma=1")
             self.random_addrs[rnd_inst.name] = [rnd_inst]
             log.debug(f"Adding random_addr: {rnd_inst.name} to pool")
             self.pool.add_parsed_addr(rnd_inst)
@@ -1094,7 +1096,7 @@ class Parser:
         trigger_type = TriggerType.str_to_enum(args.get("type", "execute"))
         addr = args.get("addr", "")
         action = TriggerAction.str_to_enum(args.get("action", "breakpoint"))
-        size = int(args.get("size", 4))
+        size = int(args.get("size", 0))
         chain = int(args.get("chain", 0))
         match_type = TriggerMatch.str_to_enum(args.get("match", "equal"))
         count = int(args.get("count", 0))
@@ -1412,6 +1414,7 @@ class ParsedRandomAddress:
     or_mask: int = 0
     in_pma: bool = False
     pma_info: Optional[PmaInfo] = None
+    pma_masked: int = 0  # in_pma request must land in a region with a forced random pmamask
     secure: bool = False
     resolve_priority: int = 10
     custom_region: Optional[str] = None
@@ -1576,6 +1579,7 @@ class ParsedTestHeader:
     env: str = ""
     secure_mode: str = ""
     cpus: str = ""
+    hart_ids: str = ""
     paging: str = ""
     paging_g: str = ""
     arch: str = ""

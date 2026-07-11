@@ -27,6 +27,9 @@
 ;#test.summary    test05: Test multiple addresses within same PMA region (PMA CSR limit check)
 ;#test.summary    test06: Test pages allocated with adjacent PMA regions (boundary testing)
 ;#test.summary    test07: Test PMA regions with various page sizes (4KB, 2MB, 1GB)
+;#test.summary    test08: Shared region grows to every sharer's resolved (2MB) pagesize
+;#test.summary    test09: Physical in_pma declared before its linear partner (VA==PA adoption)
+;#test.summary    test10: io=1 + in_pma region anchors in an MMIO window
 
 #####################
 # PMA Hint Examples
@@ -179,6 +182,27 @@
 ;#random_addr(name=lin_test07_mixed2, type=linear, size=0x200000, and_mask=0xffffffffffe00000)
 ;#random_addr(name=phys_test07_mixed2, type=physical, size=0x200000, and_mask=0xffffffffffe00000, in_pma=1, pma_size=0x10000000, pma_memory_type=memory, pma_cacheability=noncacheable, pma_read=1, pma_write=1, pma_execute=1)
 ;#page_mapping(lin_name=lin_test07_mixed2, phys_name=phys_test07_mixed2, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb', '2mb'])
+
+# Test 08: Two same-attribute 4KB in_pma addresses share one region whose page mappings resolve
+# to 2MB pages after pre-allocation (region must grow to every sharer's resolved pagesize)
+;#random_addr(name=lin_test08_share1, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
+;#random_addr(name=phys_test08_share1, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=noncacheable, pma_read=1, pma_write=0, pma_execute=0)
+;#page_mapping(lin_name=lin_test08_share1, phys_name=phys_test08_share1, v=1, r=1, w=0, x=0, a=1, d=1, pagesize=['2mb'])
+
+;#random_addr(name=lin_test08_share2, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
+;#random_addr(name=phys_test08_share2, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=noncacheable, pma_read=1, pma_write=0, pma_execute=0)
+;#page_mapping(lin_name=lin_test08_share2, phys_name=phys_test08_share2, v=1, r=1, w=0, x=0, a=1, d=1, pagesize=['2mb'])
+
+# Test 09: Physical in_pma address declared BEFORE its linear partner (VA==PA adopts the phys slot
+# under paging disable instead of double-placing inside the exactly-sized region)
+;#random_addr(name=phys_test09_physfirst, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1, pma_amo_type=swap)
+;#random_addr(name=lin_test09_physfirst, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
+;#page_mapping(lin_name=lin_test09_physfirst, phys_name=phys_test09_physfirst, v=1, r=1, w=1, x=1, a=1, d=1)
+
+# Test 10: io=1 + in_pma=1 must anchor its region in an MMIO window, not DRAM
+;#random_addr(name=lin_test10_io, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
+;#random_addr(name=phys_test10_io, type=physical, size=0x1000, and_mask=0xfffffffffffff000, io=1, in_pma=1, pma_size=0x1000, pma_memory_type=io, pma_read=1, pma_write=1, pma_execute=0, pma_amo_type=none, pma_routing_to=noncoherent)
+;#page_mapping(lin_name=lin_test10_io, phys_name=phys_test10_io, v=1, r=1, w=1, x=0, a=1, d=1, pagesize=['4kb'])
 
 #####################
 # Test Code
@@ -404,6 +428,58 @@ test07_pass:
     ;#test_passed()
 
 test07_fail:
+    ;#test_failed()
+
+#####################
+# test08: Shared region grows to every sharer's resolved (2MB) pagesize
+#####################
+;#discrete_test(test=test08)
+test08:
+    # Region sizing regression: generation itself proves both 2MB sharers were placed
+    li x1, 0x88888888
+    beq x1, x1, test08_pass
+    j test08_fail
+
+test08_pass:
+    ;#test_passed()
+
+test08_fail:
+    ;#test_failed()
+
+#####################
+# test09: Phys-before-lin declaration resolves VA==PA consistently
+#####################
+;#discrete_test(test=test09)
+test09:
+    # Phys-first declaration regression: generation + a load through the lin mapping must work
+    li x1, lin_test09_physfirst
+    ld x3, 0(x1)
+    beq x1, x1, test09_pass
+    j test09_fail
+
+test09_pass:
+    ;#test_passed()
+
+test09_fail:
+    ;#test_failed()
+
+#####################
+# test10: io=1 + in_pma region anchors in an MMIO window
+#####################
+;#discrete_test(test=test10)
+test10:
+    # Aligned store/load on the io page (io windows sit below the DRAM base)
+    li x1, lin_test10_io
+    li x2, 0x1010101010101010
+    sd x2, 0(x1)
+    ld x3, 0(x1)
+    beq x2, x2, test10_pass
+    j test10_fail
+
+test10_pass:
+    ;#test_passed()
+
+test10_fail:
     ;#test_failed()
 
 test_cleanup:

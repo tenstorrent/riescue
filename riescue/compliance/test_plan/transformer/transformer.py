@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 from coretp import Instruction, TestEnv, InstructionCatalog
 from coretp.isa import Label, Register, RISCV_REGISTERS
+from coretp.rv_enums import PrivilegeMode
 
 from riescue.compliance.test_plan.types import DiscreteTest, TextSegment, DataSegment, GlobalFunction, DataPage, TestCase, MachineCodeSegment, SupervisorCodeSegment, TextBlock
 from riescue.lib.rand import RandNum
@@ -116,9 +117,9 @@ class Transformer:
             test_blocks.append(test_block)
 
         # Generate privilege mode jump tables
-        machine_code_segment = self._generate_privilege_code_jump_table(ctx, "machine", 0xF0001001)
-        supervisor_code_segment = self._generate_privilege_code_jump_table(ctx, "supervisor", 0xF0001002)
-        user_code_segment = self._generate_privilege_code_jump_table(ctx, "user", 0xF0001003)
+        machine_code_segment = self._generate_privilege_code_jump_table(ctx, PrivilegeMode.M, 0xF0001001)
+        supervisor_code_segment = self._generate_privilege_code_jump_table(ctx, PrivilegeMode.S, 0xF0001002)
+        user_code_segment = self._generate_privilege_code_jump_table(ctx, PrivilegeMode.U, 0xF0001003)
 
         text_segment = TextSegment(blocks=test_blocks)  # Test code
 
@@ -139,10 +140,17 @@ class Transformer:
 
         return text_segment, data_segment
 
+    # Map PrivilegeMode to the linker section name used by the runtime
+    _MODE_SECTION_NAMES: dict[PrivilegeMode, str] = {
+        PrivilegeMode.M: "code_machine_0",
+        PrivilegeMode.S: "code_super_0",
+        PrivilegeMode.U: "code_user_0",
+    }
+
     def _generate_privilege_code_jump_table(
         self,
         ctx: LoweringContext,
-        mode_name: str,
+        mode: PrivilegeMode,
         syscall_num: int,
     ) -> Optional[TestCase]:
         """
@@ -173,13 +181,15 @@ class Transformer:
         ```
 
         :param ctx: LoweringContext for transformation
-        :param mode_name: "machine" or "supervisor"
+        :param mode: Privilege mode for the code blocks
         :param syscall_num: The syscall number used to invoke this mode
         :return: TestCase containing the jump table, or None if no code blocks
         """
-        block_indices = set(ctx.privilege_block_instructions.for_mode(mode_name).keys())
+        block_indices = set(ctx.privilege_block_instructions[mode].keys())
         if not block_indices:
             return None
+
+        mode_name = mode.long_name()
 
         # Generate unique labels using rng
         uuid_suffix = self.rng.get_uuid()
@@ -189,12 +199,7 @@ class Transformer:
         lines: list[str] = []
 
         # Section header
-        if mode_name == "machine":
-            section_name = "code_machine_0"
-        elif mode_name == "supervisor":
-            section_name = "code_super_0"
-        else:  # user
-            section_name = "code_user_0"
+        section_name = self._MODE_SECTION_NAMES[mode]
         lines.append(f'.section .{section_name}, "ax"')
         lines.append(f"# {mode_name.capitalize()} code jump table - block index in s11")
 
@@ -216,7 +221,7 @@ class Transformer:
             lines.append(f"{label}:")
 
             # Use stored instructions
-            block_instructions = ctx.privilege_block_instructions.for_mode(mode_name)[block_idx]
+            block_instructions = ctx.privilege_block_instructions[mode].get(block_idx, [])
             for instr in block_instructions:
                 lines.append(f"    {instr.format()}")
 
@@ -371,18 +376,19 @@ class Transformer:
                         csr_access_contexts[csr_name].force_machine_rw = True
 
         # Second pass: analyze CSR accesses in privilege blocks
-        for block_instrs in ctx.privilege_block_instructions.all_blocks():
-            for instr in block_instrs:
-                csr_write = self._extract_csr_write(instr)
-                if csr_write:
-                    csr_name, _ = csr_write
-                    if csr_name not in csr_access_contexts:
-                        csr_access_contexts[csr_name] = CsrAccessContext()
-                    # Only mark as privileged if virtualized; otherwise treat as regular
-                    if is_virtualized:
-                        csr_access_contexts[csr_name].in_privileged = True
-                    else:
-                        csr_access_contexts[csr_name].in_regular = True
+        for mode_blocks in ctx.privilege_block_instructions.values():
+            for block_instrs in mode_blocks.values():
+                for instr in block_instrs:
+                    csr_write = self._extract_csr_write(instr)
+                    if csr_write:
+                        csr_name, _ = csr_write
+                        if csr_name not in csr_access_contexts:
+                            csr_access_contexts[csr_name] = CsrAccessContext()
+                        # Only mark as privileged if virtualized; otherwise treat as regular
+                        if is_virtualized:
+                            csr_access_contexts[csr_name].in_privileged = True
+                        else:
+                            csr_access_contexts[csr_name].in_regular = True
 
         # Filter out CSRs that are ONLY accessed within AssertException blocks
         # (they don't need save/restore since the access is expected to fault)
@@ -427,7 +433,7 @@ class Transformer:
             """Helper to emit CSR read + store instructions."""
             nonlocal space_index
             instruction_id = ctx.new_value_id()
-            csr_read = CsrApiInstruction(csr_name=csr_name, name="csrr", api_call="read", force_machine_rw=force_machine_rw, instruction_id=instruction_id)
+            csr_read = CsrApiInstruction(csr_name=csr_name, name="csrr", api_call="read", force_machine_rw=force_machine_rw, instruction_id=instruction_id, fixed_t2_dest=True)
             instructions.append(csr_read)
             instructions.append(self._create_sd_instruction(ctx, sp, t2, space_index))
             space_index_to_csr_info[space_index] = (csr_name, force_machine_rw)
@@ -498,7 +504,7 @@ class Transformer:
 
             # write t2 to CSR with appropriate force_machine_rw setting
             instruction_id = ctx.new_value_id()
-            csr_write = CsrApiInstruction(csr_name=csr_name, name="csrw", api_call="write", force_machine_rw=force_machine_rw, instruction_id=instruction_id)
+            csr_write = CsrApiInstruction(csr_name=csr_name, name="csrw", api_call="write", force_machine_rw=force_machine_rw, instruction_id=instruction_id, fixed_t2_dest=True)
             instructions.append(csr_write)
         return instructions
 
@@ -628,7 +634,7 @@ class Transformer:
         and returns the filtered instruction stream (without markers or block code).
         """
         result: list[Instruction] = []
-        current_block: Optional[tuple[str, int]] = None
+        current_block: Optional[tuple[PrivilegeMode, int]] = None
         current_block_instructions: list[Instruction] = []
 
         for instr in instructions:
@@ -639,7 +645,7 @@ class Transformer:
                 elif instr.marker_type == "end":
                     if current_block is not None:
                         mode, block_index = current_block
-                        ctx.privilege_block_instructions.for_mode(mode)[block_index] = current_block_instructions
+                        ctx.privilege_block_instructions[mode][block_index] = current_block_instructions
                         current_block = None
                         current_block_instructions = []
                 # Don't add marker to result

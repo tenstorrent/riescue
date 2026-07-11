@@ -58,7 +58,7 @@ class ParallelScheduler(Scheduler):
 
         code += f"""
         scheduler__dispatch_post_csr_read_randomization:
-                csrr {self.hartid_reg}, mhartid
+                {self.variable_manager.get_variable("hart_index").load(dest_reg=self.hartid_reg)}
                 slli s11, {self.hartid_reg}, 3
 
                 # Check if we are storing nonzero in held_locks for this hart, we hold it to this point for readability sake.

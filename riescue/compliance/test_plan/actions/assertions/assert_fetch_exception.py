@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 
 from coretp import Instruction, StepIR
 from coretp.step import AssertFetchException
-from coretp.rv_enums import Extension, Category, OperandType, Xlen, ExceptionCause, ExceptionHandlerMode
+from coretp.rv_enums import Extension, Category, OperandType, Xlen, ExceptionCause, ExceptionHandlerMode, PrivilegeMode
 from coretp.isa import Operand, get_register
 
 from riescue.compliance.test_plan.actions import Action, LabelAction, LiAction
@@ -82,6 +82,9 @@ class AssertFetchExceptionAction(AssertionBase):
         self.expected_mode: ExceptionHandlerMode = expected_mode
         self.expanded = False
         self.excp_return_label: Optional[str] = None
+        self.force_machine: bool = False
+        self.force_supervisor: bool = False
+        self.force_user: bool = False
 
     def repr_info(self) -> str:
         return f"{self.cause}, target={self.target}"
@@ -120,6 +123,16 @@ class AssertFetchExceptionAction(AssertionBase):
         if self.expanded:
             return None
         self.expanded = True
+
+        # Detect if we are inside a privilege code block and set the
+        # force_machine / force_supervisor / force_user flags so the OS_SETUP_CHECK_EXCP
+        # macro loads the hart context pointer correctly.
+        if ctx.current_privilege_mode == PrivilegeMode.M:
+            self.force_machine = True
+        elif ctx.current_privilege_mode == PrivilegeMode.S:
+            self.force_supervisor = True
+        elif ctx.current_privilege_mode == PrivilegeMode.U:
+            self.force_user = True
 
         self.excp_return_label = ctx.unique_label("fetch_excp_return_label")
 
@@ -192,8 +205,23 @@ class AssertFetchExceptionAction(AssertionBase):
                     name="expected_mode",
                     val=self.expected_mode.value,
                 ),
+                Operand(
+                    type=OperandType.IMM,
+                    name="force_machine",
+                    val="1" if self.force_machine else "0",
+                ),
+                Operand(
+                    type=OperandType.IMM,
+                    name="force_supervisor",
+                    val="1" if self.force_supervisor else "0",
+                ),
+                Operand(
+                    type=OperandType.IMM,
+                    name="force_user",
+                    val="1" if self.force_user else "0",
+                ),
             ],
-            formatter="OS_SETUP_CHECK_EXCP {cause}, {excp_label}, {excp_ret_label}, {tval}, {htval}, 0, 0, 0, {gva_check}, {expected_mode}",
+            formatter="OS_SETUP_CHECK_EXCP {cause}, {excp_label}, {excp_ret_label}, {tval}, {htval}, 0, 0, 0, {gva_check}, {expected_mode}, 0, 0, {force_machine}, {force_supervisor}, {force_user}",
             clobbers=[get_register("t0").name, get_register("t1").name, get_register("t2").name, get_register("t3").name, "x31"],
         )
         return macro

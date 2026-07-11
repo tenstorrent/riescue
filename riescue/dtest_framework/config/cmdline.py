@@ -5,6 +5,24 @@ import argparse
 from pathlib import Path
 
 
+def parse_hart_ids(value: str) -> list:
+    "argparse type for --hart_ids: parse a comma-separated list of mhartid values into a list of ints"
+    ids = []
+    for tok in value.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            ids.append(int(tok, 0))
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"Invalid hart id '{tok}' in --hart_ids; expected integers")
+    if not ids:
+        raise argparse.ArgumentTypeError("--hart_ids must contain at least one hart id")
+    if len(set(ids)) != len(ids):
+        raise argparse.ArgumentTypeError(f"--hart_ids must be unique, got {ids}")
+    return ids
+
+
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """
     Command line arguments for ``FeatMgr``.  Runtime arguments for ``RiescueD`` are in ``riescued.py``
@@ -23,6 +41,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--counter_event_path",
         type=Path,
         help="path to counter event file, used to randomize events in counter files",
+    )
+    parser.add_argument(
+        "--csr_config",
+        type=Path,
+        default=None,
+        help="Path to CSR config JSON. Defaults to riescue/lib/csr_manager/csr_config.json.",
     )
 
     logger_args = parser.add_argument_group("Logger", "Arguments to pass to logger")
@@ -139,6 +163,16 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Overrides number of CPUs provided in cpuconfig file or overridden in test file. Legal values are positive integers",
         type=int,
+    )
+    mp_args.add_argument(
+        "--hart_ids",
+        default=None,
+        help=(
+            "Comma-separated list of mhartid values to generate the test for (e.g. '0,2,4'). "
+            "Need not be contiguous. If omitted, hart IDs default to 0..num_cpus-1. "
+            "Configuring the ISS to present these mhartid values is the user's responsibility."
+        ),
+        type=parse_hart_ids,
     )
 
     test_generation_args = parser.add_argument_group("Test Generation", "Arguments that affect test generation")
@@ -469,6 +503,30 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--num_pmas",
         default=None,
         help="Number of PMACFG registers implemented. Changing this number requires a matching whisper config",
+        type=int,
+    )
+    pma_pmp_args.add_argument(
+        "--enable_pma_randomization",
+        action="store_true",
+        default=None,
+        help="Program randomized decoy PMA regions with legal random pmacfg/pmamask values (implies --needs_pma)",
+    )
+    pma_pmp_args.add_argument(
+        "--pma_random_regions",
+        default=None,
+        help="Number of randomized decoy PMA regions when --enable_pma_randomization is set",
+        type=int,
+    )
+    pma_pmp_args.add_argument(
+        "--pma_random_mask_pct",
+        default=None,
+        help="Percent [0-100] of randomized decoy PMA regions that get a nonzero pmamask",
+        type=int,
+    )
+    pma_pmp_args.add_argument(
+        "--pma_carveout_mask_pct",
+        default=None,
+        help="Percent [0-100] of named pma_* carve-out regions that get a random pmamask (requires --enable_pma_randomization)",
         type=int,
     )
 

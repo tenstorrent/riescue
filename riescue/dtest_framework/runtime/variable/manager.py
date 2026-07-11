@@ -3,9 +3,10 @@
 
 # pyright: strict
 
-from typing import Any
+from typing import Any, Optional
 
 import riescue.lib.enums as RV
+from riescue.dtest_framework.lib.routines import Routines
 from riescue.dtest_framework.runtime.variable.hart_memory import HartContext, HartStack
 from riescue.dtest_framework.runtime.variable.shared_memory import SharedMemory
 from riescue.dtest_framework.runtime.variable.variable import Variable
@@ -26,11 +27,23 @@ class VariableManager:
         hart_count: int,
         amo_enabled: bool,
         hart_stack_size: int = 0x1000,
+        hart_ids: Optional[list[int]] = None,
     ):
         self.data_section_name = data_section_name
         self.hart_count = hart_count
         self.xlen = xlen
         self.amo_enabled = amo_enabled
+
+        # Ordered list of mhartid values, one per hart (index i -> mhartid of hart i).
+        # Defaults to the contiguous 0..hart_count-1.
+        if hart_ids is None:
+            hart_ids = list(range(hart_count))
+        if len(hart_ids) != hart_count:
+            raise ValueError(f"hart_ids has {len(hart_ids)} entries but hart_count is {hart_count}")
+        self.hart_ids = hart_ids
+        # When hart IDs are not the default contiguous range, mhartid can no longer be used
+        # directly as an array index; a runtime lookup table maps mhartid -> sequential index.
+        self.discontiguous_hartids = hart_ids != list(range(hart_count))
 
         self.hart_context_table_name = "hart_context_table"
 
@@ -40,6 +53,11 @@ class VariableManager:
 
         # default variables:
         self.register_hart_variable("mhartid", value=0, description="mhartid")
+        # Each hart's sequential index (0..N-1) is stored in its context so GET_HART_INDEX can
+        # read it in any privilege mode (the mhartid->index table is only reachable from M-mode).
+        # Always present so there is no contiguous/discontiguous special case; for contiguous
+        # hart IDs it simply equals mhartid.
+        self.register_hart_variable("hart_index", value=0, description="hart_index")
 
     def register_hart_variable(self, name: str, value: int = 0, element_count: int = 1, **kwargs: Any) -> Variable:
         """
@@ -101,6 +119,14 @@ class VariableManager:
     {va_writes}
     li tp, hart_context_pa
                 """
+            # A single hart with a non-default mhartid still needs the lookup table so that
+            # per-hart runtime structures (selfcheck, logger, ...) resolve index 0 correctly.
+            if self.discontiguous_hartids:
+                code += f"""
+    j load_hart_context_done
+{self._hart_id_table_code()}
+load_hart_context_done:
+"""
             return code
 
         if self.xlen == RV.Xlen.XLEN32:
@@ -112,9 +138,18 @@ class VariableManager:
             var_type = ".dword"
             hart_table_offset = 3
 
+        # In discontiguous mode, translate the raw mhartid into the sequential hart index
+        # (0..N-1) before using it to index the hart-context pointer tables. The mhartid is
+        # validated once at boot (Loader.validate_hartid), so this lookup assumes it is present.
+        def index_from_mhartid(suffix: str) -> str:
+            if self.discontiguous_hartids:
+                return Routines.place_hartid_to_index(hartid_reg="t0", ptr_reg="t2", val_reg="t3", xlen=self.xlen, label_suffix=suffix)
+            return ""
+
         code = f"""
 load_hart_context:
     csrr t0, mhartid
+    {index_from_mhartid("load_pa")}
     la t1, {self.hart_context_table_name}_pa
     slli t0, t0, {hart_table_offset}
     add t0, t0, t1
@@ -128,6 +163,7 @@ load_hart_context:
             code += f"""
     # Load VA table for sscratch/vsscratch
     csrr t0, mhartid
+    {index_from_mhartid("load_va")}
     la t1, {self.hart_context_table_name}
     slli t0, t0, {hart_table_offset}
     add t0, t0, t1
@@ -146,9 +182,26 @@ load_hart_context:
     # table of hart context VA pointers
 {self.hart_context_table_name}:
 {va_entries}
+{self._hart_id_table_code()}
 load_hart_context_done:
 """
         return code
+
+    def _hart_id_table_code(self) -> str:
+        """
+        Emit the single ``hart_id_table`` (sequential index -> mhartid) used to translate an
+        mhartid value read at runtime into a sequential hart index. Read by
+        ``Routines.place_hartid_to_index``. Empty unless hart IDs are discontiguous.
+        """
+        if not self.discontiguous_hartids:
+            return ""
+        directive = ".word" if self.xlen == RV.Xlen.XLEN32 else ".dword"
+        lines = [".balign 8, 0", "hart_id_table:"]
+        for hid in self.hart_ids:
+            lines.append(f"    {directive} {hid}")
+        # End marker so the loader's hart-id validation can bound its search of the table.
+        lines.append("hart_id_table_end:")
+        return "\n".join(lines) + "\n"
 
     def generate_pointer_table(self) -> str:
         """
@@ -208,7 +261,7 @@ load_hart_context_done:
         allocate_code.append("# Hart-local storage")
         allocate_code.append(f'.section .{self.data_section_name}, "aw"')
         for hartid in range(self.hart_count):
-            allocate_code.append(self._hart_context.allocate(hart_id=hartid))
+            allocate_code.append(self._hart_context.allocate(hart_id=hartid, mhartid_value=self.hart_ids[hartid]))
         for hartid in range(self.hart_count):
             allocate_code.append(self._hart_stack.allocate(hart_id=hartid))
         return "\n" + "\n".join(allocate_code)

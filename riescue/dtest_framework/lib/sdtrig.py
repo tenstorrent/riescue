@@ -17,11 +17,13 @@ TDATA1_TYPE_ICOUNT = 3
 TDATA1_TYPE_ITRIGGER = 4
 TDATA1_TYPE_ETRIGGER = 5
 
-# Size encoding: 0=1B, 1=2B, 2=4B, 3=8B
-SIZE_1B = 0
-SIZE_2B = 1
-SIZE_4B = 2
-SIZE_8B = 3
+# Size encoding per Whisper's mcontrol6 implementation:
+#   0=any size, 1=1B, 2=2B, 3=4B, 4=unsupported, 5=8B
+SIZE_ANY = 0
+SIZE_1B = 1
+SIZE_2B = 2
+SIZE_4B = 3
+SIZE_8B = 5
 
 
 class TriggerType(Enum):
@@ -47,7 +49,7 @@ class TriggerAction(Enum):
     """Trigger action encodings (tdata1 action field value).
 
     The enum value IS the tdata1 bit encoding:
-      mcontrol6: bits [15:12] (4-bit), icount/itrigger/etrigger: bits [5:0] (6-bit)
+      mcontrol6: bits [22:20] (3-bit), icount/itrigger/etrigger: bits [5:0] (6-bit)
     """
 
     BREAKPOINT = 0
@@ -72,7 +74,7 @@ class TriggerAction(Enum):
 
 
 class TriggerMatch(Enum):
-    """mcontrol6 match type encodings (tdata1[10:7]).
+    """mcontrol6 match type encodings (tdata1[18:15]).
 
     The enum value IS the tdata1 bit encoding.
     """
@@ -136,7 +138,13 @@ def modes_to_priv_bits(priv_mode: Sequence[str]) -> dict:
 
 
 def size_to_encoding(size: int) -> int:
-    """Map access size (1,2,4,8) to tdata1 size field."""
+    """Map access size in bytes to tdata1 size field encoding.
+
+    0 (or unknown) → SIZE_ANY (match any size), 1 → SIZE_1B, 2 → SIZE_2B,
+    4 → SIZE_4B, 8 → SIZE_8B.
+    """
+    if size == 0:
+        return SIZE_ANY
     if size == 1:
         return SIZE_1B
     if size == 2:
@@ -145,7 +153,7 @@ def size_to_encoding(size: int) -> int:
         return SIZE_4B
     if size == 8:
         return SIZE_8B
-    return SIZE_4B  # default
+    return SIZE_ANY  # default: match any size (safe for CBO / unknown widths)
 
 
 def _encode_action(action: TriggerAction) -> int:
@@ -163,6 +171,13 @@ def build_tdata1_mcontrol6(
 ) -> int:
     """
     Build tdata1 value for mcontrol6 trigger.
+
+    Whisper implements mcontrol6 (type=6) using the same bit layout as the
+    older mcontrol (type=2), so we follow that layout here:
+
+      [63:60] type=6, [59] dmode, [24] vs, [23] vu, [21] select,
+      [18:16] size, [15:12] action, [11] chain, [10:7] match,
+      [6] m, [4] s, [3] u, [2] execute, [1] store, [0] load
 
     :param trigger_type: TriggerType.EXECUTE, LOAD, STORE, or LOAD_STORE
     :param action: TriggerAction enum value
@@ -186,8 +201,7 @@ def build_tdata1_mcontrol6(
     val |= (chain & 1) << 11
     # match[10:7]
     val |= (match.value & 0xF) << 7
-    # privilege mode bits per Debug Spec mcontrol6 layout:
-    # m[6], s[4], u[3] in low bits; vs[24], vu[23] in high bits
+    # m[6], s[4], u[3]; vs[24], vu[23]
     val |= bits["m"] << 6
     val |= bits["s"] << 4
     val |= bits["u"] << 3

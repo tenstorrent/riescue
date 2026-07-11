@@ -50,6 +50,7 @@ class Runtime:
             xlen=RV.Xlen.XLEN64,
             hart_count=self.featmgr.num_cpus,
             amo_enabled=self.featmgr.feature.is_enabled("a"),
+            hart_ids=self.featmgr.get_hart_ids(),
         )
 
         self.variable_manager.register_hart_variable("check_excp", 0x1, size=1)
@@ -83,6 +84,21 @@ class Runtime:
 
         # GPR save area for trap handler (32 registers)
         self.variable_manager.register_hart_variable("gpr_save_area", value=0, element_count=32)
+
+        # Scratch for the two dispatch temporaries (t0/t1) that the trap handler
+        # prologue clobbers while classifying interrupt-vs-exception *before* the
+        # full GPR spill. Stashed at trap entry and patched back into
+        # gpr_save_area[5]/[6] in save_context() so an asynchronous trap (e.g. an
+        # icount/sdtrig breakpoint that lands mid instruction-sequence) is
+        # transparent to the interrupted code.
+        self.variable_manager.register_hart_variable("trap_dispatch_save", value=0, element_count=2)
+
+        # CSR jump-table flags are hart-local (each hart stashes its CSR id in its
+        # own context, so MP harts don't race). Registered here -- NOT in OpSys --
+        # because the interrupt-control macros (DISABLE_MIE, etc.) reference them at
+        # generation time even in WYSIWYG mode, where OpSys is never constructed.
+        self.variable_manager.register_hart_variable("machine_csr_jump_table_flags", 0x0)
+        self.variable_manager.register_hart_variable("super_csr_jump_table_flags", 0x0)
 
         self.variable_manager.register_shared_variable("excp_ignored_count", 0x0)
         self.variable_manager.register_shared_variable("machine_flags", 0x0)

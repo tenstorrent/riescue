@@ -160,7 +160,7 @@
     "zimop": {"supported": true, "enabled": false, "randomize": 0},
     "zcmop": {"supported": true, "enabled": false, "randomize": 0},
     "zawrs": {"supported": true, "enabled": true, "randomize": 0},
-    "zvdot4a8i": {"supported": true, "enabled": false, "randomize": 0},
+    "zvdot4a8i": {"supported": true, "enabled": true, "randomize": 0},
     "zjpm": {"supported": true, "enabled": false, "randomize": 0},
     "svnapot": {"supported": true, "enabled": true, "randomize": 0},
     "svpbmt": {"supported": true, "enabled": false, "randomize": 0},

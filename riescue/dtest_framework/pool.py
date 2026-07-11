@@ -10,10 +10,9 @@ from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING, Union
 
 import riescue.lib.enums as RV
-from riescue.dtest_framework.lib.pma import PmaRegion
+from riescue.dtest_framework.lib.pma import PmaInfo, PmaRegion
 from riescue.dtest_framework.lib.pmp import PmpRegion
 from riescue.dtest_framework.parser import (
-    PmaInfo,
     ParsedTestHeader,
     ParsedRandomData,
     ParsedReserveMemory,
@@ -29,7 +28,6 @@ from riescue.dtest_framework.parser import (
     ParsedTriggerDisable,
     ParsedTriggerEnable,
 )
-from riescue.dtest_framework.config.memory import Memory
 from riescue.lib.address import Address
 from riescue.dtest_framework.lib.discrete_test import DiscreteTest
 
@@ -105,6 +103,7 @@ class Pool:
         self.page_maps: dict[str, "PageMap"] = dict()
         self.sections: dict[str, SectionInfo] = dict()
         self.pma_regions: PmaRegion = PmaRegion()
+        self.pma_random_regions: list[PmaInfo] = []  # randomized decoys; kept out of PmaRegion consolidation
         self.pmp_regions: PmpRegion = PmpRegion()
 
         # os include files
@@ -329,6 +328,21 @@ class Pool:
     def get_parsed_trigger_enable(self) -> list[ParsedTriggerEnable]:
         return self.parsed_trigger_enable
 
+    def trigger_shadow_slot_count(self) -> int:
+        """Number of per-trigger tdata1 shadow slots required by this test.
+
+        The runtime ``trigger_saved_tdata1`` array is addressed by trigger
+        ``index`` (``trigger_saved_tdata1 + index*8``), so it must span every
+        index used by any ``;#trigger_config/enable/disable`` directive --
+        i.e. ``max(index) + 1`` (0 when the test uses no triggers). Derived
+        from already-parsed directives so the runtime allocation and the
+        assembly_writer bound check stay in lock-step from the same data.
+        """
+        indices = [c.index for c in self.parsed_trigger_configs]
+        indices += [e.index for e in self.parsed_trigger_enable]
+        indices += [d.index for d in self.parsed_trigger_disable]
+        return (max(indices) + 1) if indices else 0
+
     # parsed_rand_mem_bp_pool — accumulates addresses across multiple
     # ;#rand_mem_breakpoint_pool(addresses=[...]) directive instances.
     def add_parsed_rand_mem_bp_addresses(self, addrs: list[str]) -> None:
@@ -366,22 +380,16 @@ class Pool:
                     if parsed_addr.pma_info.pma_size == 0:
                         parsed_addr.pma_info.pma_size = parsed_addr.size
 
-                    # Update the PMA region address if it was pre-allocated
-                    # (If it's already in pool, it means it was pre-allocated and added)
+                    # Anchor the region on first use (fixed-addr in_pma paths reach here unanchored)
                     if parsed_addr.pma_info.pma_address == 0:
-                        # Set the address
                         parsed_addr.pma_info.pma_address = addr.address
                         # Only add to pool if not already added (pre-allocated regions are already added)
-                        # Check if this region is already in the pool by checking if address matches
                         existing_region = self.pma_regions.find_region_for_address(addr.address)
                         if existing_region is None or existing_region.pma_address != addr.address:
-                            # Not found or different region, add it
                             self.pma_regions.add_entry(parsed_addr.pma_info)
-                    else:
-                        # Address already set (from pre-allocation), just update if needed
-                        if parsed_addr.pma_info.pma_address != addr.address:
-                            log.warning(f"PMA region for {addr_name} has address 0x{parsed_addr.pma_info.pma_address:x}, " f"but generated address is 0x{addr.address:x}. Updating PMA region address.")
-                            parsed_addr.pma_info.pma_address = addr.address
+                    elif not (parsed_addr.pma_info.pma_address <= addr.address < parsed_addr.pma_info.get_end_address()):
+                        # Region bases are authoritative; pages are placed inside them. Outside means a placement bug.
+                        log.warning(f"Address {addr_name} (0x{addr.address:x}) lies outside its PMA region " f"'{parsed_addr.pma_info.pma_name}' at 0x{parsed_addr.pma_info.pma_address:x}")
 
     def get_random_addrs(self) -> dict[str, "Address"]:
         return self.random_addrs

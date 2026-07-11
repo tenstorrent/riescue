@@ -126,7 +126,7 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
 
         self.assertEqual(featmgr.priv_mode, RiscvPrivileges.MACHINE)
         self.assertEqual(featmgr.paging_mode, RiscvPagingModes.DISABLE, "machine mode should force paging to disable")
-        self.assertEqual(featmgr.paging_g_mode, RiscvPagingModes.SV48, "Manually setting guest stage paging mode should not be overridden")
+        self.assertEqual(featmgr.paging_g_mode, RiscvPagingModes.DISABLE, "machine mode can't be virtualized, so guest-stage paging should force to disable")
 
     def test_secure_mode_pmp_setup(self):
         """Test that secure mode properly configures PMP setup"""
@@ -306,8 +306,8 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
         self.assertTrue(featmgr.linux_mode)
 
     def test_paging_g_mode_sv39(self):
-        "Check that --test_paging_g_mode=sv39 is respected"
-        args = self.parse_args(["--test_paging_g_mode", "sv39"])
+        "Check that --test_paging_g_mode=sv39 is respected under a virtualized env"
+        args = self.parse_args(["--test_paging_g_mode", "sv39", "--test_env", "virtualized"])
         self.builder = self.builder.with_args(args)
 
         featmgr = self.builder.build(rng=self.rng)
@@ -491,6 +491,26 @@ class TestConfWithBuilder(FeatMgrBuilderBase):
         for _ in range(10):
             featmgr = self.builder.build(rng=self.rng)
             self.assertEqual(featmgr.priv_mode, RiscvPrivileges.SUPER)
+
+    def test_conf_comma_separated_paths(self):
+        """
+        --conf accepts a comma-separated list; the conf files are loaded in the order listed
+        and their hooks are injected in that same order.
+        """
+        data = Path(__file__).parent / "data"
+        arg = ",".join([str(data / "hook_conf_a.py"), str(data / "hook_conf_b.py")])
+        args = self.parse_args(["--conf", arg])
+        self.builder.with_args(args)
+
+        self.assertEqual(len(self.builder.conf), 2)
+        self.assertIsInstance(self.builder.conf[0], Conf)
+        self.assertIsInstance(self.builder.conf[1], Conf)
+
+        # First-listed conf registers its hook first -> emitted first.
+        featmgr = FeatMgr()
+        for conf in self.builder.conf:
+            conf.add_hooks(featmgr)
+        self.assertEqual(featmgr.call_hook(RV.HookPoint.PRE_LOADER), "HOOK_A\nHOOK_B")
 
 
 class TestFeatMgrBuilderFeatureDiscovery(FeatMgrBuilderBase):

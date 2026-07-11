@@ -118,12 +118,8 @@ class RiescueD(CliBase):
             default=None,
             help="Path to cpu feature configuration. Defaults to dtest_framework/lib/config.json",
         )
-        parser.add_argument(
-            "--csr_config",
-            type=Path,
-            default=None,
-            help="Path to CSR config JSON. Defaults to riescue/lib/csr_manager/csr_config.json",
-        )
+        # --csr_config is defined in dtest_framework/config/cmdline.py (pulled in here via
+        # FeatMgrBuilder.add_arguments) so it is shared by RiescueD, voyager2, and RiescueC.
 
         run_args = parser.add_argument_group(
             "Run Control",
@@ -485,15 +481,13 @@ class RiescueD(CliBase):
             iss.whisper_config_json = whisper_config_json
 
             if featmgr.mp_mode_on():
-                iss_args += [
-                    "--quitany",
-                    "--harts",
-                    str(featmgr.num_cpus),
-                    "--deterministic",
-                    "16",
-                    "--seed",
-                    str(self.rng.get_seed()),
-                ]
+                iss_args += ["--quitany"]
+                # Emit --harts for the contiguous case (including an explicit 0..N-1 list). For
+                # discontiguous hart IDs, configuring Whisper's hart topology (cores/harts/
+                # core_hart_id_offset, e.g. via --whisper_config_json) is the user's responsibility.
+                if not featmgr.discontiguous_hartids():
+                    iss_args += ["--harts", str(featmgr.num_cpus)]
+                iss_args += ["--deterministic", "16", "--seed", str(self.rng.get_seed())]
             if featmgr.wysiwyg and failed_pc is not None:
                 iss_args += ["--endpc", str(hex(failed_pc))]
 

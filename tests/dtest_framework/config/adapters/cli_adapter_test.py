@@ -47,6 +47,40 @@ class CliAdapterTest(unittest.TestCase):
         self.assertEqual(result.featmgr.num_cpus, 1)
         self.assertIsNotNone(result.mp)
 
+    def test_hart_ids_infers_num_cpus(self):
+        """--hart_ids without --num_cpus sets num_cpus to the list length"""
+        args = self.parser.parse_args(args=["--hart_ids", "0,2,4"])
+        result = self.adapter.apply(self.builder, args)
+        self.assertEqual(result.featmgr.hart_ids, [0, 2, 4])
+        self.assertEqual(result.featmgr.num_cpus, 3)
+        self.assertTrue(result.featmgr.discontiguous_hartids())
+
+    def test_hart_ids_default_none(self):
+        """No --hart_ids leaves hart_ids None and reports contiguous"""
+        args = self.parser.parse_args(args=["--num_cpus", "3"])
+        result = self.adapter.apply(self.builder, args)
+        self.assertIsNone(result.featmgr.hart_ids)
+        self.assertEqual(result.featmgr.get_hart_ids(), [0, 1, 2])
+        self.assertFalse(result.featmgr.discontiguous_hartids())
+
+    def test_hart_ids_matching_num_cpus_ok(self):
+        """--hart_ids length matching --num_cpus is accepted"""
+        args = self.parser.parse_args(args=["--num_cpus", "2", "--hart_ids", "1,3"])
+        result = self.adapter.apply(self.builder, args)
+        self.assertEqual(result.featmgr.hart_ids, [1, 3])
+        self.assertEqual(result.featmgr.num_cpus, 2)
+
+    def test_hart_ids_mismatch_num_cpus_raises(self):
+        """--hart_ids length disagreeing with --num_cpus is an error"""
+        args = self.parser.parse_args(args=["--num_cpus", "4", "--hart_ids", "0,2"])
+        with self.assertRaises(ValueError):
+            self.adapter.apply(self.builder, args)
+
+    def test_hart_ids_duplicate_rejected(self):
+        """Duplicate hart ids are rejected at parse time"""
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(args=["--hart_ids", "0,2,2"])
+
     def test_secure_mode_on_enables_pmp(self):
         """Test secure mode 'on' automatically enables PMP setup"""
         args = self.parser.parse_args(args=["--test_secure_mode", "on"])
@@ -194,6 +228,13 @@ class CliAdapterTest(unittest.TestCase):
         self.assertTrue(result.needs_pma)
         self.assertEqual(result.num_pmas, 32)
 
+    def test_num_pmas_bounds(self):
+        """--num_pmas outside [2, 64] raises (whisper models at most 64 entries; 2 are catchalls)"""
+        for bad in ("1", "65", "0"):
+            args = self.parser.parse_args(args=["--num_pmas", bad])
+            with self.assertRaises(ValueError):
+                self.adapter.apply(FeatMgrBuilder(), args)
+
     def test_interrupt_and_exception_handling(self):
         """Test interrupt and exception handling configuration"""
         args = self.parser.parse_args(args=["--excp_hooks", "--interrupts_enabled", "--skip_instruction_for_unexpected"])
@@ -233,3 +274,42 @@ class CliAdapterTest(unittest.TestCase):
         self.assertEqual(result.medeleg, 0)
         self.assertEqual(result.mideleg, 0)
         self.assertEqual(result.hedeleg, 0)
+
+    def test_pma_randomization_defaults(self):
+        """No PMA randomization flags leaves defaults untouched"""
+        args = self.parser.parse_args(args=[])
+        result = self.adapter.apply(self.builder, args).featmgr
+        self.assertFalse(result.enable_pma_randomization)
+        self.assertFalse(result.needs_pma)
+        self.assertEqual(result.pma_random_regions, 8)
+        self.assertEqual(result.pma_random_mask_pct, 25)
+        self.assertEqual(result.pma_carveout_mask_pct, 0)
+
+    def test_enable_pma_randomization_implies_needs_pma(self):
+        """--enable_pma_randomization sets the flag and forces needs_pma"""
+        args = self.parser.parse_args(args=["--enable_pma_randomization"])
+        result = self.adapter.apply(self.builder, args).featmgr
+        self.assertTrue(result.enable_pma_randomization)
+        self.assertTrue(result.needs_pma)
+
+    def test_pma_random_region_flags(self):
+        """--pma_random_regions and --pma_random_mask_pct land in FeatMgr"""
+        args = self.parser.parse_args(args=["--enable_pma_randomization", "--pma_random_regions", "12", "--pma_random_mask_pct", "60"])
+        result = self.adapter.apply(self.builder, args).featmgr
+        self.assertEqual(result.pma_random_regions, 12)
+        self.assertEqual(result.pma_random_mask_pct, 60)
+
+    def test_pma_random_flag_validation(self):
+        """Negative region count and out-of-range mask pct raise"""
+        with self.assertRaises(ValueError):
+            self.adapter.apply(self.builder, self.parser.parse_args(args=["--pma_random_regions", "-1"]))
+        with self.assertRaises(ValueError):
+            self.adapter.apply(self.builder, self.parser.parse_args(args=["--pma_random_mask_pct", "101"]))
+
+    def test_pma_carveout_mask_pct_flag(self):
+        """--pma_carveout_mask_pct lands in FeatMgr and validates its range"""
+        args = self.parser.parse_args(args=["--enable_pma_randomization", "--pma_carveout_mask_pct", "40"])
+        result = self.adapter.apply(self.builder, args).featmgr
+        self.assertEqual(result.pma_carveout_mask_pct, 40)
+        with self.assertRaises(ValueError):
+            self.adapter.apply(self.builder, self.parser.parse_args(args=["--pma_carveout_mask_pct", "101"]))

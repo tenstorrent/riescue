@@ -257,8 +257,8 @@ class Selfcheck(AssemblyGenerator):
 # Sets selfcheck_mode: 0 = save, 1 = check
 # Uses: t0-t4 (caller-saved)
 selfcheck__decide_save_or_check:
-    # hart_offset = hart_id * per_hart_size
-    csrr t0, mhartid                # Read hart ID directly (always M-mode)
+    # hart_offset = hart_index * per_hart_size
+    {self.variable_manager.get_variable("hart_index").load(dest_reg="t0")}
     li t1, selfcheck_per_hart_size  # Per-hart size (from equate)
     mul t0, t0, t1
     li t1, selfcheck_data_pa        # Base PA address from equate
@@ -293,8 +293,8 @@ selfcheck__decided_save:
 # Computes Fletcher checksum over architectural state, then saves or checks
 # Uses: t0-t2, t5, t6 (caller-saved); t3 = hart state_save base (preserved); t4 = scratch
 selfcheck__save_or_check:
-    # 1. Get hart ID and calculate state_save base (preserved in t3)
-    csrr t0, mhartid                # Read hart ID directly (always M-mode)
+    # 1. Get hart index and calculate state_save base (preserved in t3)
+    {self.variable_manager.get_variable("hart_index").load(dest_reg="t0")}
     li t1, selfcheck_per_hart_size  # Per-hart size (from equate)
     mul t0, t0, t1
     li t1, selfcheck_data_pa        # Base PA address from equate

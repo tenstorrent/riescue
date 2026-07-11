@@ -5,7 +5,7 @@ from typing import Optional, TYPE_CHECKING
 
 from coretp import Instruction, StepIR
 from coretp.isa import Extension
-from coretp.rv_enums import Xlen, Category
+from coretp.rv_enums import Xlen, Category, PrivilegeMode
 from coretp.step import MachineCode, SupervisorCode, UserCode
 from riescue.compliance.test_plan.actions import Action, CodeMixin
 from riescue.compliance.test_plan.context import LoweringContext
@@ -30,7 +30,7 @@ class PrivilegeBlockMarkerInstruction(Instruction):
     # Registers clobbered when privilege mode returns (end marker)
     END_CLOBBERED_REGISTERS = ["t0", "t1", "t6"]
 
-    def __init__(self, marker_type: str, block_index: int, mode: str, instruction_id: str):
+    def __init__(self, marker_type: str, block_index: int, mode: PrivilegeMode, instruction_id: str):
         clobbers = self.END_CLOBBERED_REGISTERS if marker_type == "end" else []
 
         super().__init__(
@@ -44,12 +44,12 @@ class PrivilegeBlockMarkerInstruction(Instruction):
         )
         self.marker_type = marker_type  # "start" or "end"
         self.block_index = block_index
-        self.mode = mode  # "machine" or "supervisor"
+        self.mode = mode
         self.instruction_id = instruction_id
 
     def format(self) -> str:
         """Marker instructions don't emit assembly."""
-        return f"# {self.mode} block {self.block_index} {self.marker_type}"
+        return f"# {self.mode.long_name()} block {self.block_index} {self.marker_type}"
 
 
 class PrivilegeBlockMarkerAction(Action):
@@ -57,10 +57,10 @@ class PrivilegeBlockMarkerAction(Action):
 
     register_fields: list[str] = []
 
-    def __init__(self, step_id: str, block_index: int, mode: str, marker_type: str):
+    def __init__(self, step_id: str, block_index: int, mode: PrivilegeMode, marker_type: str):
         super().__init__(step_id=step_id)
         self.block_index = block_index
-        self.mode = mode  # "machine" or "supervisor"
+        self.mode = mode
         self.marker_type = marker_type  # "start" or "end"
 
     def repr_info(self) -> str:
@@ -76,12 +76,12 @@ class PrivilegeBlockMarkerAction(Action):
 
 
 # Convenience aliases for backward compatibility and clarity
-def PrivilegeBlockStartAction(step_id: str, block_index: int, mode: str) -> PrivilegeBlockMarkerAction:
+def PrivilegeBlockStartAction(step_id: str, block_index: int, mode: PrivilegeMode) -> PrivilegeBlockMarkerAction:
     """Create a start marker action for a privilege block."""
     return PrivilegeBlockMarkerAction(step_id, block_index, mode, marker_type="start")
 
 
-def PrivilegeBlockEndAction(step_id: str, block_index: int, mode: str) -> PrivilegeBlockMarkerAction:
+def PrivilegeBlockEndAction(step_id: str, block_index: int, mode: PrivilegeMode) -> PrivilegeBlockMarkerAction:
     """Create an end marker action for a privilege block."""
     return PrivilegeBlockMarkerAction(step_id, block_index, mode, marker_type="end")
 
@@ -131,7 +131,7 @@ class PrivilegeCodeAction(Action, CodeMixin):
     _block_counter: int = 0
 
     # Subclasses must override these
-    MODE: str = ""
+    MODE: PrivilegeMode = PrivilegeMode.M  # default; overridden by subclasses
     SYSCALL_NUM: int = 0
     STEP_TYPE: type = type(None)
 
@@ -180,6 +180,12 @@ class PrivilegeCodeAction(Action, CodeMixin):
             return None
         self.expanded = True
 
+        # Set the current privilege mode on the context so that nested actions
+        # (e.g. AssertExceptionAction) can detect they are inside a privilege block
+        # and emit the correct hart_context loading strategy in the macro.
+        prev_mode = ctx.current_privilege_mode
+        ctx.current_privilege_mode = self.MODE
+
         expanded_code: list[Action] = []
         for action in self._code:
             result = action.expand(ctx)
@@ -187,6 +193,8 @@ class PrivilegeCodeAction(Action, CodeMixin):
                 expanded_code.append(action)
             else:
                 expanded_code.extend(result)
+
+        ctx.current_privilege_mode = prev_mode
 
         start_marker = PrivilegeBlockStartAction(
             step_id=ctx.new_value_id(),
@@ -219,7 +227,7 @@ class MachineCodeAction(PrivilegeCodeAction):
     """
 
     register_fields: list[str] = []
-    MODE = "machine"
+    MODE = PrivilegeMode.M
     SYSCALL_NUM = 0xF0001001
     STEP_TYPE = MachineCode
     _block_counter: int = 0
@@ -234,7 +242,7 @@ class SupervisorCodeAction(PrivilegeCodeAction):
     """
 
     register_fields: list[str] = []
-    MODE = "supervisor"
+    MODE = PrivilegeMode.S
     SYSCALL_NUM = 0xF0001002
     STEP_TYPE = SupervisorCode
     _block_counter: int = 0
@@ -249,7 +257,7 @@ class UserCodeAction(PrivilegeCodeAction):
     """
 
     register_fields: list[str] = []
-    MODE = "user"
+    MODE = PrivilegeMode.U
     SYSCALL_NUM = 0xF0001003
     STEP_TYPE = UserCode
     _block_counter: int = 0

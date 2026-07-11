@@ -9,17 +9,20 @@ from typing import Any
 import riescue.lib.common as common
 import riescue.lib.enums as RV
 from riescue.lib.counters import Counters
+from riescue.dtest_framework.lib.pma import PmaInfo
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 
 log = logging.getLogger(__name__)
 
 
-# 64-entry PMA scheme: entries 0-15 are direct CSRs (pmacfg 0x7E0-0x7EF, pmamask 0x7F0-0x7FF);
-# entries 16-63 are reached indirectly with miselect = PMA_INDIRECT_SELECT_BASE | entry,
-# mireg = pmacfg[entry], mireg2 = pmamask[entry].
+# PMA scheme (num_pmas entries from cpu config / --num_pmas): the first PMA_DIRECT_CSR_ENTRIES are
+# direct CSRs (pmacfg 0x7E0+i, pmamask 0x7F0+i); higher entries are reached indirectly with
+# miselect = PMA_INDIRECT_SELECT_BASE | entry, mireg = pmacfg[entry], mireg2 = pmamask[entry].
 PMA_INDIRECT_SELECT_BASE = 0x8000000000000000
-PMA_IO_CATCHALL = 0x7C00000000000007  # entry 62: IO/non-cacheable 0-2GB (matches pmacfg14 boot reset)
-PMA_DRAM_CATCHALL = 0xE0000000000001E7  # entry 63: cacheable-coherent RWX 0-2^56 (matches pmacfg15 boot reset)
+PMA_DIRECT_CSR_ENTRIES = 16
+PMA_IO_CATCHALL = 0x7C00000000000007  # IO/non-cacheable 0-2GB (pmacfg14 boot reset value)
+PMA_DRAM_CATCHALL = 0xE0000000000001E7  # cacheable-coherent RWX 0-2^56 (pmacfg15 boot reset value)
+PMA_NUM_CATCHALLS = 2  # the last two entries (lowest priority) re-established as IO/DRAM catchalls
 
 
 class Loader(AssemblyGenerator):
@@ -180,6 +183,7 @@ loader__done:
             code += self.init_fp_registers()
         if self.featmgr.feature.is_supported("v"):
             code += self.init_vector_registers()
+        code += self.validate_hartid()
         code += self.hart_context_loader()
 
         if self.featmgr.needs_pma:
@@ -353,6 +357,51 @@ loader__set_mstatus:
         # runs in M-mode with bare addressing and needs MPRV=0 for data access.
         return enable_paging_code + "\n"
 
+    def validate_hartid(self) -> str:
+        """
+        Validate once, at boot, that this hart's mhartid is one the test was generated for.
+
+        Only meaningful for MP tests (num_cpus > 1); a mismatch means the test is running on
+        a DUT with a different set of hart IDs. Doing it here, before ``hart_context_loader``,
+        lets every later mhartid use assume the value is valid.
+
+        A bad hart joins the coordinated MP end-of-test with a fail status (``gp != 1`` marks
+        a hard fail; ``gp[31] == 0`` means "not an early bail"), so the single hart that writes
+        ``tohost`` reports failure and a passing hart cannot overwrite it.
+        """
+        if self.featmgr.num_cpus <= 1:
+            return ""  # single hart: nothing to validate, boot path stays byte-for-byte unchanged
+
+        if self.variable_manager.discontiguous_hartids:
+            # Search hart_id_table (bounded by hart_id_table_end) for this mhartid.
+            load = "lw" if self.variable_manager.xlen == RV.Xlen.XLEN32 else "ld"
+            step = 4 if self.variable_manager.xlen == RV.Xlen.XLEN32 else 8
+            check = f"""
+    la t1, hart_id_table
+loader__validate_hartid_loop:
+    la t2, hart_id_table_end
+    beq t1, t2, loader__bad_hartid      # walked off the end -> not an expected hart
+    {load} t2, 0(t1)
+    beq t2, t0, loader__validate_hartid_done
+    addi t1, t1, {step}
+    j loader__validate_hartid_loop"""
+        else:
+            # Contiguous IDs are 0..num_cpus-1, so range-check the mhartid.
+            check = f"""
+    li t1, {self.featmgr.num_cpus}
+    bgeu t0, t1, loader__bad_hartid      # mhartid >= num_cpus -> not an expected hart"""
+
+        return f"""
+loader__validate_hartid:
+    csrr t0, mhartid
+    {check}
+    j loader__validate_hartid_done
+loader__bad_hartid:
+    li gp, 0
+    j eot__end_test
+loader__validate_hartid_done:
+"""
+
     def hart_context_loader(self) -> str:
         """
         Code for loading scratch register with hart context.
@@ -413,62 +462,160 @@ loader__set_mstatus:
         return code
 
     def setup_pma(self) -> str:
-        "Generate code to setup PMA registers"
-        pmas = self.pool.pma_regions.consolidated_entries()
-        if not pmas:
+        """
+        Generate code to setup PMA registers.
+
+        Entry layout: [0..X) untouched user-reserved entries (X = featmgr.user_programmable_pmacfg),
+        then defined regions, then randomized decoys, then (randomization only) invalidated entries
+        up to the catchalls at the last two entries (num_pmas - 2 / num_pmas - 1). With randomization
+        on, named pma_* carve-outs and decoys are emitted before memory-map regions so both win
+        first-match-wins priority. Note: with randomization off, carve-outs remain shadowed by
+        lower-index memory-map entries (known quirk of the flag-off emission order).
+        """
+        randomize = self.featmgr.enable_pma_randomization
+        pmas = self.pool.pma_regions.consolidated_entries(merge_named=not randomize)
+        random_pmas = self.pool.pma_random_regions
+        reserved = self.featmgr.user_programmable_pmacfg
+        num_pmas = self.featmgr.num_pmas
+        catchall_base = num_pmas - PMA_NUM_CATCHALLS
+        if not pmas and not random_pmas:
             return ""
 
-        if len(pmas) > self.featmgr.num_pmas:
-            raise ValueError(f"Number of PMAs requested ({len(pmas)}) is less than the number of PMAs available ({self.featmgr.num_pmas})")
+        if randomize:
+            carveouts = sorted((p for p in pmas if p.pma_name.startswith("pma_")), key=lambda p: (p.pma_size, p.pma_address))
+            memmap_regions = [p for p in pmas if not p.pma_name.startswith("pma_")]
+            essential = reserved + len(carveouts) + len(memmap_regions) + PMA_NUM_CATCHALLS
+            if essential > num_pmas:
+                raise ValueError(
+                    f"PMA entries exceed capacity: user_programmable={reserved} + carveouts={len(carveouts)} "
+                    f"+ memory_map={len(memmap_regions)} + {PMA_NUM_CATCHALLS} catchalls = {essential} > {num_pmas} PMA entries"
+                )
+            # Decoys are pure coverage: truncate to whatever fits rather than failing the test
+            decoy_budget = num_pmas - essential
+            decoys = list(random_pmas[:decoy_budget])
+            if len(decoys) < len(random_pmas):
+                log.warning(f"PMA randomization: truncating decoys {len(random_pmas)} -> {len(decoys)} to fit " f"{num_pmas} PMA entries")
+                del random_pmas[len(decoys) :]  # keep pool/addrgen exclusion consistent with emission
+            # Carve-outs first (specific beats containing), decoys before memory-map so they are live
+            ordered = carveouts + decoys + memmap_regions
+        else:
+            if reserved + len(pmas) + PMA_NUM_CATCHALLS > num_pmas:
+                raise ValueError(
+                    f"PMA entries exceed capacity: user_programmable={reserved} + regions={len(pmas)} "
+                    f"+ {PMA_NUM_CATCHALLS} catchalls = {reserved + len(pmas) + PMA_NUM_CATCHALLS} > {num_pmas} PMA entries"
+                )
+            ordered = pmas
 
-        pmacfg_start_addr = 0x7E0
         code = "\nloader__setup_pma:\n"
-        pma_addr = pmacfg_start_addr
         log.info("Setting up PMAs")
-        for i, pma in enumerate(pmas):
-            if i >= 16:
-                # Entries 16-63 have no direct CSRs; access via miselect/mireg (pmacfg) and mireg2 (pmamask)
-                code += f"""
-                # Setting up pmacfg{i} (indirect, miselect=0x{PMA_INDIRECT_SELECT_BASE + i:x}) for {str(pma)}
-                li t1, 0x{PMA_INDIRECT_SELECT_BASE + i:x}
-                csrw miselect, t1
-                li t0, 0x{pma.generate_pma_value():x}
-                csrw mireg, t0
-                # Clear pmamask{i}
-                csrw mireg2, x0
-            """
-                continue
-            code += f"""
-                # Setting up pmacfg{i} for {str(pma)}
-                li t0, 0x{pma.generate_pma_value():x}
-                csrw 0x{pma_addr:x}, t0
-            """
-            code += f"""
-                # Clear pmamask{i}
-                csrw 0x{0x7F0 + i:x}, x0
-            """
-            pma_addr += 1
-        code += self._setup_pma_catchall(len(pmas))
+        used = reserved + len(ordered)
+        if randomize:
+            # Catchalls at the top entries first: boot entries 14/15 still hold catchall values
+            # here, so default memory coverage never lapses while lower entries change.
+            code += self._setup_pma_catchall(used, catchall_base, clear_masks=False)
+        for i, pma in enumerate(ordered):
+            code += self._pma_entry_code(reserved + i, pma, force=randomize)
+        if randomize:
+            code += self._pma_invalidate_code(used, catchall_base)
+        else:
+            code += self._setup_pma_catchall(used, catchall_base)
         return code
 
-    def _setup_pma_catchall(self, used: int) -> str:
-        """
-        Re-establish the boot catchalls (pmacfg14/15 whisper-config resets) at the
-        lowest-priority entries 62 (IO 0-2GB) and 63 (DRAM 0-2^56), so test-programmed
-        regions never lose default memory coverage. Entries 62/63 are indirect-only:
-        written via miselect/mireg (pmacfg) and mireg2 (pmamask).
-        """
-        if used > 62:
-            log.warning("PMA regions occupy entries 62/63; catchall writes will overwrite them")
-        code = ""
-        for idx, value, desc in ((62, PMA_IO_CATCHALL, "IO 0-2GB"), (63, PMA_DRAM_CATCHALL, "DRAM 0-2^56")):
+    def _pma_entry_code(self, index: int, pma: PmaInfo, force: bool = False) -> str:
+        """Emit one pmacfg/pmamask entry; direct CSRs below 16, indirect via miselect/mireg/mireg2 above."""
+        value = pma.generate_pma_value(force=force)
+        mask_value = pma.generate_pma_mask_value()
+        if index >= PMA_DIRECT_CSR_ENTRIES:
+            # Higher entries have no direct CSRs; access via miselect/mireg (pmacfg) and mireg2 (pmamask)
+            code = f"""
+                # Setting up pmacfg{index} (indirect, miselect=0x{PMA_INDIRECT_SELECT_BASE + index:x}) for {str(pma)}
+                li t1, 0x{PMA_INDIRECT_SELECT_BASE + index:x}
+                csrw miselect, t1
+                li t0, 0x{value:x}
+                csrw mireg, t0
+"""
+            if mask_value:
+                # pmacfg write reset the mask; program pmamask strictly after pmacfg
+                code += f"""                # Set pmamask{index}
+                li t0, 0x{mask_value:x}
+                csrw mireg2, t0
+            """
+            else:
+                code += f"""                # Clear pmamask{index}
+                csrw mireg2, x0
+            """
+            return code
+        code = f"""
+                # Setting up pmacfg{index} for {str(pma)}
+                li t0, 0x{value:x}
+                csrw 0x{0x7E0 + index:x}, t0
+            """
+        if mask_value:
             code += f"""
+                # Set pmamask{index}
+                li t0, 0x{mask_value:x}
+                csrw 0x{0x7F0 + index:x}, t0
+            """
+        else:
+            code += f"""
+                # Clear pmamask{index}
+                csrw 0x{0x7F0 + index:x}, x0
+            """
+        return code
+
+    def _pma_invalidate_code(self, start: int, end: int) -> str:
+        """Write pmacfg=0 (and clear pmamask) for stale entries in [start, end); kills boot 14/15 shadows."""
+        code = ""
+        for index in range(start, end):
+            if index >= PMA_DIRECT_CSR_ENTRIES:
+                code += f"""
+                # Invalidate pmacfg{index} (indirect)
+                li t1, 0x{PMA_INDIRECT_SELECT_BASE + index:x}
+                csrw miselect, t1
+                csrw mireg, x0
+                csrw mireg2, x0
+            """
+            else:
+                code += f"""
+                # Invalidate pmacfg{index}
+                csrw 0x{0x7E0 + index:x}, x0
+                csrw 0x{0x7F0 + index:x}, x0
+            """
+        return code
+
+    def _setup_pma_catchall(self, used: int, catchall_base: int, clear_masks: bool = True) -> str:
+        """
+        Re-establish the boot catchalls (pmacfg14/15 whisper-config resets) at the two
+        lowest-priority entries (catchall_base and catchall_base+1, from num_pmas), so
+        test-programmed regions never lose default memory coverage.
+
+        clear_masks=False skips the pmamask writes (randomize mode): an explicit pmamask
+        write flips whisper's 2^56 DRAM region to masked-compare on bits [51:12], collapsing
+        it to page 0. The pmacfg write already zeroes the PMAMASK CSR without that side effect.
+        """
+        if used > catchall_base:
+            log.warning(f"PMA regions occupy entries {catchall_base}/{catchall_base + 1}; catchall writes will overwrite them")
+        code = ""
+        for idx, value, desc in ((catchall_base, PMA_IO_CATCHALL, "IO 0-2GB"), (catchall_base + 1, PMA_DRAM_CATCHALL, "DRAM 0-2^56")):
+            if idx >= PMA_DIRECT_CSR_ENTRIES:
+                code += f"""
                 # PMA catchall pmacfg{idx} ({desc})
                 li t1, 0x{PMA_INDIRECT_SELECT_BASE + idx:x}
                 csrw miselect, t1
                 li t0, 0x{value:x}
                 csrw mireg, t0
-                csrw mireg2, x0
+            """
+                if clear_masks:
+                    code += """    csrw mireg2, x0
+            """
+            else:
+                code += f"""
+                # PMA catchall pmacfg{idx} ({desc})
+                li t0, 0x{value:x}
+                csrw 0x{0x7E0 + idx:x}, t0
+            """
+                if clear_masks:
+                    code += f"""    csrw 0x{0x7F0 + idx:x}, x0
             """
         return code
 

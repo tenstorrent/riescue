@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import riescue.lib.common as common
 
 
@@ -21,6 +21,12 @@ class PmaInfo:
     pma_routing_to: str = "coherent"  # 'coherent' | 'noncoherent'
     pma_address: int = 0
     pma_size: int = 0
+    pma_mask: int = 0  # raw pmamask CSR value, bits [51:12]; 0 = match the whole NAPOT region
+    pma_randomized: bool = False  # True for randomized decoy regions (never consolidated/merged)
+    pma_mask_requested: bool = False  # pma_masked=1 in_pma request; mask forced in _apply_carveout_masks
+
+    #: pmamask address-compare field covers physical address bits [51:12]
+    PMAMASK_ADDR_BITS = 0x000F_FFFF_FFFF_F000
 
     _memory_type_map = {"memory": 0, "io": 1, "ch0": 2, "ch1": 3}
 
@@ -50,7 +56,7 @@ class PmaInfo:
 
         return desc
 
-    def generate_pma_value(self):
+    def generate_pma_value(self, force: bool = False):
         # pmacfg CSR format looks like this
         # 2:0 - Permission, 0: read, 1: write, 2: execute
         # 4:3 - memory type, 0: memory, 1: io, 2: ch0, 3: ch1
@@ -62,8 +68,10 @@ class PmaInfo:
         # 51:12 - address
         # 57:52 - reserved 0
         # 63:58 - size (if 0, then pma is invalid)
+        # NOTE: legacy quirk skips encoding when pma_valid=True (hint/in_pma regions emit 0); force=True
+        # bypasses it so PMA-randomization runs program real values without changing legacy output.
         pma_value = 0
-        if not self.pma_valid:
+        if force or not self.pma_valid:
             pma_value |= self.pma_read << 0
             pma_value |= self.pma_write << 1
             if self.pma_execute:
@@ -76,10 +84,63 @@ class PmaInfo:
                 pma_value |= self._combining_map[self.pma_combining] << 7
             pma_value |= self._routing_to_map[self.pma_routing_to] << 8
             pma_value |= (self.pma_address >> 12) << 12
-            pma_value |= (common.msb(self.pma_size) + 1) << 58
+            pma_value |= self._encoded_size_bits(force) << 58
             # print(f'pma_size: bits: {common.msb(self.pma_size)}, size: {self.pma_size:x}')
 
         return pma_value
+
+    def _encoded_size_bits(self, force: bool) -> int:
+        """Whisper decodes bits[63:58] as exact log2(size): force mode encodes pow2 sizes exactly.
+
+        Legacy encoding (msb+1) doubles every region's whisper-effective size with an align-down
+        base; kept for byte-identical legacy output and as ceil-log2 for non-pow2 sizes.
+        """
+        if force and self.pma_size > 0 and self.pma_size & (self.pma_size - 1) == 0:
+            return common.msb(self.pma_size)
+        return common.msb(self.pma_size) + 1
+
+    def generate_pma_mask_value(self) -> int:
+        return self.pma_mask & self.PMAMASK_ADDR_BITS
+
+    def effective_match_mask(self) -> int:
+        """Whisper processPmamaskChange: compare mask = (~pmamask & bits[51:12]) & bits above region size."""
+        size_bits = common.msb(self.pma_size) if self.pma_size > 0 else 12
+        size_mask = self.PMAMASK_ADDR_BITS & ~((1 << size_bits) - 1)
+        return ~self.pma_mask & size_mask
+
+    def matches_phys_range(self, start: int, size: int) -> bool:
+        """Whisper regionMatches over [start, start+size): masked regions ignore the NAPOT interval."""
+        end = start + max(size, 1) - 1
+        if self.pma_mask == 0:
+            return start < self.get_end_address() and self.pma_address <= end
+        mask = self.effective_match_mask()
+        if mask == 0:
+            return True  # degenerate mask matches everything; randomizer forbids this by construction
+        tag = self.pma_address & mask
+        first = self._first_masked_match_at_or_above(start & ~0xFFF, mask, tag)
+        return first is not None and first <= end
+
+    @staticmethod
+    def _first_masked_match_at_or_above(addr: int, mask: int, tag: int) -> int | None:
+        """
+        Smallest page-aligned A >= addr with A & mask == tag, or None (O(64), no page walking).
+
+        Beyond a direct hit, the minimal match agrees with addr above some bit p, has 1 at p where
+        addr has 0 (so A > addr), and is minimal below (free bits 0, compare bits = tag); the lowest
+        legal p gives the smallest such A.
+        """
+        if (addr & mask) == tag:
+            return addr
+        for p in range(12, 64):
+            if (addr >> p) & 1:
+                continue  # A must gain a 1 at p where addr has 0
+            if (mask >> p) & 1 and not ((tag >> p) & 1):
+                continue  # compare bit forced to 0 here
+            above = ~((1 << (p + 1)) - 1)
+            if (addr & mask & above) != (tag & above):
+                continue  # addr's prefix above p conflicts with the tag
+            return (addr & above) | (1 << p) | (tag & ((1 << p) - 1))
+        return None
 
     def attrib_matches(self, other: PmaInfo) -> bool:
         if self.pma_memory_type != other.pma_memory_type:
@@ -152,7 +213,7 @@ class PmaRegion:
     def add_entry(self, pma_info: PmaInfo) -> None:
         self._entries.append(pma_info)
 
-    def consolidated_entries(self) -> list[PmaInfo]:
+    def consolidated_entries(self, merge_named: bool = True) -> list[PmaInfo]:
         if not self._entries:
             return []
         c_entries = []
@@ -160,10 +221,14 @@ class PmaRegion:
         # If attributes match, then we can attempt consolidating regions
         # For memory the regions must be adjacent.
         # For IO we will add uninterrupted IO regions
+        # merge_named=False keeps every named pma_* carve-out intact (gap-merging io carve-outs would
+        # produce giant regions whose NAPOT base aligns below the test); legacy callers keep merging.
         self._entries.sort(key=lambda entry: entry.pma_address)
         c_entries.append(self._entries[0])
         for entry in self._entries[1:]:
-            if not c_entries[-1].attrib_matches(entry):
+            if not merge_named and (entry.pma_name.startswith("pma_") or c_entries[-1].pma_name.startswith("pma_")):
+                c_entries.append(entry)
+            elif not c_entries[-1].attrib_matches(entry):
                 # attributes do not match, so we add a new region
                 c_entries.append(entry)
             elif c_entries[-1].contains(entry):
@@ -174,11 +239,11 @@ class PmaRegion:
                 else:
                     pass
             elif c_entries[-1].get_end_address() == entry.pma_address:
-                # last region is adjacent to this region
-                c_entries[-1].pma_size += entry.pma_size
+                # last region is adjacent to this region (merge into a copy; stored entries stay intact)
+                c_entries[-1] = replace(c_entries[-1], pma_size=c_entries[-1].pma_size + entry.pma_size)
             elif c_entries[-1].is_io():
                 # we merge io regions even if they are not directly adjacent
-                c_entries[-1].pma_size += (entry.pma_address - c_entries[-1].get_end_address()) + entry.pma_size
+                c_entries[-1] = replace(c_entries[-1], pma_size=c_entries[-1].pma_size + (entry.pma_address - c_entries[-1].get_end_address()) + entry.pma_size)
             else:
                 c_entries.append(entry)
         return c_entries

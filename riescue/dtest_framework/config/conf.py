@@ -6,7 +6,7 @@
 from __future__ import annotations
 import importlib.util
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Any
+from typing import TYPE_CHECKING, Optional, Any, Iterable, Union
 
 
 if TYPE_CHECKING:
@@ -150,3 +150,30 @@ class Conf:
         if not isinstance(conf_obj, Conf):
             raise RuntimeError(f"Configuration file {path} setup() method did not return a Conf object. Returned {type(conf_obj)}")
         return conf_obj
+
+    @staticmethod
+    def split_conf_paths(conf_args: Iterable[Union[str, Path]]) -> list[Path]:
+        """
+        Flatten raw ``--conf`` values into an ordered list of ``Path`` objects.
+
+        Supports both repeated ``--conf`` flags and comma-separated lists, preserving the
+        order the files were listed::
+
+            --conf a.py,b.py --conf c.py   ->   [Path("a.py"), Path("b.py"), Path("c.py")]
+
+        Each element of ``conf_args`` may be a ``str`` or ``Path`` and may itself be a
+        comma-separated list of paths. Blank/whitespace-only entries are dropped. Order is
+        preserved so that conf hooks are registered (and therefore injected) in the order the
+        files appear on the command line. Real conf file paths are not expected to contain
+        commas.
+
+        :param conf_args: Raw ``--conf`` values (e.g. ``args.conf``).
+        :returns: Ordered, flattened list of conf file paths.
+        """
+        paths: list[Path] = []
+        for item in conf_args:
+            for part in str(item).split(","):
+                part = part.strip()
+                if part:
+                    paths.append(Path(part))
+        return paths

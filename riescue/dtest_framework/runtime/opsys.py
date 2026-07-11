@@ -53,9 +53,14 @@ class OpSys(AssemblyGenerator):
             raise ValueError("Linux mode and MP mode are not supported together")
 
         # Build OS Data variables
-        self.machine_csr_jump_table_flags = self.variable_manager.register_shared_variable("machine_csr_jump_table_flags", 0x0)
-        self.super_csr_jump_table_flags = self.variable_manager.register_shared_variable("super_csr_jump_table_flags", 0x0)
-        self.pte_access_flags = self.variable_manager.register_shared_variable("pte_access_flags", 0x0, element_count=3)
+        # Hart-local CSR jump-table flags are registered by Runtime (always available,
+        # even in WYSIWYG mode where OpSys isn't built); fetch the existing handles here.
+        self.machine_csr_jump_table_flags = self.variable_manager.get_variable("machine_csr_jump_table_flags")
+        self.super_csr_jump_table_flags = self.variable_manager.get_variable("super_csr_jump_table_flags")
+        # [0]=VA, [1]=level, [2]=g_level (-1=no g-stage), [3]=g-stage GPA byte offset
+        # (added to the intermediate GPA before the g-stage walk; used for Svnapot
+        # sub-page addressing when the NAPOT page is at the g-stage)
+        self.pte_access_flags = self.variable_manager.register_shared_variable("pte_access_flags", 0x0, element_count=4)
 
         if self.mp_active:
             self.variable_manager.register_shared_variable("barrier_arrive_counter", 0x0)
@@ -64,6 +69,17 @@ class OpSys(AssemblyGenerator):
             self.variable_manager.register_shared_variable("hartid_counter", 0x0)
             self.variable_manager.register_shared_variable("num_harts", self.featmgr.num_cpus)
             self.variable_manager.register_shared_variable("barrier_depart_counter", self.featmgr.num_cpus)
+
+        # Per-trigger shadow of the last tdata1 value armed by ;#trigger_config.
+        # ;#trigger_enable reloads from this array at runtime so it restores the
+        # config that actually executed on the path taken -- which cannot be
+        # resolved at generation time when an enable is a shared join point
+        # reachable from several configs (possibly of different trigger types)
+        # via branches. Registered last so it does not perturb the offsets of the
+        # variables above, and only when sdtrig is in use.
+        shadow_slots = self.pool.trigger_shadow_slot_count()
+        if self.featmgr.is_feature_supported("sdtrig") and self.featmgr.is_feature_enabled("sdtrig") and shadow_slots > 0:
+            self.variable_manager.register_shared_variable("trigger_saved_tdata1", 0x0, element_count=shadow_slots)
 
         # Runtime Pointers
         self.runtime_pointers: dict[str, str] = dict(OpSys.POINTERS)
@@ -180,8 +196,7 @@ class OpSys(AssemblyGenerator):
             seed_offset_scale_reg="a3",
             target_offset_scale_reg="a4",
             num_ignore_reg="a5",
-            handler_priv_mode=RV.RiscvPrivileges.MACHINE,
-            mhartid_offset=self.variable_manager.get_variable("mhartid").offset,
+            hart_index_code=self.variable_manager.get_variable("hart_index").load(dest_reg="t2"),
         )
         code += "\tret\n"
 
@@ -671,7 +686,8 @@ rvcp_newline_str_data: .asciz "\\n"
         # CSR Machine Jump Table 1
         code = f"""
         .section .csr_machine_0, "ax"
-        {self.machine_csr_jump_table_flags.load("x31")}
+        csrr t1, mscratch                 # hart context PA (tp is test's here)
+        {self.machine_csr_jump_table_flags.load("x31", base_reg="t1")}
 
 """
         for csr in parsed_csr_accesses:
@@ -702,7 +718,8 @@ rvcp_newline_str_data: .asciz "\\n"
 
         code += f"""
         .section .csr_super_0, "ax"
-        {self.super_csr_jump_table_flags.load("x31", bare=False)}
+        csrr t1, sscratch                 # hart context VA (tp is test's here)
+        {self.super_csr_jump_table_flags.load("x31", base_reg="t1")}
 
 """
         for csr in parsed_csr_accesses:

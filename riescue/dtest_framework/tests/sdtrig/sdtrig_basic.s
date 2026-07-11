@@ -21,6 +21,8 @@
 ;#test.summary    6.1: Disable trigger, no fire
 ;#test.summary    6.2: Disable then re-enable, fire
 ;#test.summary    6.3: Disable one trigger; other still fires
+;#test.summary    6.4: Re-enable restores the preceding same-index config,
+;#test.summary         not a later config that reuses the index with another type
 ;#test.summary
 
 ;#random_addr(name=watch_lin, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
@@ -179,6 +181,67 @@ disable_other_addr1:
 disable_other_after:
     ;#test_passed()
 
+#####################
+# 6.4 sdtrig_enable_reuse_index: Re-enable must restore the execute config that
+# textually PRECEDES it, even when a later discrete test reuses the same trigger
+# index with a different type (see sdtrig_reuse_index_itrigger below). Regression
+# for trigger_enable selecting the last same-index config in the whole file: that
+# produced an itrigger tdata1, which the ISS WARL-masks to disabled, so the
+# breakpoint never fired.
+#####################
+;#discrete_test(test=sdtrig_enable_reuse_index)
+sdtrig_enable_reuse_index:
+    ;#trigger_config(index=2, type=execute, addr=reuse_bp_here, action=breakpoint)
+    ;#trigger_disable(index=2)
+    ;#trigger_enable(index=2)
+    OS_SETUP_CHECK_EXCP BREAKPOINT, reuse_bp_here, reuse_bp_after
+reuse_bp_here:
+    nop
+reuse_bp_after:
+    ;#test_passed()
+
+#####################
+# 6.5 sdtrig_reuse_index_itrigger: A later config reusing index 2 with a
+# different (itrigger) type. Its presence textually AFTER the enable in 6.4 is
+# what used to corrupt that enable's restored tdata1. Configure then disable so
+# it does not fire on its own.
+#####################
+;#discrete_test(test=sdtrig_reuse_index_itrigger)
+sdtrig_reuse_index_itrigger:
+    ;#trigger_config(index=2, type=itrigger, addr=0x800, action=breakpoint, priv_mode=[m])
+    ;#trigger_disable(index=2)
+    ;#test_passed()
+
+#####################
+# 6.6 sdtrig_enable_branch_join: ;#trigger_enable is a shared join point reached
+# from two ;#trigger_config sites for the SAME index via a branch. Which config to
+# restore is a runtime property of the path taken and cannot be resolved at
+# generation time. The runtime path here arms an EXECUTE trigger, while the
+# textually-last config before the join (not executed) is an itrigger. The enable
+# must restore the EXECUTE config so the breakpoint fires; restoring the itrigger
+# (the static "textually preceding" pick) WARL-masks to disabled and never fires,
+# falling through to ;#test_failed(). Regression for the runtime-shadow re-arm.
+#####################
+;#discrete_test(test=sdtrig_enable_branch_join)
+sdtrig_enable_branch_join:
+    li t0, 0
+    bnez t0, branch_join_itrig_path     # t0 == 0: fall through to the execute path (taken)
+    ;#trigger_config(index=2, type=execute, addr=branch_join_fire, action=breakpoint)
+    j branch_join_point
+branch_join_itrig_path:                 # NOT executed at runtime; textually-last index-2 config
+    ;#trigger_config(index=2, type=itrigger, addr=0x800, action=breakpoint, priv_mode=[m])
+    j branch_join_point
+branch_join_point:
+    ;#trigger_disable(index=2)
+    ;#trigger_enable(index=2)
+    OS_SETUP_CHECK_EXCP BREAKPOINT, branch_join_fire, branch_join_after
+branch_join_fire:
+    nop
+    ;#test_failed()                     # reached only if the breakpoint did NOT fire
+branch_join_after:
+    ;#trigger_disable(index=2)
+    ;#test_passed()
+
 test_cleanup:
     li x1, 0xc0010002
     ;#test_passed()
@@ -207,6 +270,12 @@ sdtrig_disable_no_fire:
 sdtrig_enable_after_disable:
 ;#discrete_test(test=sdtrig_disable_other_active)
 sdtrig_disable_other_active:
+;#discrete_test(test=sdtrig_enable_reuse_index)
+sdtrig_enable_reuse_index:
+;#discrete_test(test=sdtrig_reuse_index_itrigger)
+sdtrig_reuse_index_itrigger:
+;#discrete_test(test=sdtrig_enable_branch_join)
+sdtrig_enable_branch_join:
     ;#test_passed()
 
 test_cleanup:

@@ -106,7 +106,15 @@ class ArithmeticAction(Action):
             if isinstance(input0, int):
                 imm = input0
             elif isinstance(input0, str):
-                src1 = input0
+                # Check original step to determine if this input came from src2
+                # (with src1 omitted). This matters for TLB fence instructions
+                # where omitted rs1 means x0 ("all addresses") and the sole
+                # operand should stay in rs2 (e.g. hfence.gvma x0, vmid).
+                orig = step.step
+                if getattr(orig, "src1", None) is None and getattr(orig, "src2", None) is not None:
+                    src2 = input0
+                else:
+                    src1 = input0
 
         variables: dict[str, Optional[str]] = {"src1": src1, "src2": src2}
         for field, value in variables.items():
@@ -165,12 +173,22 @@ class ArithmeticAction(Action):
 
         # Set input registers with temps; set immediate
 
+        # TLB fence instructions where omitted rs1/rs2 should default to x0 (meaning "all")
+        _TLB_FENCE_OPS = {
+            "sfence.vma",
+            "hfence.vvma",
+            "hfence.gvma",
+            "sinval.vma",
+            "hinval.vvma",
+            "hinval.gvma",
+        }
+
         rs1 = instruction.rs1()
         rs2 = instruction.rs2()
         imm = instruction.immediate_operand()
         if rs1 is not None:
             if self.src1 is None:
-                if self.op == "sfence.vma":
+                if self.op in _TLB_FENCE_OPS:
                     rs1.val = "zero"
                     self.src1 = "zero"
                 else:
@@ -179,7 +197,7 @@ class ArithmeticAction(Action):
                 rs1.val = self.src1
         if rs2 is not None:
             if self.src2 is None:
-                if self.op == "sfence.vma":
+                if self.op in _TLB_FENCE_OPS:
                     rs2.val = "zero"
                     self.src2 = "zero"
                 else:

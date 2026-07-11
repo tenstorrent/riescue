@@ -128,6 +128,8 @@ class FeatMgr:
     mp: RV.RiscvMPEnablement = RV.RiscvMPEnablement.MP_ON
     mp_mode: RV.RiscvMPMode = RV.RiscvMPMode.MP_PARALLEL
     num_cpus: int = 1
+    # Ordered list of mhartid values, one per hart. None means the default contiguous 0..num_cpus-1.
+    hart_ids: Optional[list[int]] = None
 
     # Generation options
     single_assembly_file: bool = False
@@ -203,7 +205,12 @@ class FeatMgr:
     setup_pmp: bool = False
     pmp_catchall: bool = False  # Add PMP catchall entries (14/15) for S/U mode tests
     needs_pma: bool = False
-    num_pmas: int = 64  # TT scheme: 64 PMA entries; 0-15 direct CSRs, 16-63 via miselect/mireg/mireg2
+    num_pmas: int = 64  # Implemented PMA CSR entries (mmap.pma.num_pmas or --num_pmas); first 16 direct, rest via miselect/mireg
+    enable_pma_randomization: bool = False  # Program randomized decoy PMA regions (implies needs_pma)
+    pma_random_regions: int = 8  # Decoy region count when randomization is on (Voyager2 overrides via CLI)
+    pma_random_mask_pct: int = 25  # Percent of decoy regions that get a nonzero pmamask
+    pma_carveout_mask_pct: int = 0  # Percent of named pma_* carve-outs that get a random pmamask
+    user_programmable_pmacfg: int = 0  # Reserve pmacfg entries [0..N) for user runtime programming
 
     # Debug mode (RISC-V Debug Spec Ch.4): ;#discrete_debug_test() and/or config
     debug_mode: bool = False
@@ -316,6 +323,16 @@ class FeatMgr:
 
     def mp_mode_on(self) -> bool:
         return self.mp == RV.RiscvMPEnablement.MP_ON
+
+    def get_hart_ids(self) -> list[int]:
+        "Ordered list of mhartid values, one per hart. Defaults to the contiguous 0..num_cpus-1."
+        if self.hart_ids is None:
+            return list(range(self.num_cpus))
+        return self.hart_ids
+
+    def discontiguous_hartids(self) -> bool:
+        "True when the configured hart IDs are anything other than the default contiguous 0..num_cpus-1."
+        return self.hart_ids is not None and self.hart_ids != list(range(self.num_cpus))
 
     def rvcp_print_enabled(self) -> bool:
         """Check if RVCP pass/fail message printing is enabled."""

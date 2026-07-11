@@ -9,7 +9,7 @@ from coretp import TestStep, TestEnv, InstructionCatalog, Instruction, StepIR
 from coretp.step import CsrRead, CsrWrite, CsrDirectAccess
 from coretp.rv_enums import Category, OperandType, Extension, Xlen
 from coretp.isa.operands import Operand
-from coretp.isa import get_register
+from coretp.isa import get_register, Register
 
 from riescue.compliance.test_plan.actions import Action, LiAction, ArithmeticAction
 from riescue.compliance.test_plan.context import LoweringContext
@@ -412,6 +412,7 @@ class CsrApiInstruction(Instruction):
         api_call: str = "write",
         force_machine_rw: bool = False,
         instruction_id: str = "",
+        fixed_t2_dest: bool = False,
     ):
         t0_reg = get_register("t0")
         t1_reg = get_register("t1")
@@ -424,12 +425,24 @@ class CsrApiInstruction(Instruction):
         else:
             src_reg = src
 
+        # Destination is normally a virtual register (instruction_id string) so the
+        # allocator can freely choose a physical register.  The csr_rw
+        # directive always places its result in t2, and format() emits an
+        # extra ``mv <rd>, t2`` when the allocator picked a register other
+        # than t2.  t2 is listed in clobbers so the allocator knows it is
+        # destroyed.
+        #
+        # Save/restore instructions generated after allocation never pass through
+        # the allocator, so they set fixed_t2_dest to keep a concrete t2 Register
+        # destination (no mv emitted, and the "all destinations are Registers"
+        # invariant holds).
+        dest_val = t2_reg if fixed_t2_dest else instruction_id
         super().__init__(
             name=name,
             extension=Extension.I,
             xlen=Xlen.XLEN64,
             category=Category.SYSTEM,
-            destination=Operand(type=OperandType.GPR, name="rd", val=t2_reg),
+            destination=Operand(type=OperandType.GPR, name="rd", val=dest_val),
             source=[
                 Operand(type=OperandType.CSR, name="csr", val=csr_name),
                 Operand(type=OperandType.GPR, name="rs1", val=src_reg),
@@ -449,7 +462,14 @@ class CsrApiInstruction(Instruction):
     def format(self):
         direct_read_write_str = "true" if self.direct_read_write else "false"
         force_machine_rw_str = "true" if self.force_machine_rw else "false"
-        return f";#csr_rw({self.csr_name}, {self.api_call}, {direct_read_write_str}, {force_machine_rw_str})"
+        directive = f";#csr_rw({self.csr_name}, {self.api_call}, {direct_read_write_str}, {force_machine_rw_str})"
+        # After allocation the destination holds the physical register.
+        # If it is already t2 (or still a string/unallocated) the mv is
+        # unnecessary.
+        rd = self.destination.val if self.destination else None
+        if isinstance(rd, Register) and rd.name != "t2":
+            return f"{directive}\n\tmv {rd.name}, t2"
+        return directive
 
 
 class MvT2Action(ArithmeticAction):
@@ -598,6 +618,7 @@ class CsrDirectAccessAction(Action):
         target_is_x0: bool = False,
         unimpl: bool = False,
         ro: bool = False,
+        force_accessibility: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -610,6 +631,8 @@ class CsrDirectAccessAction(Action):
         :param target_is_x0: Destination is x0 (discard result)
         :param unimpl: Pick a random unimplemented CSR address during expand()
         :param ro: Pick from the read-only unimplemented pool
+        :param force_accessibility: Override the csr_name=None selection accessibility (e.g.
+            "Machine" to pick an implemented M-CSR regardless of current privilege -> illegal in S/U)
         """
         super().__init__(**kwargs)
         self.op = op
@@ -617,6 +640,7 @@ class CsrDirectAccessAction(Action):
         self.src_value = src_value
         self.src = src
         self.target_is_x0 = target_is_x0
+        self.force_accessibility = force_accessibility
         self.unimpl = unimpl
         self.ro = ro
         self.constraints = {}
@@ -645,6 +669,7 @@ class CsrDirectAccessAction(Action):
 
         unimpl = getattr(step.step, "unimpl", False)
         ro = getattr(step.step, "ro", False)
+        force_accessibility = getattr(step.step, "force_accessibility", None)
         csr_name = None if unimpl else step.step.csr_name
 
         return cls(
@@ -656,6 +681,7 @@ class CsrDirectAccessAction(Action):
             target_is_x0=step.step.target_is_x0,
             unimpl=unimpl,
             ro=ro,
+            force_accessibility=force_accessibility,
             **kwargs,
         )
 
@@ -682,7 +708,9 @@ class CsrDirectAccessAction(Action):
             "s": "Supervisor",
             "u": "User",
         }
-        accessibility = accessibility_map.get(priv, "Machine")
+        # force_accessibility overrides the current-privilege filter: e.g. "Machine" picks an
+        # implemented M-CSR even from S/U, so the direct access faults illegal (wrong-privilege).
+        accessibility = self.force_accessibility or accessibility_map.get(priv, "Machine")
 
         is_read_only_op = self.op in ["csrrs", "csrrc", "csrrsi", "csrrci"] and (self.src is None or self.src == "zero") and (self.src_value == 0 or self.src_value is None)
 

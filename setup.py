@@ -15,7 +15,7 @@ if sys.version_info < (3, 9):
 
 from setuptools import setup
 
-CORETP_GIT_DEP = "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp" "@83fa692de215ef49bb987ba5f7f2a173198568af"
+CORETP_GIT_DEP = "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp" "@d31ea2e89278d5fdb834c0f217a4f3a7801dab69"
 
 install_requires = [
     "sortedcontainers",

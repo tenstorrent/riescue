@@ -11,7 +11,7 @@ import re
 import logging
 import shutil
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TYPE_CHECKING, cast
 
 import riescue.lib.enums as RV
 from riescue.lib.rand import RandNum
@@ -30,6 +30,9 @@ from riescue.dtest_framework.lib.page_map import Page
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.runtime import Runtime
 from riescue.dtest_framework.artifacts import GeneratedFiles
+
+if TYPE_CHECKING:
+    from riescue.dtest_framework.runtime.macros import Macros
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +134,7 @@ class AssemblyWriter:
         :param generated_files: Generated files container
         """
         header_section, test_section = self.split_rasm_sections(rasm)
+        test_section = self._wrap_discrete_tests(test_section)
         runtime_sections = self.generate_runtime_sections()
         equates_section = self.generate_equates_section()
         data_section = self.generate_data_section()
@@ -196,6 +200,73 @@ class AssemblyWriter:
         test_section = lines[test_section_start_idx:]
         return header_section, test_section
 
+    def _wrap_discrete_tests(self, test_section: list[str]) -> list[str]:
+        """
+        Inject the :py:attr:`~riescue.lib.enums.HookPoint.PRE_DISCRETE_TEST` and
+        :py:attr:`~riescue.lib.enums.HookPoint.POST_DISCRETE_TEST` hooks around each discrete test.
+
+        - ``PRE_DISCRETE_TEST`` code is inserted immediately after each discrete test's label
+          (``;#discrete_test(test=NAME)`` -> ``NAME:``), so it runs at test entry.
+        - ``POST_DISCRETE_TEST`` code is inserted immediately before every ``;#test_passed()`` inside
+          a discrete test, so it runs on each pass path.
+
+        ``test_setup`` / ``test_cleanup`` are not discrete tests and are left untouched. This is a
+        no-op (returns the input unchanged) when neither hook is registered.
+
+        :param test_section: Test section lines from :meth:`split_rasm_sections`
+        :return: Test section lines with hook code woven in
+        """
+        pre_code = self.featmgr.call_hook(RV.HookPoint.PRE_DISCRETE_TEST)
+        post_code = self.featmgr.call_hook(RV.HookPoint.POST_DISCRETE_TEST)
+        if not pre_code and not post_code:
+            return test_section
+        return self._weave_discrete_test_hooks(test_section, pre_code, post_code)
+
+    @staticmethod
+    def _weave_discrete_test_hooks(test_section: list[str], pre_code: str, post_code: str) -> list[str]:
+        """
+        Pure text transform used by :meth:`_wrap_discrete_tests`. Kept separate so the weaving logic
+        can be unit tested without constructing an :class:`AssemblyWriter`.
+        """
+        directive_re = re.compile(r"^;#discrete_test\(")
+        passed_re = re.compile(r"^;#test_passed\b")
+        cleanup_re = re.compile(r"^test_cleanup\s*:")
+        section_re = re.compile(r"^\.section\b")
+
+        result: list[str] = []
+        in_region = False  # inside the discrete-test region (excludes setup/cleanup/data)
+        pending_label = None  # exact label expected right after a ;#discrete_test directive
+        for line in test_section:
+            stripped = line.strip()
+
+            # ;#discrete_test(test=NAME): start/continue region; the next NAME: label is the entry point
+            if directive_re.match(stripped):
+                in_region = True
+                compact = stripped.replace(" ", "")  # tolerate `test = NAME`, mirrors the parser
+                name_m = re.match(r";#discrete_test\(test=([^),]+)", compact)
+                pending_label = name_m.group(1) if name_m else None
+                result.append(line)
+                continue
+
+            # PRE: right after the test's label
+            if pending_label is not None and re.match(rf"^{re.escape(pending_label)}\s*:", stripped):
+                result.append(line)
+                if pre_code:
+                    result.append(pre_code + "\n")
+                pending_label = None
+                continue
+
+            # Region ends at the reserved test_cleanup label or the first .section (e.g. .data)
+            if in_region and (cleanup_re.match(stripped) or section_re.match(stripped)):
+                in_region = False
+
+            # POST: before every ;#test_passed() inside a discrete test
+            if in_region and post_code and passed_re.match(stripped):
+                result.append(post_code + "\n")
+
+            result.append(line)
+        return result
+
     def _emit_direct_csr(self, line: str, csr_name: str, access_type: str) -> str:
         """Emit direct csrr/csrw/csrs/csrc instructions (fallback when csr_manager unavailable)."""
         csr_asm = csr_name.lower()
@@ -206,6 +277,157 @@ class AssemblyWriter:
         if access_type == "clear":
             return line + f"\ncsrc {csr_asm}, t2\n"
         return line + f"\ncsrw {csr_asm}, t2\n"
+
+    def _csr_value_load(self, value: str) -> str:
+        """Pick ``li`` (numeric/random_addr/expression) or ``la`` (plain symbol) for a CSR value."""
+        base = value.split("+")[0].strip("() ") if "+" in value else value.strip("() ")
+        if value.startswith("0x") or value.lstrip("-").isdigit() or self.pool.parsed_random_addr_exists(value) or self.pool.parsed_random_addr_exists(base):
+            return "li"
+        if not re.fullmatch(r"[A-Za-z_.$][\w.$]*", value):  # expression (e.g. (1<<3)) -> li
+            return "li"
+        return "la"
+
+    def _expand_csr_rw(self, parsed_line: str) -> str:
+        """Expand a ``;#csr_rw(...)`` directive into assembly (the single CSR_RW API path).
+
+        The ``;#csr_rw`` directive and the trigger directives both route here. Returns the
+        generated assembly, or "" if the CSR can't be resolved.
+        """
+        priority = ["user", "super", "machine"]
+        match = re.match(r"^;#csr_rw\(([^,]+),\s*([^,)]+)", parsed_line)
+        if not match:
+            return ""
+        csr_spec = match.group(1).strip()
+        read_write_set_clear = match.group(2).strip().rstrip(")")
+        direct_rw = "false"
+        force_machine_rw_line: bool = False
+        if "," in parsed_line:
+            rest = parsed_line[parsed_line.index(read_write_set_clear) + len(read_write_set_clear) :].strip()
+            if rest.startswith(","):
+                rest_parts = [p.strip().rstrip(")") for p in rest[1:].split(",")]
+                if rest_parts and "=" not in rest_parts[0]:
+                    # Old format: ;#csr_rw(csr, action, direct_rw, force_machine_rw)
+                    direct_rw = rest_parts[0].lower()
+                    if len(rest_parts) > 1:
+                        force_machine_rw_line = rest_parts[1].lower() == "true"
+                else:
+                    # New format: ;#csr_rw(csr, action, force_machine=true, ...)
+                    for p in rest_parts:
+                        if "=" in p:
+                            split_kv = p.split("=", 1)
+                            if split_kv[0].strip() == "force_machine":
+                                force_machine_rw_line = split_kv[1].strip().lower() == "true"
+
+        directive_value: int | str | None = None
+        directive_bit: int | None = None
+        directive_field: str | None = None
+        for kv in re.findall(r"(\w+)=(\([^()]*\)|[^,)\s]+)", parsed_line):
+            k, v = kv
+            if k == "value":
+                try:
+                    directive_value = int(v, 0)
+                except ValueError:
+                    directive_value = v
+            elif k == "bit":
+                try:
+                    directive_bit = int(v, 0)
+                except (ValueError, TypeError):
+                    pass
+            elif k == "field":
+                directive_field = v
+
+        # For write_subfield/read_subfield, validate field is present
+        if read_write_set_clear in ("write_subfield", "read_subfield") and not directive_field:
+            raise ValueError(f";#csr_rw({csr_spec}, {read_write_set_clear}) requires field= parameter")
+        try:
+            parsed_csr_val = self.pool.get_parsed_csr_access(csr_spec, read_write_set_clear, field=directive_field, force_machine_rw=force_machine_rw_line)
+        except KeyError:
+            log.warning(f"Could not find parsed csr access for {csr_spec}, {read_write_set_clear}, field={directive_field}")
+            return ""
+
+        priv_mode = "super" if parsed_csr_val.priv_mode == "supervisor" else parsed_csr_val.priv_mode
+        csr_prio = priority.index(priv_mode)
+        test_priv_mode = self.featmgr.priv_mode.name.lower()
+        priv_mode_prio = priority.index(test_priv_mode)
+        no_virtualized_on_hypervisor = parsed_csr_val.hypervisor and self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and self.featmgr.priv_mode != RV.RiscvPrivileges.MACHINE
+
+        # Resolve CSR via csr_manager for assembly generation
+        csr_mgr: CsrManagerInterface
+        os_module = self.runtime.modules.get("os")
+        _csr_mgr_raw = getattr(os_module, "csr_manager", None) if os_module is not None else None
+        if _csr_mgr_raw is None:
+            csr_mgr = CsrManagerInterface(self.rng, feature_discovery=self.featmgr)
+            if os_module is not None:
+                os_module.csr_manager = csr_mgr
+        else:
+            csr_mgr = cast(CsrManagerInterface, _csr_mgr_raw)
+
+        csr_config: dict[str, Any] | None
+        if re.match(r"0[xX][0-9a-fA-F]+", str(csr_spec)) or (str(csr_spec).isdigit() and not str(csr_spec).startswith("0")):
+            addr = int(csr_spec, 0) & 0xFFF
+            csr_config = csr_mgr.lookup_csr_by_address(addr)
+        else:
+            csr_config = csr_mgr.lookup_csr_by_name(str(csr_spec))
+
+        csr_name = list(csr_config.keys())[0] if csr_config else str(csr_spec)
+
+        # Map set_bit/clear_bit to set/clear with value=1<<bit
+        access_type = read_write_set_clear
+        raw_value = directive_value
+        value: int | None
+        if isinstance(raw_value, str):
+            try:
+                value = int(raw_value, 0)
+            except ValueError:
+                value = None  # symbolic value (label); handled by the syscall value_insn (la/li)
+        else:
+            value = raw_value
+        if read_write_set_clear == "set_bit" and directive_bit is not None:
+            access_type = "set"
+            value = 1 << directive_bit
+        elif read_write_set_clear == "clear_bit" and directive_bit is not None:
+            access_type = "clear"
+            value = 1 << directive_bit
+
+        subfield = {}
+        if read_write_set_clear in ("write_subfield", "read_subfield") and directive_field:
+            subfield = {directive_field: str(directive_value or 0)}
+
+        use_syscall = (force_machine_rw_line and test_priv_mode != "machine") or ((priv_mode_prio < csr_prio or no_virtualized_on_hypervisor) and direct_rw != "true")
+
+        if use_syscall:
+            value_insn = ""
+            if read_write_set_clear in ("set_bit", "clear_bit") and directive_bit is not None:
+                value_insn = f"li t2, {1 << directive_bit}"
+            elif read_write_set_clear in ("write_subfield", "write", "set", "clear") and directive_value is not None:
+                value_insn = f"{self._csr_value_load(str(directive_value))} t2, {directive_value}"
+            flag_name = "machine_csr_jump_table_flags" if priv_mode == "machine" or force_machine_rw_line else "super_csr_jump_table_flags"
+            sys_call = "0xf0001006" if priv_mode == "super" and not force_machine_rw_line else "0xf0001005"
+            # Emit the single jump-table stub source (runtime/macros.py); do not reimplement it here.
+            macros_mod = cast("Macros", self.runtime.modules.get("macros"))
+            return macros_mod.csr_ecall_stub(parsed_csr_val.csr_id, sys_call, flag_name, value_insn=value_insn) + "\n"
+
+        # Direct access. csr_manager only loads integer values, so a symbolic value
+        # (label, e.g. a trigger watchpoint addr) is loaded here via la/li into t2.
+        if value is None and isinstance(raw_value, str) and access_type in ("write", "set", "clear"):
+            return f"{self._csr_value_load(raw_value)} t2, {raw_value}\n" + self._emit_direct_csr("", csr_name, access_type)
+
+        instr_helper = DtestInstructionHelper()
+        if csr_config and access_type in ("read", "write", "set", "clear", "write_subfield", "read_subfield"):
+            try:
+                return csr_mgr.csr_access(
+                    instr_helper,
+                    access_type,
+                    csr_config,
+                    value=value,
+                    rs="t2",
+                    rd="t2",
+                    subfield=subfield,
+                )
+            except Exception as e:
+                log.warning(f"csr_manager.csr_access failed for {csr_name} {access_type}: {e}, falling back to direct")
+                return self._emit_direct_csr("", csr_name, access_type)
+        return self._emit_direct_csr("", csr_name, access_type)
 
     def find_and_replace_assembly(self, assembly_content: str) -> list[str]:
         """
@@ -220,7 +442,6 @@ class AssemblyWriter:
         :param lines: List of lines from input file
         :return: List of lines with text replaced
         """
-        priority = ["user", "super", "machine"]
         init_mem_sections = self.pool.get_parsed_init_mem_addrs()
         section_code_found = False
 
@@ -229,6 +450,9 @@ class AssemblyWriter:
         trigger_config_idx = 0
         trigger_disable_idx = 0
         trigger_enable_idx = 0
+        # Sized from the indices actually used by this test's trigger directives;
+        # must match OpSys's trigger_saved_tdata1 allocation (same Pool data).
+        num_trigger_shadow_slots = self.pool.trigger_shadow_slot_count()
         for line in assembly_content.split("\n"):
             # Filter out PMA hint directives - they are processed by parser and should not appear in output
             # Handle multi-line directives
@@ -288,11 +512,8 @@ class AssemblyWriter:
             parsed_line = line.strip()
             if parsed_line.startswith(";#trigger_config("):
                 configs = self.pool.get_parsed_trigger_configs()
-                if trigger_config_idx < len(configs) and self.featmgr.get_summary().get("SDTRIG_SUPPORTED", 0):
+                if trigger_config_idx < len(configs) and self.featmgr.is_feature_supported("sdtrig") and self.featmgr.is_feature_enabled("sdtrig"):
                     cfg = configs[trigger_config_idx]
-                    tselect_id, tdata1_id, tdata2_id = cfg.csr_ids
-                    flag_name = "machine_csr_jump_table_flags"
-                    sys_call = "0xf0001005"
 
                     # Build tdata1 and determine whether tdata2 is needed
                     if cfg.trigger_type == TriggerType.ICOUNT:
@@ -315,20 +536,22 @@ class AssemblyWriter:
                         )
                         needs_tdata2 = True
 
+                    # Route every trigger CSR write through the ;#csr_rw API.
                     code = f"# ;#trigger_config(index={cfg.index}, type={cfg.trigger_type.value})\n"
-                    code += f"li t2, {cfg.index}\n"
-                    code += f"li x31, {flag_name}\nli t0, {tselect_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
-                    code += f"li t2, 0\nli x31, {flag_name}\nli t0, {tdata1_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
+                    code += self._expand_csr_rw(f";#csr_rw(tselect, write, force_machine=true, value={cfg.index})")
+                    code += self._expand_csr_rw(";#csr_rw(tdata1, write, force_machine=true, value=0)")
                     if needs_tdata2:
-                        addr = cfg.addr
-                        # Use li for numeric, equate (random_addr), or random_addr+offset; la for labels
-                        base = addr.split("+")[0].strip() if "+" in addr else addr
-                        if addr.startswith("0x") or addr.isdigit() or self.pool.parsed_random_addr_exists(addr) or self.pool.parsed_random_addr_exists(base):
-                            addr_insn = f"li t2, {addr}"
-                        else:
-                            addr_insn = f"la t2, {addr}"
-                        code += f"{addr_insn}\nli x31, {flag_name}\n" f"li t0, {tdata2_id}\nsd t0, 0(x31)\n" f"li x31, {sys_call}\necall\n"
-                    code += f"li t2, 0x{tdata1_val:x}\nli x31, {flag_name}\n" f"li t0, {tdata1_id}\nsd t0, 0(x31)\n" f"li x31, {sys_call}\necall\n"
+                        # tdata2 = watchpoint addr (mcontrol6) or cause bitmask (i/etrigger);
+                        # _expand_csr_rw's value load picks li/la (numeric/random_addr/expr vs label).
+                        code += self._expand_csr_rw(f";#csr_rw(tdata2, write, force_machine=true, value={cfg.addr})")
+                    # Shadow the armed value into trigger_saved_tdata1[index] so a later
+                    # ;#trigger_enable for this index restores exactly what was configured on
+                    # the path actually taken at runtime. Materialize tdata1_val in t2 for the
+                    # shadow store; the tdata1 write below reloads it via _expand_csr_rw.
+                    if cfg.index < num_trigger_shadow_slots:
+                        code += f"li t2, 0x{tdata1_val:x}\n"
+                        code += f"li x31, trigger_saved_tdata1+{cfg.index * 8}\nsd t2, 0(x31)\n"
+                    code += self._expand_csr_rw(f";#csr_rw(tdata1, write, force_machine=true, value=0x{tdata1_val:x})")
                     line = line + "\n" + code
                 trigger_config_idx += 1
                 parsed_lines.append(line)
@@ -337,59 +560,45 @@ class AssemblyWriter:
             # replace ;#trigger_disable with tselect + tdata1=0
             if parsed_line.startswith(";#trigger_disable("):
                 disables = self.pool.get_parsed_trigger_disable()
-                if trigger_disable_idx < len(disables) and self.featmgr.get_summary().get("SDTRIG_SUPPORTED", 0):
+                if trigger_disable_idx < len(disables) and self.featmgr.is_feature_supported("sdtrig") and self.featmgr.is_feature_enabled("sdtrig"):
                     cfg = disables[trigger_disable_idx]
                     csr_acc = self.pool.get_parsed_csr_accesses()
                     tselect_acc = csr_acc.get("tselect", {}).get("write_force_machine")
                     tdata1_acc = csr_acc.get("tdata1", {}).get("write_force_machine")
                     if tselect_acc and tdata1_acc:
-                        flag_name = "machine_csr_jump_table_flags"
-                        sys_call = "0xf0001005"
                         code = f"# ;#trigger_disable(index={cfg.index})\n"
-                        code += f"li t2, {cfg.index}\nli x31, {flag_name}\nli t0, {tselect_acc.csr_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
-                        code += f"li t2, 0\nli x31, {flag_name}\nli t0, {tdata1_acc.csr_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
+                        code += self._expand_csr_rw(f";#csr_rw(tselect, write, force_machine=true, value={cfg.index})")
+                        code += self._expand_csr_rw(";#csr_rw(tdata1, write, force_machine=true, value=0)")
                         line = line + "\n" + code
                 trigger_disable_idx += 1
                 parsed_lines.append(line)
                 continue
 
-            # replace ;#trigger_enable - restore tdata1 from prior config for same index
+            # replace ;#trigger_enable - re-arm tdata1 from the runtime shadow
             if parsed_line.startswith(";#trigger_enable("):
                 enables = self.pool.get_parsed_trigger_enable()
-                if trigger_enable_idx < len(enables) and self.featmgr.get_summary().get("SDTRIG_SUPPORTED", 0):
+                if trigger_enable_idx < len(enables) and self.featmgr.is_feature_supported("sdtrig") and self.featmgr.is_feature_enabled("sdtrig"):
                     cfg = enables[trigger_enable_idx]
-                    configs = self.pool.get_parsed_trigger_configs()
-                    prev_cfg = next((c for c in reversed(configs) if c.index == cfg.index), None)
                     csr_acc = self.pool.get_parsed_csr_accesses()
                     tdata1_acc = csr_acc.get("tdata1", {}).get("write_force_machine")
                     tselect_acc = csr_acc.get("tselect", {}).get("write_force_machine")
-                    if prev_cfg and tdata1_acc and tselect_acc:
-                        if prev_cfg.trigger_type == TriggerType.ICOUNT:
-                            tdata1_val = build_tdata1_icount(
-                                prev_cfg.count,
-                                prev_cfg.action,
-                                prev_cfg.priv_mode,
-                                prev_cfg.pending,
-                            )
-                        elif prev_cfg.trigger_type == TriggerType.ITRIGGER:
-                            tdata1_val = build_tdata1_itrigger(prev_cfg.action, prev_cfg.priv_mode)
-                        elif prev_cfg.trigger_type == TriggerType.ETRIGGER:
-                            tdata1_val = build_tdata1_etrigger(prev_cfg.action, prev_cfg.priv_mode)
-                        else:
-                            tdata1_val = build_tdata1_mcontrol6(
-                                prev_cfg.trigger_type,
-                                prev_cfg.action,
-                                prev_cfg.size,
-                                prev_cfg.chain,
-                                prev_cfg.match,
-                                prev_cfg.priv_mode,
-                            )
+                    if tdata1_acc and tselect_acc:
                         flag_name = "machine_csr_jump_table_flags"
                         sys_call = "0xf0001005"
                         code = f"# ;#trigger_enable(index={cfg.index})\n"
+                        # tselect = index
                         code += f"li t2, {cfg.index}\nli x31, {flag_name}\nli t0, {tselect_acc.csr_id}\nsd t0, 0(x31)\nli x31, {sys_call}\necall\n"
-                        code += f"li t2, 0x{tdata1_val:x}\nli x31, {flag_name}\n" f"li t0, {tdata1_acc.csr_id}\nsd t0, 0(x31)\n" f"li x31, {sys_call}\necall\n"
-                        line = line + "\n" + code
+                        if cfg.index < num_trigger_shadow_slots:
+                            # Re-arm tdata1 with the value ;#trigger_config last stored in the
+                            # shadow at runtime. This restores whichever config executed on the
+                            # path actually taken, even when this enable is a join point reached
+                            # from multiple configs (of possibly different trigger types) via
+                            # branches -- a case that cannot be resolved at generation time.
+                            code += f"li x31, trigger_saved_tdata1+{cfg.index * 8}\nld t2, 0(x31)\n"
+                            code += f"li x31, {flag_name}\n" f"li t0, {tdata1_acc.csr_id}\nsd t0, 0(x31)\n" f"li x31, {sys_call}\necall\n"
+                            line = line + "\n" + code
+                        else:
+                            raise RuntimeError(f"Trigger index {cfg.index} is out of range and was undetected")
                 trigger_enable_idx += 1
                 parsed_lines.append(line)
                 continue
@@ -397,144 +606,26 @@ class AssemblyWriter:
 
             # replace ;#csr_rw with csrr/csrw instructions or system call to jump table
             if parsed_line.startswith(";#csr_rw"):
-                match = re.match(r"^;#csr_rw\(([^,]+),\s*([^,)]+)", parsed_line)
-                if match:
-                    csr_spec = match.group(1).strip()
-                    read_write_set_clear = match.group(2).strip().rstrip(")")
-                    direct_rw = "false"
-                    force_machine_rw_line: bool = False
-                    if "," in parsed_line:
-                        rest = parsed_line[parsed_line.index(read_write_set_clear) + len(read_write_set_clear) :].strip()
-                        if rest.startswith(","):
-                            rest_parts = [p.strip().rstrip(")") for p in rest[1:].split(",")]
-                            if rest_parts and "=" not in rest_parts[0]:
-                                # Old format: ;#csr_rw(csr, action, direct_rw, force_machine_rw)
-                                direct_rw = rest_parts[0].lower()
-                                if len(rest_parts) > 1:
-                                    force_machine_rw_line = rest_parts[1].lower() == "true"
-                            else:
-                                # New format: ;#csr_rw(csr, action, force_machine=true, ...)
-                                for p in rest_parts:
-                                    if "=" in p:
-                                        split_kv = p.split("=", 1)
-                                        if split_kv[0].strip() == "force_machine":
-                                            force_machine_rw_line = split_kv[1].strip().lower() == "true"
-
-                    directive_value: int | str | None = None
-                    directive_bit: int | None = None
-                    directive_field: str | None = None
-                    for kv in re.findall(r"(\w+)=([^,)\s]+)", parsed_line):
-                        k, v = kv
-                        if k == "value":
-                            try:
-                                directive_value = int(v, 0)
-                            except ValueError:
-                                directive_value = v
-                        elif k == "bit":
-                            try:
-                                directive_bit = int(v, 0)
-                            except (ValueError, TypeError):
-                                pass
-                        elif k == "field":
-                            directive_field = v
-
-                    # For write_subfield/read_subfield, validate field is present
-                    if read_write_set_clear in ("write_subfield", "read_subfield") and not directive_field:
-                        raise ValueError(f";#csr_rw({csr_spec}, {read_write_set_clear}) requires field= parameter")
-                    try:
-                        parsed_csr_val = self.pool.get_parsed_csr_access(csr_spec, read_write_set_clear, field=directive_field, force_machine_rw=force_machine_rw_line)
-                    except KeyError:
-                        log.warning(f"Could not find parsed csr access for {csr_spec}, {read_write_set_clear}, field={directive_field}")
-                        continue
-
-                    priv_mode = "super" if parsed_csr_val.priv_mode == "supervisor" else parsed_csr_val.priv_mode
-                    csr_prio = priority.index(priv_mode)
-                    test_priv_mode = self.featmgr.priv_mode.name.lower()
-                    priv_mode_prio = priority.index(test_priv_mode)
-                    no_virtualized_on_hypervisor = parsed_csr_val.hypervisor and self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and self.featmgr.priv_mode != RV.RiscvPrivileges.MACHINE
-
-                    # Resolve CSR via csr_manager for assembly generation
-                    csr_mgr: CsrManagerInterface
-                    os_module = self.runtime.modules.get("os")
-                    _csr_mgr_raw = getattr(os_module, "csr_manager", None) if os_module is not None else None
-                    if _csr_mgr_raw is None:
-                        csr_mgr = CsrManagerInterface(self.rng, feature_discovery=self.featmgr)
-                        if os_module is not None:
-                            os_module.csr_manager = csr_mgr
-                    else:
-                        csr_mgr = cast(CsrManagerInterface, _csr_mgr_raw)
-
-                    csr_config: dict[str, Any] | None
-                    if re.match(r"0[xX][0-9a-fA-F]+", str(csr_spec)) or (str(csr_spec).isdigit() and not str(csr_spec).startswith("0")):
-                        addr = int(csr_spec, 0) & 0xFFF
-                        csr_config = csr_mgr.lookup_csr_by_address(addr)
-                    else:
-                        csr_config = csr_mgr.lookup_csr_by_name(str(csr_spec))
-
-                    csr_name = list(csr_config.keys())[0] if csr_config else str(csr_spec)
-
-                    # Map set_bit/clear_bit to set/clear with value=1<<bit
-                    access_type = read_write_set_clear
-                    raw_value = directive_value
-                    value: int | None = int(raw_value, 0) if isinstance(raw_value, str) else raw_value
-                    if read_write_set_clear == "set_bit" and directive_bit is not None:
-                        access_type = "set"
-                        value = 1 << directive_bit
-                    elif read_write_set_clear == "clear_bit" and directive_bit is not None:
-                        access_type = "clear"
-                        value = 1 << directive_bit
-
-                    subfield = {}
-                    if read_write_set_clear in ("write_subfield", "read_subfield") and directive_field:
-                        subfield = {directive_field: str(directive_value or 0)}
-
-                    use_syscall = (force_machine_rw_line and test_priv_mode != "machine") or ((priv_mode_prio < csr_prio or no_virtualized_on_hypervisor) and direct_rw != "true")
-
-                    if use_syscall:
-                        code_to_replace = ""
-                        if read_write_set_clear in ("set_bit", "clear_bit") and directive_bit is not None:
-                            code_to_replace += f"li t2, {1 << directive_bit}\n"
-                        elif read_write_set_clear in ("write_subfield", "write", "set", "clear") and directive_value is not None:
-                            code_to_replace += f"li t2, {directive_value}\n"
-                        flag_name = "machine_csr_jump_table_flags" if priv_mode == "machine" or force_machine_rw_line else "super_csr_jump_table_flags"
-                        code_to_replace += f"li x31, {flag_name}\n"
-                        code_to_replace += f"li t5, {parsed_csr_val.csr_id}\n"
-                        code_to_replace += "sd t5, 0(x31)\n"
-                        sys_call = "0xf0001006" if priv_mode == "super" and not force_machine_rw_line else "0xf0001005"
-                        code_to_replace += f"li x31, {sys_call}\n"
-                        code_to_replace += "ecall\n"
-                        line = line + "\n" + code_to_replace
-                    else:
-                        instr_helper = DtestInstructionHelper()
-                        if csr_config and access_type in ("read", "write", "set", "clear", "write_subfield", "read_subfield"):
-                            try:
-                                asm = csr_mgr.csr_access(
-                                    instr_helper,
-                                    access_type,
-                                    cast(dict[str, Any], csr_config),
-                                    value=value,
-                                    rs="t2",
-                                    rd="t2",
-                                    subfield=subfield,
-                                )
-                                line = line + "\n" + asm
-                            except Exception as e:
-                                log.warning(f"csr_manager.csr_access failed for {csr_name} {access_type}: {e}, falling back to direct")
-                                line = self._emit_direct_csr(line, csr_name, access_type)
-                        else:
-                            line = self._emit_direct_csr(line, csr_name, access_type)
+                line = line + "\n" + self._expand_csr_rw(parsed_line)
 
             # replace ;#read_pte with syscall to walk handler
+            # An optional trailing "napot_offset=N" (N in 0..15) addresses the Nth 4K
+            # sub-page PTE of an Svnapot (64KB) page. The byte offset N*0x1000 is passed
+            # in pte_access_flags[3]; the walker applies it to the VA (v-stage walk) or
+            # to the intermediate GPA (g-stage walk) depending on whether g_level is set.
+            # lin_name is still used for level resolution.
             parsed_line = line.strip()
             if parsed_line.startswith(";#read_pte"):
-                pattern = r"^;#read_pte\((?P<lin_name>\w+),\s*(?P<level>\d+|leaf|nonleaf|final)(?:,\s*(?P<g_level>\d+|leaf|nonleaf))?\)"
+                pattern = r"^;#read_pte\((?P<lin_name>\w+),\s*(?P<level>\d+|leaf|nonleaf|final)(?:,\s*(?P<g_level>\d+|leaf|nonleaf))?(?:,\s*napot_offset=(?P<napot_offset>\d+))?\)"
                 match = re.match(pattern, parsed_line)
                 if match:
                     lin_name = match.group("lin_name")
                     level, g_level = self._resolve_pte_levels(lin_name, match.group("level"), match.group("g_level"))
+                    napot_offset = match.group("napot_offset")
 
                     # Generate code to store VA, level, and g_level into pte_access_flags, then ecall
                     g_level_value = g_level if g_level is not None else -1
+                    napot_bytes = int(napot_offset) * 0x1000 if napot_offset is not None else 0
                     code_to_replace = "li x31, pte_access_flags\n"
                     code_to_replace += f"li t0, {lin_name}\n"
                     code_to_replace += "sd t0, 0(x31)\n"  # [0] = VA
@@ -542,23 +633,28 @@ class AssemblyWriter:
                     code_to_replace += "sd t0, 8(x31)\n"  # [1] = level
                     code_to_replace += f"li t0, {g_level_value}\n"
                     code_to_replace += "sd t0, 16(x31)\n"  # [2] = g_level (-1 = no g-stage)
+                    code_to_replace += f"li t0, {napot_bytes}\n"
+                    code_to_replace += "sd t0, 24(x31)\n"  # [3] = Svnapot sub-page byte offset
                     code_to_replace += "li x31, 0xf0001007\n"
                     code_to_replace += "ecall\n"
 
                     line = line + "\n" + code_to_replace
 
-            # replace ;#write_pte with syscall to walk handler
+            # replace ;#write_pte with syscall to walk handler (see ;#read_pte above
+            # for the napot_offset semantics)
             parsed_line = line.strip()
             if parsed_line.startswith(";#write_pte"):
-                pattern = r"^;#write_pte\((?P<lin_name>\w+),\s*(?P<level>\d+|leaf|nonleaf|final)(?:,\s*(?P<g_level>\d+|leaf|nonleaf))?\)"
+                pattern = r"^;#write_pte\((?P<lin_name>\w+),\s*(?P<level>\d+|leaf|nonleaf|final)(?:,\s*(?P<g_level>\d+|leaf|nonleaf))?(?:,\s*napot_offset=(?P<napot_offset>\d+))?\)"
                 match = re.match(pattern, parsed_line)
                 if match:
                     lin_name = match.group("lin_name")
                     level, g_level = self._resolve_pte_levels(lin_name, match.group("level"), match.group("g_level"))
+                    napot_offset = match.group("napot_offset")
 
                     # Generate code to store VA, level, and g_level into pte_access_flags, then ecall
                     # t2 should already contain the value to write before the ecall
                     g_level_value = g_level if g_level is not None else -1
+                    napot_bytes = int(napot_offset) * 0x1000 if napot_offset is not None else 0
                     code_to_replace = "li x31, pte_access_flags\n"
                     code_to_replace += f"li t0, {lin_name}\n"
                     code_to_replace += "sd t0, 0(x31)\n"  # [0] = VA
@@ -566,6 +662,8 @@ class AssemblyWriter:
                     code_to_replace += "sd t0, 8(x31)\n"  # [1] = level
                     code_to_replace += f"li t0, {g_level_value}\n"
                     code_to_replace += "sd t0, 16(x31)\n"  # [2] = g_level (-1 = no g-stage)
+                    code_to_replace += f"li t0, {napot_bytes}\n"
+                    code_to_replace += "sd t0, 24(x31)\n"  # [3] = Svnapot sub-page byte offset
                     code_to_replace += "li x31, 0xf0001008\n"
                     code_to_replace += "ecall\n"
 

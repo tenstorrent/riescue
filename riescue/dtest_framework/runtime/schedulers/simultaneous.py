@@ -69,9 +69,8 @@ class SimultaneousScheduler(Scheduler):
         code += "call os_barrier_amo\n"
 
         # writing num_runs back to shared memory
-        # only hart 0 needs to store s10
-        # FIXME: Use variable manager to make this more readable.
-        code += f"csrr {self.hartid_reg}, mhartid\n"
+        # only the leader hart (sequential index 0) needs to store s10
+        code += self.variable_manager.get_variable("hart_index").load(dest_reg=self.hartid_reg) + "\n"
         code += f"""
             bnez {self.hartid_reg}, scheduler__calc_test_pointer
             sw s10, 0(s11)

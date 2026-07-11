@@ -1,13 +1,14 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from collections import defaultdict
 
-from typing import Optional, Iterator, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 from coretp import TestEnv, InstructionCatalog, Instruction
 from coretp.isa import Register
+from coretp.rv_enums import PrivilegeMode
 from riescue.lib.rand import RandNum
 from riescue.compliance.test_plan.memory import MemoryRegistry
 from riescue.dtest_framework.config import FeatMgr
@@ -56,23 +57,6 @@ class _IDTracker:
 
 
 @dataclass
-class PrivilegeBlockInstructions:
-    """Instructions belonging to each privilege-mode code block, keyed by block index."""
-
-    machine: dict[int, list[Instruction]] = field(default_factory=dict)
-    supervisor: dict[int, list[Instruction]] = field(default_factory=dict)
-    user: dict[int, list[Instruction]] = field(default_factory=dict)
-
-    def for_mode(self, mode: str) -> dict[int, list[Instruction]]:
-        return getattr(self, mode)
-
-    def all_blocks(self) -> Iterator[list[Instruction]]:
-        yield from self.machine.values()
-        yield from self.supervisor.values()
-        yield from self.user.values()
-
-
-@dataclass
 class LoweringContext:
     """
     Context for lowering actions into Instructions. Used for `class:Expander` / `class:Elaborator`
@@ -90,9 +74,14 @@ class LoweringContext:
     def __post_init__(self):
         self.id_tracker = _IDTracker()
         self.global_function_clobbers: dict[str, list[Register]] = {}  # maps function name to list of clobbered registers
-        self.privilege_block_instructions = PrivilegeBlockInstructions()
+        self.privilege_block_instructions: dict[PrivilegeMode, dict[int, list[Instruction]]] = {
+            PrivilegeMode.M: {},
+            PrivilegeMode.S: {},
+            PrivilegeMode.U: {},
+        }
         self._built = False
         self._csr_manager: Optional["CsrManagerInterface"] = None
+        self.current_privilege_mode: Optional[PrivilegeMode] = None
 
     def get_csr_manager(self) -> "CsrManagerInterface":
         """Get or lazily initialize the CSR manager."""

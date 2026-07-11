@@ -397,13 +397,14 @@ class Routines:
         seed_offset_scale_reg: str,
         target_offset_scale_reg: str,
         num_ignore_reg: str,
-        handler_priv_mode: RV.RiscvPrivileges,
-        mhartid_offset: int,
+        hart_index_code: str,
     ) -> str:
+        # ``hart_index_code`` must load this hart's sequential index (0..N-1) into t2; it indexes
+        # the per-hart seed array below.
         return f"""
                 # simple XORshift random number generator
                 # https://www.javamex.com/tutorials/random_numbers/xorshift.shtml#.VlcaYzKwEV8
-                {Routines.place_retrieve_hartid(dest_reg="t2", priv_mode=handler_priv_mode, mhartid_offset=mhartid_offset)}
+                {hart_index_code}
 
                 # Calculate seed addr offset
                 mv t1, {seed_offset_scale_reg}
@@ -442,34 +443,48 @@ class Routines:
         """
 
     @classmethod
+    def place_hartid_to_index(cls, hartid_reg: str, ptr_reg: str, val_reg: str, xlen: RV.Xlen, label_suffix: str) -> str:
+        """
+        Convert an ``mhartid`` value into its sequential hart index (0..N-1), in place.
+
+        On entry ``hartid_reg`` holds an ``mhartid`` value; on exit it holds the index of that
+        value in the ``hart_id_table``. ``ptr_reg`` and ``val_reg`` are clobbered.
+
+        ``label_suffix`` must be unique per emission within a generated file (named labels are
+        used rather than numeric locals to avoid clashing with surrounding ``1f``/``1b`` refs).
+
+        The mhartid is assumed to be present in the table (validated once at boot by the
+        loader), so the loop needs no bounds check. This is only needed when hart IDs are
+        discontiguous; contiguous 0..N-1 has index == mhartid.
+        """
+        label = "hart_id_table"
+        if xlen == RV.Xlen.XLEN32:
+            load, step, shift = "lw", 4, 2
+        else:
+            load, step, shift = "ld", 8, 3
+        loop_label = f".L_hartid_to_index_loop_{label_suffix}"
+        done_label = f".L_hartid_to_index_done_{label_suffix}"
+        return f"""
+            # Map mhartid ({hartid_reg}) -> sequential hart index via {label}
+            la {ptr_reg}, {label}
+        {loop_label}:
+            {load} {val_reg}, 0({ptr_reg})
+            beq {val_reg}, {hartid_reg}, {done_label}
+            addi {ptr_reg}, {ptr_reg}, {step}
+            j {loop_label}
+        {done_label}:
+            la {val_reg}, {label}
+            sub {hartid_reg}, {ptr_reg}, {val_reg}
+            srli {hartid_reg}, {hartid_reg}, {shift}
+        """
+
+    @classmethod
     def place_offset_address_by_scaled_hartid(cls, address_reg: str, dest_reg: str, hartid_reg: str, work_reg: str, scale: int) -> str:
         return f"""
             li {work_reg}, {scale}
             mul {work_reg}, {hartid_reg}, {work_reg}
             add {dest_reg}, {address_reg}, {work_reg}
         """
-
-    @classmethod
-    def place_retrieve_hartid(cls, dest_reg: str, priv_mode: RV.RiscvPrivileges, mhartid_offset: int) -> str:
-        if priv_mode not in [RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER]:
-            raise ValueError(f"Unsupported priv_mode: {priv_mode}")
-        routine_string = ""
-        if priv_mode == RV.RiscvPrivileges.MACHINE:
-            routine_string += f"""
-                csrr {dest_reg}, mhartid
-            """
-        elif priv_mode == RV.RiscvPrivileges.SUPER:
-            # load from hart context if in S mode
-            # why is this not in runtime? It's tied to the state of runtime.
-            # needs hart-local storage offset of mhartid
-            routine_string += f"""
-                csrr {dest_reg}, sscratch
-                ld {dest_reg}, {mhartid_offset}({dest_reg})
-            """
-        else:
-            raise ValueError(f"Unsupported priv_mode: {priv_mode}")
-
-        return routine_string
 
     @classmethod
     def read_tval(cls, dest_reg: str, priv_mode: str) -> str:
