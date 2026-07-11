@@ -376,6 +376,7 @@ class SysCalls(TrapHandler):
         gstage_label = f"{self.label_prefix}pte_walk_gstage_{rw}"
         final_label = f"{self.label_prefix}pte_walk_final_{rw}"
         fail_label = f"{self.label_prefix}pte_walk_fail_{rw}"
+        va_offset_done_label = f"{self.label_prefix}pte_walk_va_offset_done_{rw}"
         final_op = "sd t2, 0(t1)" if is_write else "ld t2, 0(t1)"
 
         is_virtualized = self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED
@@ -387,6 +388,19 @@ class SysCalls(TrapHandler):
             {pte_access_flags.load(dest_reg="x31", index=0)}
             {pte_access_flags.load(dest_reg="t0", index=1)}
             {pte_access_flags.load(dest_reg="t3", index=2)}
+
+            # Svnapot sub-page byte offset (pte_access_flags[3]). With no g-stage
+            # walk it applies to the VA used by the v-stage walk; with a g-stage
+            # walk it is applied to the intermediate GPA at {gstage_label} instead
+            # (adding it to the VA would select a different v-stage leaf PTE).
+            # Defaults to 0 for non-NAPOT walks.
+            li t6, -1
+            bne t3, t6, {va_offset_done_label}
+            {pte_access_flags.load(dest_reg="t6", index=3)}
+            {pte_access_flags.load(dest_reg="t5", index=0)}
+            add t5, t5, t6
+            {pte_access_flags.store("t5", index=0, temp_reg="t6")}
+        {va_offset_done_label}:
         """
 
         # Validate paging mode / g-stage / virtualization combinations
@@ -414,7 +428,7 @@ class SysCalls(TrapHandler):
                 # V-stage disabled but g-stage enabled: skip v-stage, go directly to g-stage
                 # Set t1 = address (GPA) from x31 so gstage_label can store it
                 code += f"""
-            mv t1, x31                  # address is already a GPA when v-stage disabled
+            {pte_access_flags.load(dest_reg="t1", index=0)}  # reload GPA (x31 clobbered by li t6; t6 IS x31)
             j {gstage_label}            # v-stage paging disabled, skip to g-stage walk
                 """
 
@@ -466,6 +480,11 @@ class SysCalls(TrapHandler):
 
         {gstage_label}:
             # G-stage setup: use v-stage PTE address as GPA for hgatp walk
+            # Add the g-stage GPA byte offset (Svnapot sub-page addressing): the
+            # offset must apply to the GPA fed into the g-stage walk, not the VA
+            # used for the v-stage walk. Defaults to 0 for non-NAPOT walks.
+            {pte_access_flags.load(dest_reg="t6", index=3)}
+            add t1, t1, t6
             # Store GPA to pte_access_flags[0] so loop reloads it each iteration
             {pte_access_flags.store("t1", index=0)}
             mv t0, t3                  # target level = g_level

@@ -45,7 +45,7 @@ Memory Map Components
 
 - ``permissions`` (optional) - PMP access permissions as a string. Values: ``"rwx"`` (read/write/execute, default), ``"rw"`` (read/write), ``"r"`` (read-only), ``"none"`` (no access).
 - ``cacheable`` (optional) - Whether the region is cacheable (boolean, default: ``false``). **Note:** the correct spelling is ``cacheable``, not ``cachable``.
-- ``secure`` (optional) - Whether the region is a secure region (boolean, default: ``false``).
+- ``secure`` (optional) - Marks the region as a Trusted Execution Environment (TEE) zone, matching Whisper's TEE implementation; TEE is not standard RISC-V, so this can be ignored unless targeting TEE (boolean, default: ``false``).
 - ``configurable`` (optional) - Whether the region can be split/reconfigured during test generation (boolean, default: ``false``).
 
 **io** - I/O Configuration
@@ -202,8 +202,8 @@ Controls various aspects of test generation behavior.
 
 **Properties:**
 
-- ``secure_access_probability`` - Percentage chance of secure access patterns (0-100, default: 30)
-- ``secure_pt_probability`` - Percentage chance of secure page table generation (0-100, default: 0)
+- ``secure_access_probability`` - Percentage chance that memory accesses target secure (TEE) regions; no effect unless a ``secure`` region exists in the memory map (0-100, default: 30)
+- ``secure_pt_probability`` - Percentage chance that page tables are placed in secure (TEE) regions; no effect unless a ``secure`` region exists in the memory map (0-100, default: 0)
 - ``a_d_bit_randomization`` - Percentage chance of randomizing accessed/dirty bits (0-100, default: 0)
 - ``pbmt_ncio_randomization`` - Percentage chance of PBMT NCIO randomization (0-100, default: 0)
 - ``fs_randomization`` - Percentage chance of randomizing the FS (floating-point status) field in mstatus/sstatus (0-100, default: 0)

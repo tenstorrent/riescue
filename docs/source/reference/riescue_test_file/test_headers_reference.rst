@@ -141,6 +141,34 @@ Sets the number of processor cores for multiprocessor testing.
     ;#test.cpus       4             # Four processors
     ;#test.cpus       2+            # Two or more processors
 
+**;#test.hart_ids** - Explicit Hart IDs
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Comma-separated list of ``mhartid`` values to generate the test for. Hart IDs need not be
+contiguous or start at zero (per the RISC-V spec, hart IDs may be sparse). The list length
+overrides ``;#test.cpus``. When omitted, hart IDs default to ``0..cpus-1``.
+
+When the list is non-default, RiescueD emits a runtime lookup table that maps each running
+hart's ``mhartid`` to its sequential index, so per-hart data structures resolve correctly.
+Configuring the ISS to actually present these ``mhartid`` values (e.g. Whisper's
+``core_hart_id_offset``) is the user's responsibility.
+
+**Syntax:**
+
+.. code-block:: asm
+
+    ;#test.hart_ids <id0>,<id1>,...
+
+**Examples:**
+
+.. code-block:: asm
+
+    ;#test.hart_ids   0,2,4         # Three harts with mhartid 0, 2, 4
+    ;#test.hart_ids   0,7           # Two harts with mhartid 0 and 7
+
+The same set can be supplied on the command line with ``--hart_ids 0,2,4`` (available on
+RiescueD, RiescueC, Voyager2, and rieorder).
+
 **;#test.mp_mode** - Multiprocessor Mode
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

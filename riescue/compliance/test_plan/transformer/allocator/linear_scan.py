@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Optional, NamedTuple, Union, TYPE_CHECKING
 
 from coretp.isa import Instruction, Label, Register, get_register, Operand
-from coretp.rv_enums import RegisterClass, OperandType, Xlen, Extension, Category
+from coretp.rv_enums import RegisterClass, OperandType, Xlen, Extension, Category, PrivilegeMode
 
 from riescue.compliance.test_plan.context import LoweringContext
 from riescue.compliance.test_plan.actions.privilege_mode import PrivilegeBlockMarkerInstruction
@@ -111,10 +111,10 @@ class LinearScan:
         self.xlen = Xlen.XLEN32 if self.ctx.env.reg_width == 32 else Xlen.XLEN64
         self.privilege_block_ranges = self._build_privilege_block_ranges()
 
-    def _build_privilege_block_ranges(self) -> dict[int, tuple[str, int]]:
+    def _build_privilege_block_ranges(self) -> dict[int, tuple[PrivilegeMode, int]]:
         """Build mapping from instruction index to (mode, block_index) for instructions inside privilege blocks."""
-        privilege_ranges: dict[int, tuple[str, int]] = {}
-        current_block: Optional[tuple[str, int]] = None
+        privilege_ranges: dict[int, tuple[PrivilegeMode, int]] = {}
+        current_block: Optional[tuple[PrivilegeMode, int]] = None
         block_start_index: Optional[int] = None
 
         for i, instr in enumerate(self.instructions):

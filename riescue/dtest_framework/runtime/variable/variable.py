@@ -3,6 +3,8 @@
 
 # pyright: strict
 
+from typing import Optional
+
 
 class Variable:
     """
@@ -91,40 +93,44 @@ class Variable:
             return name
         return f"{name} + {index * self.size}"
 
-    def load_immediate(self, dest_reg: str, index: int = 0, bare: bool = True) -> str:
+    def load_immediate(self, dest_reg: str, index: int = 0, bare: bool = True, base_reg: Optional[str] = None) -> str:
         """
         Generates code to load the variable's address into a register.
 
         :param dest_reg: Register to load the address into.
         :param index: Index of the element to load (for array variables).
         :param bare: If True, use PA equate for M-mode bare access (shared variables only).
+        :param base_reg: Hart-var base register override (default tp); e.g. a reg holding mscratch/sscratch.
         """
         offset = self._element_offset(index)
         if self.hart_variable:
+            base = base_reg if base_reg is not None else self.base_pointer
             if self._offset_fits_12bit(offset):
-                return f"addi {dest_reg}, {self.base_pointer}, {offset}"
-            return f"li {dest_reg}, {offset}\n\tadd {dest_reg}, {dest_reg}, {self.base_pointer}"
+                return f"addi {dest_reg}, {base}, {offset}"
+            return f"li {dest_reg}, {offset}\n\tadd {dest_reg}, {dest_reg}, {base}"
         else:
             return f"li {dest_reg}, {self._resolve_name(bare, index)}"
 
-    def load(self, dest_reg: str, index: int = 0, bare: bool = True) -> str:
+    def load(self, dest_reg: str, index: int = 0, bare: bool = True, base_reg: Optional[str] = None) -> str:
         """
         Generates code to load the variable's value into a register.
 
         :param dest_reg: Register to load the value into.
         :param index: Index of the element to load (for array variables).
         :param bare: If True, use PA equate for M-mode bare access (shared variables only).
+        :param base_reg: Hart-var base register override (default tp); e.g. a reg holding mscratch/sscratch.
         """
         comment = f"# {self.name}" if self.element_count == 1 else f"# {self.name}[{index}]"
         offset = self._element_offset(index)
         if self.hart_variable:
+            base = base_reg if base_reg is not None else self.base_pointer
             if self._offset_fits_12bit(offset):
-                return f"{self._load_instruction()} {dest_reg}, {offset}({self.base_pointer}) {comment:>30}"
-            return "\n\t".join([self.load_immediate(dest_reg, index), f"{self._load_instruction()} {dest_reg}, ({dest_reg}) {comment:>30}"])
+                return f"{self._load_instruction()} {dest_reg}, {offset}({base}) {comment:>30}"
+            return "\n\t".join([self.load_immediate(dest_reg, index, base_reg=base), f"{self._load_instruction()} {dest_reg}, ({dest_reg}) {comment:>30}"])
         else:
             return "\n\t".join([self.load_immediate(dest_reg, index, bare), f"{self._load_instruction()} {dest_reg}, ({dest_reg}) {comment:>30}"])
 
-    def store(self, src_reg: str, temp_reg: str = "t6", index: int = 0, bare: bool = True) -> str:
+    def store(self, src_reg: str, temp_reg: str = "t6", index: int = 0, bare: bool = True, base_reg: Optional[str] = None) -> str:
         """
         Store value in src_reg into variable. If shared variable, uses a temporary register.
 
@@ -132,13 +138,15 @@ class Variable:
         :param temp_reg: Temporary register to use for loading the variable's address.
         :param index: Index of the element to store (for array variables).
         :param bare: If True, use PA equate for M-mode bare access (shared variables only).
+        :param base_reg: Hart-var base register override (default tp); e.g. a reg holding mscratch/sscratch.
         """
         comment = f"# {self.name}" if self.element_count == 1 else f"# {self.name}[{index}]"
         offset = self._element_offset(index)
         if self.hart_variable:
+            base = base_reg if base_reg is not None else self.base_pointer
             if self._offset_fits_12bit(offset):
-                return f"{self._store_instruction()} {src_reg}, {offset}({self.base_pointer}) {comment:>30}"
-            return "\n\t".join([self.load_immediate(temp_reg, index), f"{self._store_instruction()} {src_reg}, ({temp_reg}) {comment:>30}"])
+                return f"{self._store_instruction()} {src_reg}, {offset}({base}) {comment:>30}"
+            return "\n\t".join([self.load_immediate(temp_reg, index, base_reg=base), f"{self._store_instruction()} {src_reg}, ({temp_reg}) {comment:>30}"])
         else:
             return "\n\t".join([self.load_immediate(temp_reg, index, bare), f"{self._store_instruction()} {src_reg}, ({temp_reg}) {comment:>30}"])
 

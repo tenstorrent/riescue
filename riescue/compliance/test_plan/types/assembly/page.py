@@ -33,6 +33,10 @@ class Page(AssemblyBase):
     name: str
     size: int = 0x1000
     start_addr: Optional[int] = None
+    #: When set, this page aliases another page's physical address: it shares this ``phys_name``
+    #: (so both VAs map to one PA) and emits only its own linear ``;#random_addr`` -- the source
+    #: page owns the physical ``;#random_addr`` and the section/data.
+    aliased_phys_name: Optional[str] = None
     alignment: Optional[int] = None
     pma_config: Optional[dict[str, Any]] = None
     page_size: Optional[Union[PageSize, tuple[PageSize, ...]]] = None
@@ -45,6 +49,7 @@ class Page(AssemblyBase):
     modify: bool = False
     modify_leaf: bool = False
     modify_nonleaf: bool = False
+    phys_alignment: Optional[int] = None  #: Override physical address alignment (e.g. 0x200000 for 2MB superpage promotion)
     buffer_page: bool = True  #: Indicates that the memory isn't shared with other tests and memory after shouldn't be accessed. Adds a buffer page after the memory.
     secure: bool = False  #: Whether memory should be allocated from the secure region (sets PA bit 55)
 
@@ -71,7 +76,7 @@ class Page(AssemblyBase):
     nonleaf_gnonleaf_exclude_flags: Optional[PageFlags] = None
 
     def __post_init__(self):
-        self.phys_name = f"{self.name}_phys"
+        self.phys_name = self.aliased_phys_name if self.aliased_phys_name is not None else f"{self.name}_phys"
 
     @staticmethod
     def _fmt_page_sizes(ps: Union[PageSize, tuple[PageSize, ...]]) -> str:
@@ -275,7 +280,12 @@ class Page(AssemblyBase):
 
         # Alignment mask: all 1s except the low bits of first_page_size_bytes,
         # so the base VA/PA are aligned correctly for superpages across the full 64-bit space.
-        and_mask = f"0x{(~(first_page_size_bytes - 1)) & 0xFFFF_FFFF_FFFF_FFFF:016x}"
+        # If an explicit phys_alignment is requested (e.g. for superpage promotion), use the
+        # larger of the page size and the requested alignment.
+        align_bytes = first_page_size_bytes
+        if self.phys_alignment is not None and self.phys_alignment > align_bytes:
+            align_bytes = self.phys_alignment
+        and_mask = f"0x{(~(align_bytes - 1)) & 0xFFFF_FFFF_FFFF_FFFF:016x}"
 
         or_mask = self.or_mask
 
@@ -302,7 +312,12 @@ class Page(AssemblyBase):
             # code.append(f";#reserve_memory(name={self.name}, start_addr=0x{self.start_addr:x},  type=linear, size=0x{size:x}, or_mask={or_mask})")
             # code.append(f";#reserve_memory(name={self.phys_name}, start_addr=0x{self.start_addr:x},  type=physical, size=0x{self.size:x}, or_mask={or_mask})")
         code.append(lin + ")")
-        code.append(phys + ")")
+        # An alias shares the source page's physical address; the source owns the physical
+        # ;#random_addr (declaring a second for the same phys_name would be a duplicate). Emit
+        # only the alias's own linear address and let its ;#page_mapping reference the shared
+        # phys_name (set on self.phys_name in __post_init__).
+        if self.aliased_phys_name is None:
+            code.append(phys + ")")
 
         for i in range(pages_to_generate):
             if i == 0:
@@ -360,7 +375,10 @@ class Page(AssemblyBase):
         if self.alignment is not None:
             code.append(f".align {self.alignment}")
 
-        code.append(f";#init_memory @{self.name}")
+        # The source page owns the section/data of the shared physical page; an alias must not
+        # re-init it (would emit a duplicate ;#init_memory for memory it doesn't own).
+        if self.aliased_phys_name is None:
+            code.append(f";#init_memory @{self.name}")
         return "\n".join(code)
 
 
@@ -384,4 +402,8 @@ class DataPage(Page):
 
         Currently only supports data as a list of strings, all others will cause an error
         """
-        return super().emit() + "\n" + "\n".join(d for d in self.data) + "\n"
+        header = super().emit()
+        # An alias has no data body: the source page owns the bytes of the shared physical page.
+        if self.aliased_phys_name is not None:
+            return header + "\n"
+        return header + "\n" + "\n".join(d for d in self.data) + "\n"

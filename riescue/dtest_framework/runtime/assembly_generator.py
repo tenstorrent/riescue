@@ -408,3 +408,44 @@ class AssemblyGenerator(ABC):
         lines.append(f"csrrw tp, {scratch_reg}, tp")  # restore tp
 
         return "\n\t".join(lines)
+
+    def get_hart_context(self) -> str:
+        """
+        Generates code to get the hart context pointer into the tp register.
+
+        :return: Assembly string to get the hart context pointer into the tp register
+        """
+        if not self.mp_active:
+            get_tp = "li tp, hart_context"
+        else:
+            if self.test_priv == RV.RiscvPrivileges.MACHINE:
+                get_tp = "csrr tp, mscratch"
+            else:
+                # Syscall always returns the hart-local storage pointer in a0
+                get_tp = """
+                    li x31, 0xf0002001 # retrieve hard-local storage pointer in a0 register.
+                    ecall
+                    mv tp, a0
+                """
+        return get_tp
+
+    def csr_ecall_stub(self, csr_id: int, syscall: str, flag_name: str, value_insn: str = "") -> str:
+        """Single source for the CSR-via-ecall jump-table stub.
+
+        Stashes ``csr_id`` in this hart's own context flag (per-hart, no cross-hart race),
+        optionally loads the value into t2, then ecalls into the CSR jump table. t2 carries
+        the value/answer and is loaded AFTER get_hart_context, because in S/U mode
+        get_hart_context is itself an ecall (0xf0002001) that would clobber t2.
+
+        Both the ``;#csr_rw`` directive path (generator/assembly_writer.py) and the
+        macro path (_csr_ecall_code) route here so the stub lives in exactly one place.
+        """
+        flag = self.variable_manager.get_variable(flag_name)
+        code = "\n" + self.get_hart_context()  # hart context pointer -> tp
+        code += f"\nli t5, {csr_id}"
+        code += "\n" + flag.store(src_reg="t5")
+        if value_insn:
+            code += f"\n{value_insn}"  # value -> t2 after get_hart_context (its S/U ecall would clobber t2)
+        code += f"\nli x31, {syscall}"
+        code += "\necall"
+        return code

@@ -240,17 +240,30 @@ class PmaConfig:
     :param hints: List of PMA hints for automatic generation
     :param max_regions: Maximum number of PMA regions (defaults to MAX_PMA_REGIONS)
     :param default_region: Configuration for default catch-all region
+    :param user_programmable_pmacfg: Reserve pmacfg entries [0..N) for user runtime programming
+    :param num_pmas: Number of implemented PMA CSR entries (None keeps the FeatMgr default; needs a matching whisper config)
     """
 
     regions: list[PmaRegionConfig] = field(default_factory=list)
     hints: list[PmaHintConfig] = field(default_factory=list)
     max_regions: int = MAX_PMA_REGIONS
     default_region: Optional[dict] = None
+    user_programmable_pmacfg: int = 0
+    num_pmas: Optional[int] = None
 
     def __post_init__(self):
         """Validate PMA configuration"""
         if self.max_regions < 1 or self.max_regions > MAX_PMA_REGIONS:
             raise ValueError(f"max_regions must be between 1 and {MAX_PMA_REGIONS}, got {self.max_regions}")
+
+        # Lower bound leaves room for the two loader catchall entries; whisper models at most 64 entries
+        if self.num_pmas is not None and not (2 <= self.num_pmas <= MAX_PMA_REGIONS):
+            raise ValueError(f"num_pmas must be between 2 and {MAX_PMA_REGIONS}, got {self.num_pmas}")
+
+        if self.user_programmable_pmacfg < 0:
+            raise ValueError(f"user_programmable_pmacfg must be >= 0, got {self.user_programmable_pmacfg}")
+        if self.user_programmable_pmacfg > 0 and self.user_programmable_pmacfg > self.max_regions - 2:
+            raise ValueError(f"user_programmable_pmacfg must leave room for catchall entries: " f"max is max_regions - 2 ({self.max_regions - 2}), got {self.user_programmable_pmacfg}")
 
         # Check for duplicate region names
         region_names = [r.name for r in self.regions]
@@ -325,4 +338,21 @@ class PmaConfig:
         else:
             max_regions = int(max_regions)
 
-        return cls(regions=regions, hints=hints, max_regions=max_regions, default_region=cfg.get("default_region"))
+        user_programmable_pmacfg = cfg.get("user_programmable_pmacfg", 0)
+        if isinstance(user_programmable_pmacfg, str):
+            user_programmable_pmacfg = int(user_programmable_pmacfg, 0)
+        else:
+            user_programmable_pmacfg = int(user_programmable_pmacfg)
+
+        num_pmas = cfg.get("num_pmas")
+        if num_pmas is not None:
+            num_pmas = int(num_pmas, 0) if isinstance(num_pmas, str) else int(num_pmas)
+
+        return cls(
+            regions=regions,
+            hints=hints,
+            max_regions=max_regions,
+            default_region=cfg.get("default_region"),
+            user_programmable_pmacfg=user_programmable_pmacfg,
+            num_pmas=num_pmas,
+        )

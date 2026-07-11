@@ -95,3 +95,53 @@ class CpuConfigAdapterTest(unittest.TestCase):
         # Check other config
         self.assertEqual(feat_mgr.reset_pc, 0x80000000)
         self.assertIsNotNone(feat_mgr.cpu_config)
+
+    def test_apply_user_programmable_pmacfg(self):
+        """mmap.pma.user_programmable_pmacfg lands in FeatMgr; absent pma block keeps default 0."""
+        config_data = {
+            "mmap": {
+                "dram": {"dram0": {"address": "0x8000_0000", "size": "0x2000_0000"}},
+                "pma": {"user_programmable_pmacfg": 4},
+            },
+            "reset_pc": "0x8000_0000",
+        }
+        with tempfile.NamedTemporaryFile(mode="w") as f:
+            json.dump(config_data, f)
+            f.flush()
+            result_builder = self.adapter.apply(self.builder, Path(f.name))
+        self.assertEqual(result_builder.featmgr.user_programmable_pmacfg, 4)
+
+        config_data = {"mmap": {"dram": {"dram0": {"address": "0x8000_0000", "size": "0x2000_0000"}}}, "reset_pc": "0x8000_0000"}
+        with tempfile.NamedTemporaryFile(mode="w") as f:
+            json.dump(config_data, f)
+            f.flush()
+            result_builder = self.adapter.apply(FeatMgrBuilder(), Path(f.name))
+        self.assertEqual(result_builder.featmgr.user_programmable_pmacfg, 0)
+
+    def test_apply_num_pmas(self):
+        """mmap.pma.num_pmas lands in FeatMgr; absent key keeps the FeatMgr default."""
+        config_data = {
+            "mmap": {
+                "dram": {"dram0": {"address": "0x8000_0000", "size": "0x2000_0000"}},
+                "pma": {"num_pmas": 16},
+            },
+            "reset_pc": "0x8000_0000",
+        }
+        with tempfile.NamedTemporaryFile(mode="w") as f:
+            json.dump(config_data, f)
+            f.flush()
+            result_builder = self.adapter.apply(self.builder, Path(f.name))
+        self.assertEqual(result_builder.featmgr.num_pmas, 16)
+
+        config_data = {
+            "mmap": {
+                "dram": {"dram0": {"address": "0x8000_0000", "size": "0x2000_0000"}},
+                "pma": {"user_programmable_pmacfg": 1},
+            },
+            "reset_pc": "0x8000_0000",
+        }
+        with tempfile.NamedTemporaryFile(mode="w") as f:
+            json.dump(config_data, f)
+            f.flush()
+            result_builder = self.adapter.apply(FeatMgrBuilder(), Path(f.name))
+        self.assertEqual(result_builder.featmgr.num_pmas, 64)

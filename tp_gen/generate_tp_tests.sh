@@ -230,6 +230,9 @@ tail -n +2 "$CSV_FILE" | while IFS=',' read -r feature machine supervisor user d
     # virtualized tests: priv x paging x g_paging (with --test_env virtualized)
     if [[ "$is_virtualized" == "x" && ${#g_paging_modes[@]} -gt 0 ]]; then
         for priv in "${priv_modes[@]}"; do
+            if [[ "$priv" == "machine" ]]; then
+                continue
+            fi
             for paging in "${paging_modes[@]}"; do
                 for g_paging in "${g_paging_modes[@]}"; do
                     run_dir="testsuite/${feature}/virtualized/${priv}_${paging}_g${g_paging}"

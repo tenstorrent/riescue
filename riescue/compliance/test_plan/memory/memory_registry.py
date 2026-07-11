@@ -54,10 +54,20 @@ class MemoryRegistry:
         # request_data which computes its own).
         start_addr = kwargs.pop("start_addr", base_pa)
 
+        # VA->PA aliasing: when the action aliases another Memory step, share that source page's
+        # physical name so the two regions map to the same physical page. The alias takes its own
+        # (random) VA but never pins/declares its own PA, so clear any start_addr.
+        aliased_phys_name: Optional[str] = None
+        alias_of = getattr(data_memory, "alias_of", None)
+        if alias_of is not None:
+            aliased_phys_name = f"{alias_of}_phys"
+            start_addr = None
+
         self._data[name] = DataPage(
             name=name,
             size=data_memory.size,
             start_addr=start_addr,
+            aliased_phys_name=aliased_phys_name,
             page_size=data_memory.page_size,
             flags=data_memory.flags,
             exclude_flags=data_memory.exclude_flags,
@@ -68,6 +78,7 @@ class MemoryRegistry:
             modify_nonleaf=data_memory.modify_nonleaf,
             or_mask=data_memory.or_mask,
             secure=data_memory.secure,
+            phys_alignment=data_memory.phys_alignment,
             # Pass inline g-stage and nonleaf fields
             nonleaf_flags=data_memory.nonleaf_flags,
             nonleaf_exclude_flags=data_memory.nonleaf_exclude_flags,

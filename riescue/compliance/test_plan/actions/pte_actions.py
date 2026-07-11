@@ -8,7 +8,7 @@ from coretp import Instruction, StepIR, TestStep
 from coretp.step.memory import WritePTE, ReadPTE
 from coretp.rv_enums import Category, OperandType, Extension, Xlen, PteLevel
 from coretp.isa.operands import Operand
-from coretp.isa import get_register
+from coretp.isa import get_register, Register
 
 from riescue.compliance.test_plan.actions import Action
 from riescue.compliance.test_plan.context import LoweringContext
@@ -25,11 +25,12 @@ class PteAction(Action):
 
     register_fields = ["memory", "level"]  # Memory address is the input
 
-    def __init__(self, memory: str, level: Union[int, PteLevel], g_level: Optional[Union[int, PteLevel]] = None, **kwargs):
+    def __init__(self, memory: str, level: Union[int, PteLevel], g_level: Optional[Union[int, PteLevel]] = None, napot_offset: Optional[int] = None, **kwargs):
         super().__init__(**kwargs)
         self.memory = memory
         self.level = level
         self.g_level = g_level
+        self.napot_offset = napot_offset
         self.constraints = {}  # Will be manually picking a custom instruction
 
     def repr_info(self) -> str:
@@ -69,11 +70,12 @@ class ReadPteAction(PteAction):
 
         level = step.step.level if step.step.level is not None else -1
         g_level = step.step.g_level if step.step.g_level is not None else None
+        napot_offset = step.step.napot_offset
 
-        return cls(step_id=step_id, memory=memory, level=level, g_level=g_level, **kwargs)
+        return cls(step_id=step_id, memory=memory, level=level, g_level=g_level, napot_offset=napot_offset, **kwargs)
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
-        return ReadPteApiInstruction(memory_name=self.memory, pte_level=self.level, g_level=self.g_level)
+        return ReadPteApiInstruction(memory_name=self.memory, pte_level=self.level, g_level=self.g_level, napot_offset=self.napot_offset)
 
 
 class WritePteAction(PteAction):
@@ -84,8 +86,10 @@ class WritePteAction(PteAction):
 
     register_fields = ["memory", "level", "src"]
 
-    def __init__(self, memory: str, level: Union[int, PteLevel], g_level: Optional[Union[int, PteLevel]] = None, src: Optional[Union[TestStep, str, int]] = None, **kwargs):
-        super().__init__(memory=memory, level=level, g_level=g_level, **kwargs)
+    def __init__(
+        self, memory: str, level: Union[int, PteLevel], g_level: Optional[Union[int, PteLevel]] = None, src: Optional[Union[TestStep, str, int]] = None, napot_offset: Optional[int] = None, **kwargs
+    ):
+        super().__init__(memory=memory, level=level, g_level=g_level, napot_offset=napot_offset, **kwargs)
         self.expanded = False
         self.src = src
 
@@ -118,8 +122,9 @@ class WritePteAction(PteAction):
 
         level = step.step.level if step.step.level is not None else -1
         g_level = step.step.g_level if step.step.g_level is not None else None
+        napot_offset = step.step.napot_offset
 
-        return cls(step_id=step_id, memory=memory, level=level, g_level=g_level, src=final_src, **kwargs)
+        return cls(step_id=step_id, memory=memory, level=level, g_level=g_level, src=final_src, napot_offset=napot_offset, **kwargs)
 
     def expand(self, ctx: LoweringContext) -> Optional[list["Action"]]:
         """
@@ -137,7 +142,7 @@ class WritePteAction(PteAction):
             return [new_arithmetic_action, self]
 
     def pick_instruction(self, ctx: LoweringContext) -> Instruction:
-        return WritePteApiInstruction(memory_name=self.memory, pte_level=self.level, g_level=self.g_level)
+        return WritePteApiInstruction(memory_name=self.memory, pte_level=self.level, g_level=self.g_level, napot_offset=self.napot_offset)
 
 
 def _format_pte_level(level: Union[int, PteLevel]) -> str:
@@ -154,11 +159,12 @@ class ReadPteApiInstruction(Instruction):
     This instruction:
     - Takes a memory address (lin_name) as input
     - Walks the page tables (paging mode determined at runtime from satp)
-    - Returns the PTE value at the specified level in t2 register
+    - Returns the PTE value in t2 register, then moves it to the
+      allocator-chosen destination via ``mv <rd>, t2``
     - Clobbers t0-t6 and x31 registers
     """
 
-    def __init__(self, memory_name: str, pte_level: Union[int, PteLevel], g_level: Optional[Union[int, PteLevel]] = None):
+    def __init__(self, memory_name: str, pte_level: Union[int, PteLevel], g_level: Optional[Union[int, PteLevel]] = None, napot_offset: Optional[int] = None):
         t0_reg = get_register("t0")
         t1_reg = get_register("t1")
         t2_reg = get_register("t2")
@@ -167,26 +173,39 @@ class ReadPteApiInstruction(Instruction):
         t5_reg = get_register("t5")
         t6_reg = get_register("t6")
 
+        # Destination is a virtual register (empty string placeholder) so
+        # the allocator can freely choose a physical register.  The
+        # read_pte directive always places its result in t2, and format()
+        # emits an extra ``mv <rd>, t2`` when the allocator picked a
+        # register other than t2.  t2 is listed in clobbers.
         super().__init__(
             name="read_pte",
             extension=Extension.I,
             xlen=Xlen.XLEN64,
             category=Category.SYSTEM,
-            destination=Operand(type=OperandType.GPR, name="rd", val=t2_reg),
+            destination=Operand(type=OperandType.GPR, name="rd", val=""),
             source=[],  # No explicit sources, memory name is in the directive
             clobbers=[t0_reg.name, t1_reg.name, t2_reg.name, t3_reg.name, t4_reg.name, t5_reg.name, t6_reg.name],
         )
         self.memory_name = memory_name
         self.pte_level = pte_level
         self.g_level = g_level
+        self.napot_offset = napot_offset
 
     def format(self):
-        """Generate the ;#read_pte directive."""
+        """Generate the ;#read_pte directive, followed by mv <rd>, t2 if needed."""
         level_str = _format_pte_level(self.pte_level)
         if self.g_level is not None:
             g_level_str = _format_pte_level(self.g_level)
-            return f";#read_pte({self.memory_name}, {level_str}, {g_level_str})"
-        return f";#read_pte({self.memory_name}, {level_str})"
+            directive = f";#read_pte({self.memory_name}, {level_str}, {g_level_str})"
+        else:
+            directive = f";#read_pte({self.memory_name}, {level_str})"
+        if self.napot_offset is not None:
+            directive = directive[:-1] + f", napot_offset={self.napot_offset})"
+        rd = self.destination.val if self.destination else None
+        if isinstance(rd, Register) and rd.name != "t2":
+            return f"{directive}\n\tmv {rd.name}, t2"
+        return directive
 
 
 class WritePteApiInstruction(Instruction):
@@ -201,7 +220,7 @@ class WritePteApiInstruction(Instruction):
     - Clobbers t0-t6 and x31 registers
     """
 
-    def __init__(self, memory_name: str, pte_level: Union[int, PteLevel], g_level: Optional[Union[int, PteLevel]] = None):
+    def __init__(self, memory_name: str, pte_level: Union[int, PteLevel], g_level: Optional[Union[int, PteLevel]] = None, napot_offset: Optional[int] = None):
         t0_reg = get_register("t0")
         t1_reg = get_register("t1")
         t2_reg = get_register("t2")
@@ -222,11 +241,16 @@ class WritePteApiInstruction(Instruction):
         self.memory_name = memory_name
         self.pte_level = pte_level
         self.g_level = g_level
+        self.napot_offset = napot_offset
 
     def format(self):
         """Generate the ;#write_pte directive."""
         level_str = _format_pte_level(self.pte_level)
         if self.g_level is not None:
             g_level_str = _format_pte_level(self.g_level)
-            return f";#write_pte({self.memory_name}, {level_str}, {g_level_str})"
-        return f";#write_pte({self.memory_name}, {level_str})"
+            directive = f";#write_pte({self.memory_name}, {level_str}, {g_level_str})"
+        else:
+            directive = f";#write_pte({self.memory_name}, {level_str})"
+        if self.napot_offset is not None:
+            directive = directive[:-1] + f", napot_offset={self.napot_offset})"
+        return directive

@@ -32,6 +32,7 @@ class MemoryAction(Action):
         page_cross_en: bool = False,
         num_pages: int = 1,
         or_mask: str = "",
+        phys_alignment: Optional[int] = None,
         nonleaf_flags: Optional[PageFlags] = None,
         nonleaf_exclude_flags: Optional[PageFlags] = None,
         # G-stage attributes: VS-leaf × G-leaf
@@ -52,6 +53,12 @@ class MemoryAction(Action):
         base_pa_key: Optional[str] = None,
         # Secure memory region
         secure: bool = False,
+        # VA->PA aliasing. ``source_step`` is this action's originating coretp Memory step;
+        # ``aliased_to_step`` is the coretp Memory step this region aliases (its PA). These are
+        # raw coretp objects resolved to a canonical alias target by the Canonicalizer, which
+        # then sets ``alias_of`` (the canonical name of the source DataPage).
+        source_step: Optional[Memory] = None,
+        aliased_to_step: Optional[Memory] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -73,6 +80,13 @@ class MemoryAction(Action):
         self.base_pa = base_pa
         self.base_pa_key = base_pa_key
         self.secure = secure
+        # Aliasing bookkeeping. ``_coretp_step`` lets the Canonicalizer key actions by their
+        # originating step object; ``aliased_to_step`` points at the source step; ``alias_of``
+        # is filled in (canonical name of the source page) once IDs are canonicalized.
+        self._coretp_step = source_step
+        self.aliased_to_step = aliased_to_step
+        self.alias_of: Optional[str] = None
+        self.phys_alignment = phys_alignment
 
         # VS-stage non-leaf attributes
         self.nonleaf_flags = nonleaf_flags
@@ -137,12 +151,15 @@ class MemoryAction(Action):
             page_cross_en=step.step.page_cross_en,
             num_pages=num_pages,
             or_mask=step.step.or_mask or "",
+            phys_alignment=step.step.alignment,
             modify=step.step.modify,
             modify_leaf=step.step.modify_leaf,
             modify_nonleaf=step.step.modify_nonleaf,
             base_pa=base_pa,
             base_pa_key=base_pa_key,
             secure=step.step.secure,
+            source_step=step.step,
+            aliased_to_step=step.step.aliased_to,
             **kwargs,
         )
 

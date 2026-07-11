@@ -6,6 +6,7 @@ from .action import Action, CodeMixin
 from .registry import ActionRegistry
 from .label import LabelAction
 from .li import LiAction
+from .load_physical_address import LoadPhysicalAddressAction
 from .retrieve_address import RetrieveAddressAction
 from .conditional_block import ConditionalBlockAction
 from .memory import MemoryAction, CodePageAction, StackPageAction, RequestPmpAction
@@ -72,6 +73,7 @@ __all__ = [
     "ActionRegistry",
     "LabelAction",
     "LiAction",
+    "LoadPhysicalAddressAction",
     "RetrieveAddressAction",
     "LoadAction",
     "StoreAction",

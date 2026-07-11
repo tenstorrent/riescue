@@ -32,7 +32,7 @@ class TpBuilder(BaseBuilder):
         """
         Configure command line arguments.
         """
-        self.conf = [Conf.load_conf_from_path(path) for path in args.conf]
+        self.conf = [Conf.load_conf_from_path(path) for path in Conf.split_conf_paths(args.conf)]
         return TpArgsAdapter().apply(self, args)
 
     def build(

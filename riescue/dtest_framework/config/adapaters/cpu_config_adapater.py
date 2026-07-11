@@ -109,6 +109,10 @@ class CpuConfigAdapter(Adapter):
             featmgr.vs_randomization_values = vals
         if cpu_config.test_gen.pmp_catchall is not None:
             featmgr.pmp_catchall = cpu_config.test_gen.pmp_catchall
+        if cpu_config.pma_config is not None:
+            featmgr.user_programmable_pmacfg = cpu_config.pma_config.user_programmable_pmacfg
+            if cpu_config.pma_config.num_pmas is not None:
+                featmgr.num_pmas = cpu_config.pma_config.num_pmas
 
         # Debug mode (from features.debug) and debug ROM (from mmap.io.debug_rom)
         featmgr.debug_mode = cpu_config.debug_mode

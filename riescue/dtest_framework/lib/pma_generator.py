@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+import riescue.lib.common as common
 from riescue.dtest_framework.lib.pma import PmaInfo
 from riescue.dtest_framework.parser import ParsedPmaHint
 from riescue.dtest_framework.config.pma_config import PmaConfig, PmaRegionConfig
@@ -344,3 +345,149 @@ class PmaGenerator:
         )
 
         return parsed_hint
+
+
+class PmaRandomizer:
+    """
+    Generates randomized decoy PMA regions with whisper-legal pmacfg/pmamask values.
+
+    Regions are NAPOT-placed in holes of the physical address space (callers pass every occupied
+    interval via ``blocked``) so they are live under first-match-wins entry priority. A subset of
+    regions gets a random pmamask; masked regions match scattered windows and are decoy-only.
+
+    :param rng: Random number generator (all draws are seeded/deterministic)
+    :param mask_pct: Percent probability [0-100] that a region gets a nonzero pmamask
+    :param phys_addr_bits: Physical address width; placement stays below 2**phys_addr_bits
+    """
+
+    MIN_SIZE_LOG2 = 12  # 4KB, whisper minimum legal region size
+    MAX_SIZE_LOG2 = 30  # 1GB cap keeps decoys from swallowing the address space
+    MASKED_MIN_COMPARE_BITS = 8  # bounds scattered-match density to <= 2^-8 of pages
+    PLACEMENT_RETRIES = 64
+    MASK_ATTEMPTS = 8
+    # Mask shape strategies: structured patterns exercise more of the pmamask compare space
+    MASK_STRATEGY_WEIGHTS = {"subset": 35, "contiguous": 20, "single_bit": 15, "dense": 10, "sparse_low": 10, "sparse_high": 10}
+    MEMORY_TYPE_WEIGHTS = {"memory": 50, "io": 30, "ch0": 10, "ch1": 10}
+    # IO-type legal rwx combos: whisper rejects write-without-read
+    IO_RWX_CHOICES = [(0, 0, 0), (1, 0, 0), (0, 0, 1), (1, 0, 1), (1, 1, 0), (1, 1, 1)]
+
+    def __init__(self, rng: RandNum, mask_pct: int, phys_addr_bits: int):
+        self.rng = rng
+        self.mask_pct = mask_pct
+        self.phys_addr_bits = phys_addr_bits
+
+    def generate(self, count: int, blocked: list[tuple[int, int]]) -> list[PmaInfo]:
+        """
+        Generate up to ``count`` randomized regions avoiding ``blocked`` [start, end) intervals.
+
+        :param count: Requested number of regions (truncated with a warning on placement exhaustion)
+        :param blocked: Occupied physical intervals the decoys must not overlap
+        :return: List of PmaInfo with pma_randomized=True
+        """
+        regions: list[PmaInfo] = []
+        occupied = list(blocked)
+        for idx in range(count):
+            placement = self._place_napot(occupied)
+            if placement is None:
+                log.warning(f"PMA randomizer: no free NAPOT hole after {self.PLACEMENT_RETRIES} tries; " f"truncating to {len(regions)} of {count} regions")
+                break
+            base, size = placement
+            pma_info = PmaInfo(pma_name=f"pma_rand_{idx}", pma_address=base, pma_size=size, pma_valid=True, pma_randomized=True, **self._random_legal_attributes())
+            # Check masks against occupied (not just blocked) so a masked decoy's scattered
+            # windows cannot shadow an earlier decoy under first-match-wins priority
+            self.apply_random_mask(pma_info, occupied)
+            occupied.append((base, base + size))
+            regions.append(pma_info)
+            log.info(f"Randomized PMA region: {pma_info} mask=0x{pma_info.pma_mask:x}")
+        return regions
+
+    def _random_legal_attributes(self) -> dict:
+        """Pick a random attribute combo satisfying whisper isLegalPmacfg (faulting flavors included)."""
+        memory_type = self.rng.random_choice_weighted(self.MEMORY_TYPE_WEIGHTS)
+        if memory_type == "memory":
+            read, write, execute = self.rng.random_entry_in([(1, 1, 1), (0, 0, 0)])
+            cacheability = self.rng.random_entry_in(["cacheable", "noncacheable"])
+            if cacheability == "cacheable":
+                amo_type, routing_to = "arithmetic", "coherent"
+            else:
+                amo_type = "none"
+                routing_to = self.rng.random_entry_in(["coherent", "noncoherent"])
+            combining = "noncombining"
+        else:
+            read, write, execute = self.rng.random_entry_in(self.IO_RWX_CHOICES)
+            cacheability = "cacheable"  # unused: bit 7 encodes combining for non-memory types
+            amo_type, routing_to = "none", "noncoherent"
+            combining = self.rng.random_entry_in(["combining", "noncombining"])
+        return {
+            "pma_memory_type": memory_type,
+            "pma_read": read,
+            "pma_write": write,
+            "pma_execute": execute,
+            "pma_amo_type": amo_type,
+            "pma_cacheability": cacheability,
+            "pma_combining": combining,
+            "pma_routing_to": routing_to,
+        }
+
+    def _place_napot(self, occupied: list[tuple[int, int]]) -> Optional[tuple[int, int]]:
+        """Find a size-aligned NAPOT (base, size) below 2^phys_addr_bits avoiding occupied intervals."""
+        max_size_log2 = min(self.MAX_SIZE_LOG2, self.phys_addr_bits - 2)
+        for _ in range(self.PLACEMENT_RETRIES):
+            size = 1 << self.rng.random_in_range(self.MIN_SIZE_LOG2, max_size_log2 + 1)
+            base = self.rng.random_in_range(0, (1 << self.phys_addr_bits) // size) * size
+            end = base + size
+            if any(base < blk_end and blk_start < end for blk_start, blk_end in occupied):
+                continue
+            return base, size
+        return None
+
+    def apply_random_mask(self, pma_info: PmaInfo, blocked: list[tuple[int, int]], force: bool = False) -> bool:
+        """
+        Roll mask_pct (unless forced); set pmamask bits above region size via a random shape strategy.
+
+        A masked region matches scattered congruence windows across all memory, so candidate masks
+        whose windows cover any blocked interval (loader/OS/fixed pages) are rejected and retried.
+        The region's own span must NOT be in ``blocked``: every mask matches its own base window.
+
+        :param pma_info: Region to mask in place; ``pma_mask`` is left 0 when no safe mask is found
+        :param blocked: Occupied [start, end) physical intervals no scattered window may cover
+        :param force: Skip the mask_pct roll and always attempt masking (pma_masked requests)
+        :return: True if a nonzero mask was applied
+        """
+        if not force and not self.rng.with_probability_of(self.mask_pct):
+            return False
+        size_bits = common.msb(pma_info.pma_size)
+        max_maskable = min(self.phys_addr_bits - self.MASKED_MIN_COMPARE_BITS, 52)
+        if size_bits >= max_maskable:
+            return False  # region too large to keep enough compare bits; leave unmasked
+        candidate_bits = list(range(size_bits, max_maskable))
+        for _ in range(self.MASK_ATTEMPTS):
+            strategy = self.rng.random_choice_weighted(self.MASK_STRATEGY_WEIGHTS)
+            pma_info.pma_mask = self._build_mask(strategy, candidate_bits)
+            if not any(pma_info.matches_phys_range(start, end - start) for start, end in blocked):
+                return True
+        log.debug(f"PMA randomizer: no safe mask found for {pma_info.pma_name}; leaving unmasked")
+        pma_info.pma_mask = 0
+        return False
+
+    def _build_mask(self, strategy: str, candidate_bits: list[int]) -> int:
+        """Build a nonzero mask from candidate_bits per the given shape strategy."""
+        n = len(candidate_bits)
+        if strategy == "contiguous":
+            run = self.rng.random_in_range(1, n + 1)
+            start = self.rng.random_in_range(0, n - run + 1)
+            chosen = candidate_bits[start : start + run]
+        elif strategy == "single_bit":
+            chosen = [self.rng.random_entry_in(candidate_bits)]
+        elif strategy == "dense":
+            drop = self.rng.sample(candidate_bits, self.rng.random_in_range(0, min(3, n - 1) + 1))
+            chosen = [bit for bit in candidate_bits if bit not in drop]
+        elif strategy == "sparse_low":
+            pool = candidate_bits[: max(1, n // 2)]
+            chosen = self.rng.sample(pool, self.rng.random_in_range(1, max(2, n // 4 + 1)))
+        elif strategy == "sparse_high":
+            pool = candidate_bits[n // 2 :]
+            chosen = self.rng.sample(pool, self.rng.random_in_range(1, max(2, n // 4 + 1)))
+        else:  # subset
+            chosen = self.rng.sample(candidate_bits, self.rng.random_in_range(1, n + 1))
+        return sum(1 << bit for bit in chosen)

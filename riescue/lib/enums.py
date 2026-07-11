@@ -695,3 +695,9 @@ class HookPoint(MyEnum):
     PRE_PASS = "pre_pass"  #: Insert code before the test is marked as passed.
     POST_PASS = "post_pass"  #: Insert code after the test is marked as passed.
     PRE_HALT = "pre_halt"  #: Insert code before the test is halted.
+
+    # Discrete test hooks
+    #: Insert code at the start of each discrete test, immediately after its label. Runs on entry to every discrete test.
+    PRE_DISCRETE_TEST = "pre_discrete_test"
+    #: Insert code before every ``;#test_passed()`` inside a discrete test. Runs on each pass path.
+    POST_DISCRETE_TEST = "post_discrete_test"

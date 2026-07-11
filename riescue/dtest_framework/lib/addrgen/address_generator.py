@@ -48,11 +48,18 @@ class AddrGen:
     :param limit_way_predictor_multihit: Whether to limit the number of addresses with the same way predictor multihit
     """
 
-    def __init__(self, rng: RandNum, mem: Memory, limit_indices: bool = False, limit_way_predictor_multihit: bool = False, pma_regions=None):
+    #: retry budget when generated addresses land in excluded (randomized decoy) PMA regions
+    PMA_EXCLUDE_RETRIES = 32
+
+    def __init__(self, rng: RandNum, mem: Memory, limit_indices: bool = False, limit_way_predictor_multihit: bool = False, pma_regions=None, excluded_pma_regions=None):
         self._mem = mem
         self._linear_addr_space = AddressSpace(rng, RV.AddressType.LINEAR)
         self._physical_addr_space = AddressSpace(rng, RV.AddressType.PHYSICAL)
         self._pma_regions = pma_regions  # PmaRegion object for checking PMA regions
+        self._excluded_pma_regions = excluded_pma_regions if excluded_pma_regions is not None else []  # list[PmaInfo]
+        # Masked carve-outs registered late via exclude_pma_region(); kept separate because
+        # _excluded_pma_regions aliases pool.pma_random_regions (decoys) and must not gain carve-outs
+        self._extra_excluded_pma_regions: list = []
 
         self.limit_indices = limit_indices
         self.limit_way_predictor_multihit = limit_way_predictor_multihit
@@ -132,11 +139,26 @@ class AddrGen:
         if constraint.type == RV.AddressType.MEMORY:
             address = self._generate_and_reserve_memory(constraint)
         else:
-            addr_space = self._address_space(constraint.type)
-            for addr_space in self._address_space(constraint.type):
-                address = addr_space.generate_address(constraint)
-                if address:
+            # Retry when a physical address matches an excluded decoy PMA region (leaked allocations are bounded)
+            have_exclusions = bool(self._excluded_pma_regions or self._extra_excluded_pma_regions)
+            retries = self.PMA_EXCLUDE_RETRIES if (have_exclusions and constraint.type == RV.AddressType.PHYSICAL) else 1
+            for _ in range(retries):
+                address = None
+                for addr_space in self._address_space(constraint.type):
+                    address = addr_space.generate_address(constraint)
+                    if address:
+                        break
+                if address is None:
                     break
+                if constraint.type == RV.AddressType.PHYSICAL:
+                    hit = self._hits_excluded_pma(address, constraint.size)
+                    if hit is not None:
+                        log.debug(f"Address 0x{address:x} matches excluded PMA region '{hit.pma_name}', retrying")
+                        address = None
+                        continue
+                break
+            else:
+                raise AddrGenError(f"Address generation kept matching excluded PMA regions after {retries} tries: {constraint}")
         if address is None:
             raise AddrGenError(f"No address generated for constraints: {constraint}")
 
@@ -168,6 +190,32 @@ class AddrGen:
 
         log.debug(f"Generated address: {address:x}")
         return address
+
+    def physical_overlap(self, start_address: int, size: int) -> bool:
+        """Return True if [start_address, start_address+size) overlaps an allocated physical span."""
+        return self._physical_addr_space.check_overlap(start_address, start_address + size)
+
+    def allocated_physical_intervals(self) -> list:
+        """Return every allocated physical [start, end) interval (cluster-boundary splits included)."""
+        intervals = []
+        for cluster in self._physical_addr_space.clusters.values():
+            for start, end in cluster.allocated_addresses:
+                intervals.append((start, end + 1))  # allocated spans store inclusive ends
+        return intervals
+
+    def exclude_pma_region(self, region) -> None:
+        """Exclude a (masked carve-out) PMA region from future physical address generation."""
+        self._extra_excluded_pma_regions.append(region)
+
+    def _hits_excluded_pma(self, address: int, size: int):
+        """Return the first excluded PMA region matching [address, address+size), or None (mask-aware)."""
+        for region in self._excluded_pma_regions:
+            if region.matches_phys_range(address, size):
+                return region
+        for region in self._extra_excluded_pma_regions:
+            if region.matches_phys_range(address, size):
+                return region
+        return None
 
     def reserve_memory(self, address_type: RV.AddressType, start_address: int, size: int, interesting_address: bool = False):
         """
@@ -216,11 +264,15 @@ class AddrGen:
         :raises AddrGenError: If address generation fails or restrictions are violated
         """
         size = constraint.size
-        try_times = 10
+        try_times = 32
         for _ in range(try_times):
             address = self._linear_addr_space.generate_address(constraint=constraint)
 
-            if not self._physical_addr_space.check_overlap(address, address + size) and not self._linear_addr_space.check_overlap(address, address + size):
+            if (
+                not self._physical_addr_space.check_overlap(address, address + size)
+                and not self._linear_addr_space.check_overlap(address, address + size)
+                and self._hits_excluded_pma(address, size) is None
+            ):
                 if constraint.dont_allocate:
                     pass
                 else:

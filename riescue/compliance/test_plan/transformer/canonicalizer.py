@@ -90,6 +90,18 @@ class Canonicalizer:
         for global_function_id, action in global_functions.items():
             ctx.mem_reg.allocate_code(global_function_id, action)
 
+        # 3.5 resolve VA->PA aliasing. Map each memory action's originating coretp step to its
+        # canonical name, then point every aliased action at the canonical name of the source it
+        # aliases. allocate_data turns this into the source page's phys_name so the two regions
+        # share one physical page.
+        obj_to_canonical = {id(a._coretp_step): a.step_id for a in memory_actions.values() if getattr(a, "_coretp_step", None) is not None}
+        for memory_action in memory_actions.values():
+            if getattr(memory_action, "aliased_to_step", None) is not None:
+                source_key = id(memory_action.aliased_to_step)
+                if source_key not in obj_to_canonical:
+                    raise ValueError(f"Memory aliased_to target not found for step {memory_action.step_id}: the referenced Memory must be a step in the same scenario, defined before the alias.")
+                memory_action.alias_of = obj_to_canonical[source_key]
+
         # 4 add memory actions to MemoryRegistry
         for memory_action in memory_actions.values():
             ctx.mem_reg.allocate_data(memory_action.step_id, memory_action, ctx=ctx)

@@ -84,12 +84,44 @@ class Macros(AssemblyGenerator):
                 """
         return get_tp
 
+    def get_hart_context_with_override(self) -> str:
+        """
+        Generates code to get the hart context pointer into the tp register,
+        with support for __force_machine / __force_supervisor / __force_user override parameters.
+
+        When __force_machine is non-zero, always uses ``csrr tp, mscratch``
+        (physical address, required when running in M-mode where paging is off).
+
+        When __force_supervisor is non-zero, always uses ``li tp, hart_context``
+        (supervisor-only VA mapping, U=0, required when running in S/HS-mode).
+
+        When __force_user is non-zero, always uses ``li tp, hart_context_user``
+        (user-accessible VA alias, U=1, required when running in U/VU-mode).
+
+        The three flags are mutually exclusive. When none is set the default
+        behaviour from :meth:`get_hart_context` is used.
+
+        :return: Assembly string with conditional override logic
+        """
+        default_code = self.get_hart_context()
+
+        return f""".if \\__force_machine
+            csrr tp, mscratch
+            .elseif \\__force_supervisor
+            li tp, hart_context
+            .elseif \\__force_user
+            li tp, hart_context_user
+            .else
+            {default_code}
+            .endif"""
+
     def generate(self) -> str:
         code = ""
         self.gen_os_setup_check_excp()
         self.gen_os_skip_check_excp()
         self.gen_os_setup_check_intr()
         self.gen_os_get_hartid()
+        self.gen_get_hart_index()
         self.gen_mutex_acquire_amo()
         self.gen_mutex_release_amo()
         self.gen_mutex_acquire_lr_sc()
@@ -128,6 +160,9 @@ class Macros(AssemblyGenerator):
             "__expected_mode=0",
             "__re_execute=0",
             "__disable_triggers_after=0",
+            "__force_machine=0",
+            "__force_supervisor=0",
+            "__force_user=0",
         ]
 
         check_excp_expected_cause = self.variable_manager.get_variable("check_excp_expected_cause")
@@ -142,7 +177,7 @@ class Macros(AssemblyGenerator):
         check_excp_disable_triggers = self.variable_manager.get_variable("check_excp_disable_triggers")
 
         macro.code = f"""
-            {self.get_hart_context()}
+            {self.get_hart_context_with_override()}
             li t3, \\__expected_cause
             {check_excp_expected_cause.store(src_reg="t3")}
 
@@ -215,9 +250,9 @@ class Macros(AssemblyGenerator):
         check_excp_return_pc = self.variable_manager.get_variable("check_excp_return_pc")
         check_excp = self.variable_manager.get_variable("check_excp")
 
-        macro.args = ["__return_pc", "__far_addr=0"]
+        macro.args = ["__return_pc", "__far_addr=0", "__force_machine=0", "__force_supervisor=0", "__force_user=0"]
         macro.code = f"""
-            {self.get_hart_context()}
+            {self.get_hart_context_with_override()}
             .if \\__far_addr
             li t3, \\__return_pc
             .else
@@ -303,6 +338,36 @@ class Macros(AssemblyGenerator):
             code = [
                 self.get_hart_context(),
                 f"ld \\__dest_reg, {mhartid.offset}(tp)",
+            ]
+        macro.code = "\n" + "\n\t".join(code)
+        self.macros.append(macro)
+
+    def gen_get_hart_index(self):
+        """
+        Macro to retrieve the sequential hart index (0..N-1) into ``__dest_reg``.
+
+        This is the index used to address per-hart data structures, as opposed to
+        ``GET_MHART_ID`` which returns the raw ``mhartid`` CSR value. The index is read from
+        the ``hart_index`` slot in the hart context (populated by the loader), so it works in
+        any privilege mode without needing the M-mode-only mhartid->index table. For the
+        default contiguous hart IDs the stored index simply equals mhartid.
+
+        clobbers x31 (t6), tp, and a0, dest_reg (same as GET_MHART_ID)
+        """
+        macro = Macro(name="GET_HART_INDEX")
+        macro.args = ["__dest_reg=s1"]
+
+        hart_index = self.variable_manager.get_variable("hart_index")
+        if self.test_priv == RV.RiscvPrivileges.SUPER:
+            code = [
+                "csrr \\__dest_reg, sscratch",
+                f"ld \\__dest_reg, {hart_index.offset}(\\__dest_reg)",
+            ]
+        else:
+            # Machine and user modes both reach the context via get_hart_context().
+            code = [
+                self.get_hart_context(),
+                f"ld \\__dest_reg, {hart_index.offset}(tp)",
             ]
         macro.code = "\n" + "\n\t".join(code)
         self.macros.append(macro)
@@ -696,13 +761,8 @@ class Macros(AssemblyGenerator):
 
         parsed = self.pool.get_parsed_csr_access(csr_name, operation)
 
-        code = f"\nli t2, {imm_value}"
-        code += f"\nli x31, {flag_name}"
-        code += f"\nli t0, {parsed.csr_id}"
-        code += "\nsd t0, 0(x31)"
-        code += f"\nli x31, {syscall}"
-        code += "\necall"
-        return code
+        # Emit the shared jump-table stub; t2 carries the immediate value.
+        return self.csr_ecall_stub(parsed.csr_id, syscall, flag_name, value_insn=f"li t2, {imm_value}")
 
     def _make_csr_macro(self, name: str, csr_name: str, set_bit: bool, imm_value: str) -> Macro:
         """Create a macro that sets/clears a CSR bit, using direct access or ecall as needed.

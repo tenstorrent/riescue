@@ -11,9 +11,12 @@ from riescue.lib.rand import RandNum
 
 
 def csr_asm_name(csr_key: str, csr_obj: "CsrConfig") -> str:
-    """Return the CSR token for use in assembly. Custom CSRs use their hex address
-    because GAS only knows standard RISC-V CSR names."""
-    if csr_obj.config.get("type") == "Custom":
+    """Return the CSR token for use in assembly. Tenstorrent-custom CSRs use their hex
+    address because GAS only knows standard RISC-V CSR names. This covers the "Custom",
+    "CFG" (e.g. pmacfg*/lscfg*/fecfg) and "uArch" register types -- none of which the
+    assembler recognizes by name (the pma_pmacfg_tt plan accesses pmacfg via "0x7E5").
+    "ISA" and "Debug Control" CSRs keep their standard names, which GAS does know."""
+    if csr_obj.config.get("type") in ("Custom", "CFG", "uArch"):
         addr = csr_obj.config.get("address", "")
         try:
             return f"0x{int(str(addr), 16):03X}"

@@ -3,7 +3,7 @@
 
 # pyright: strict
 
-from typing import Any
+from typing import Any, Optional
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.runtime.variable.variable import Variable
@@ -60,7 +60,7 @@ class HartContext(BaseMemory):
             hart_stack_name += "_end"
         return hart_stack_name
 
-    def allocate(self, hart_id: int, include_padding: bool = True) -> str:
+    def allocate(self, hart_id: int, include_padding: bool = True, mhartid_value: Optional[int] = None) -> str:
         """
         Generic hart context. Aligned to 64 bytes.
 
@@ -82,10 +82,13 @@ class HartContext(BaseMemory):
             This is so all data is memory aligned (better performance, don't need if block for forced alignment)
             This might cause problems for big endian systems (since lb might access the wrong byte)
 
-        :param hart_id: ID of the hart to generate the context for
-        :param variables: List of variables to include in the context
+        :param hart_id: Sequential index of the hart (0..N-1); used for context/stack naming and layout.
         :param include_padding: Whether to include padding to 64-byte boundary. Defaults to True.
+        :param mhartid_value: The real ``mhartid`` value stored for this hart. Defaults to ``hart_id``
+            (contiguous case); pass the configured hart id for discontiguous hart IDs.
         """
+        if mhartid_value is None:
+            mhartid_value = hart_id
         test_stack_pointer_default_val = 0
 
         intial_context = f"""
@@ -98,8 +101,11 @@ hart_context_{hart_id}:
         bytes_allocated = self.variable_size * self._num_internal_variables
 
         for variable in self._variables.values():
-            # special case for hartid
+            # special case for hartid: store the hart's real mhartid value
             if variable.name == "mhartid":
+                value = mhartid_value
+            # hart_index stores the sequential index (0..N-1), used by GET_HART_INDEX in S/U mode
+            elif variable.name == "hart_index":
                 value = hart_id
             else:
                 value = variable.value

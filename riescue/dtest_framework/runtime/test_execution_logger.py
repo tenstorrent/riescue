@@ -61,9 +61,9 @@ class TestExecutionLogger(AssemblyGenerator):
         Gets mhartid into s1, loads a0 with test_execution_log base for this hart,
         then stores (t1, mtime) at entries[test_counter & 0x7f].
         """
-        return """
+        return f"""
 test_execution_log_init:
-    csrr s1, mhartid
+    {self.variable_manager.get_variable("hart_index").load(dest_reg="s1")}
     li t0, test_execution_data_per_hart_size
     mul t0, s1, t0
     li a0, test_execution_data # a0 is the base of the hart's test execution data
@@ -77,7 +77,7 @@ test_execution_log_init:
 # Uses: t0, t2 (caller-saved). Sets s1=mhartid, a0=hart base.
 # t1 is the current test pointer. Stays unchanged.
 test_execution_log_add:
-    csrr s1, mhartid
+    {self.variable_manager.get_variable("hart_index").load(dest_reg="s1")}
     li t0, test_execution_data_per_hart_size
     mul t0, s1, t0
     li a0, test_execution_data

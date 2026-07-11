@@ -102,6 +102,7 @@ class BringupArgsAdapter(BaseAdapter):
         if args.big_endian is not None:
             resource.big_endian = args.big_endian
             featmgr_builder.featmgr.num_cpus = 1  # from legacy code, not sure what the restriction is
+            featmgr_builder.featmgr.hart_ids = None  # single hart: drop any explicit (possibly discontiguous) hart-id list
             resource.first_pass_iss = "spike"
             resource.second_pass_iss = "spike"
             log.info("Big endian enabled, disabling mp and setting num_cpus to 1")

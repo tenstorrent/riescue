@@ -269,6 +269,27 @@ class PmaConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             PmaConfig(max_regions=MAX_PMA_REGIONS + 1)
 
+    def test_user_programmable_pmacfg_validation(self):
+        """Test user_programmable_pmacfg bounds"""
+        self.assertEqual(PmaConfig().user_programmable_pmacfg, 0)
+        for value in [0, 4, MAX_PMA_REGIONS - 2]:
+            self.assertEqual(PmaConfig(user_programmable_pmacfg=value).user_programmable_pmacfg, value)
+
+        with self.assertRaises(ValueError):
+            PmaConfig(user_programmable_pmacfg=-1)
+
+        with self.assertRaises(ValueError):
+            PmaConfig(user_programmable_pmacfg=MAX_PMA_REGIONS - 1)
+
+        with self.assertRaises(ValueError):
+            PmaConfig(max_regions=8, user_programmable_pmacfg=7)
+
+    def test_user_programmable_pmacfg_from_dict(self):
+        """Test user_programmable_pmacfg parsing supports int and hex strings"""
+        self.assertEqual(PmaConfig.from_dict({}).user_programmable_pmacfg, 0)
+        self.assertEqual(PmaConfig.from_dict({"user_programmable_pmacfg": 4}).user_programmable_pmacfg, 4)
+        self.assertEqual(PmaConfig.from_dict({"user_programmable_pmacfg": "0x8"}).user_programmable_pmacfg, 8)
+
     def test_duplicate_region_names(self):
         """Test duplicate region name detection"""
         regions = [PmaRegionConfig(name="duplicate"), PmaRegionConfig(name="duplicate")]
@@ -320,6 +341,16 @@ class PmaConfigTest(unittest.TestCase):
         cfg = {"max_regions": "0xf"}
         config = PmaConfig.from_dict(cfg)
         self.assertEqual(config.max_regions, 15)
+
+    def test_num_pmas(self):
+        """num_pmas defaults to None, parses int/hex strings, and rejects values outside [2, 64]"""
+        self.assertIsNone(PmaConfig().num_pmas)
+        self.assertIsNone(PmaConfig.from_dict({}).num_pmas)
+        self.assertEqual(PmaConfig.from_dict({"num_pmas": 16}).num_pmas, 16)
+        self.assertEqual(PmaConfig.from_dict({"num_pmas": "0x40"}).num_pmas, 64)
+        for bad in (0, 1, MAX_PMA_REGIONS + 1):
+            with self.assertRaises(ValueError):
+                PmaConfig(num_pmas=bad)
 
 
 if __name__ == "__main__":

@@ -93,7 +93,7 @@ class FeatMgrBuilder:
             action="append",
             type=Path,
             default=[],
-            help="Path to conf.py file for additional config and hooks.",
+            help="Path to conf.py file(s) for additional config and hooks. Accepts a comma-separated list (--conf a.py,b.py) and may also be repeated; conf files are applied in the order listed.",
         )
         cmdline.add_arguments(parser)
 
@@ -131,7 +131,7 @@ class FeatMgrBuilder:
 
         """
         if args.conf:
-            self.conf = [Conf.load_conf_from_path(path) for path in args.conf]
+            self.conf = [Conf.load_conf_from_path(path) for path in Conf.split_conf_paths(args.conf)]
         return CliAdapter().apply(self, args)
 
     def with_vector_delegations(self, delegations) -> FeatMgrBuilder:
@@ -237,6 +237,14 @@ class FeatMgrBuilder:
         # Disable paging mode if in machine mode and not explicitly set
         if featmgr.priv_mode == RV.RiscvPrivileges.MACHINE and not featmgr.enable_machine_paging:
             featmgr.paging_mode = RV.RiscvPagingModes.DISABLE
+
+        # G-stage (guest) paging only means anything under a hypervisor guest
+        # (env == TEST_ENV_VIRTUALIZED). paging_g_mode is chosen independently
+        # of env above, so a non-virtualized env can otherwise end up with a
+        # non-DISABLE paging_g_mode and crash later looking for a map_hyp that
+        # was never set up.
+        if featmgr.env != RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED:
+            featmgr.paging_g_mode = RV.RiscvPagingModes.DISABLE
 
         if featmgr.linux_mode:
             featmgr.priv_mode = RV.RiscvPrivileges.MACHINE
