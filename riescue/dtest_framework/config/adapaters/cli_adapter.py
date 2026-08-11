@@ -115,6 +115,8 @@ class CliAdapter(Adapter):
             featmgr.rand_mem_inject_icount_pct = cmdline.rand_mem_inject_icount_pct
         if cmdline.rand_mem_icount_density is not None:
             featmgr.rand_mem_icount_density = RV.RandMemIcountDensity.str_to_enum(cmdline.rand_mem_icount_density)
+        if cmdline.rand_mem_icount_park_pct is not None:
+            featmgr.rand_mem_icount_park_pct = cmdline.rand_mem_icount_park_pct
 
         if cmdline.setup_pmp is not None:
             featmgr.setup_pmp = cmdline.setup_pmp
@@ -140,6 +142,10 @@ class CliAdapter(Adapter):
             if not 0 <= cmdline.pma_carveout_mask_pct <= 100:
                 raise ValueError(f"--pma_carveout_mask_pct must be 0-100, got {cmdline.pma_carveout_mask_pct}")
             featmgr.pma_carveout_mask_pct = cmdline.pma_carveout_mask_pct
+        if cmdline.pma_indirect_access_pct is not None:
+            if not 0 <= cmdline.pma_indirect_access_pct <= 100:
+                raise ValueError(f"--pma_indirect_access_pct must be 0-100, got {cmdline.pma_indirect_access_pct}")
+            featmgr.pma_indirect_access_pct = cmdline.pma_indirect_access_pct
         if featmgr.enable_pma_randomization:
             featmgr.needs_pma = True
 

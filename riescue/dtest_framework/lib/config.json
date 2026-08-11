@@ -21,6 +21,7 @@
             "uart0": {"address": "0x200_0000", "size": "0x20", "test_access": true},
             "maplic": {"address": "0x1080_0000", "size": "0x10_0000"},
             "saplic": {"address": "0x2080_0000", "size": "0x10_0000"},
+            "imsic": {"address": "0x4000_0000", "size": "0x400_0000"},
             "scratch": {"address": "0x800_0000", "size": "0x10_0000"},
             "trickbox": {"address": "0x900_0000", "size": "0xc_0000"},
             "scratchpad_xtor": {"address": "0x90c_0000", "size": "0x100"},
@@ -28,9 +29,6 @@
             "scratch2": {"address": "0xa0c_0000", "size": "0x37f4_0000"},
             "scratch3": {"address": "0x1090_0000", "size": "0xff0_0000"},
             "scratch4": {"address": "0x2090_0000", "size": "0x2188_0000"},
-            "trace_cfg": {"address": "0x4200_0000", "size": "0x010_0000"},
-            "mmr_cbqri": {"address": "0x421a_0000", "size": "0x1000"},
-            "mmr_intercluster": {"address": "0x4220_0000", "size": "0x10_0000"},
             "preload": {"address": "0x5000_0000", "size": "0x2000_0000"},
             "htif": {"address": "0x7000_0000", "size": "0x10"}
         }

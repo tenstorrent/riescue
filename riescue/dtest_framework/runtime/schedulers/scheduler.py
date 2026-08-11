@@ -71,6 +71,11 @@ class Scheduler(AssemblyGenerator, ABC):
 
 # Entry point for scheduling next test
 {self.scheduler_dispatch_label}:
+    # Disarm any runtime-installed exception handler: arming is scoped to one
+    # discrete test, so a forgotten OS_UNINSTALL_EXCP_HANDLER cannot bleed into
+    # the next test. tp holds the hart context pointer at dispatch.
+    li t1, -1
+    {self.variable_manager.get_variable("excp_handler_cause").store(src_reg="t1")}
     {self._dispatch_setup()}
     {self.featmgr.call_hook(RV.HookPoint.PRE_DISPATCH)}
     {self.scheduler_dispatch()}

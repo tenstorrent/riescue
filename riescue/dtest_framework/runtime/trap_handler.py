@@ -95,6 +95,9 @@ class InterruptHandler:
     :param variable_manager: VariableManager used to allocate/resolve runtime variables
     :param is_virtualized: Whether the test runs in a virtualized (VS/VU) environment
     :param deleg_virtualized: Whether this interrupt handler is for a virtualized (V=1) mode
+    :param sstc_supported: Whether the hardware implements Sstc (cpuconfig ``supported``, not ``enabled``);
+        when True the STI/VSTI clears also re-arm stimecmp/vstimecmp, since a test that sets
+        menvcfg/henvcfg.STCE makes the pending bit comparator-driven and read-only in xip
     """
 
     reserved_interrupt_indicies = [4, 8, 14, 15]
@@ -112,6 +115,7 @@ class InterruptHandler:
         variable_manager=None,
         is_virtualized: bool = False,
         deleg_virtualized: bool = False,
+        sstc_supported: bool = False,
     ):
         self.privilege_mode = privilege_mode
         if self.privilege_mode not in [RV.RiscvPrivileges.MACHINE, RV.RiscvPrivileges.SUPER]:
@@ -131,6 +135,7 @@ class InterruptHandler:
         self.pool = pool
         self.is_virtualized = is_virtualized
         self.deleg_virtualized = deleg_virtualized
+        self.sstc_supported = sstc_supported
         self.vector_count = xlen.value - 1
 
         self.vector_table: dict[int, InterruptServiceRoutine] = {}  # Maps vector_num -> ISR
@@ -464,14 +469,17 @@ class InterruptHandler:
           it is only deasserted by writing ``mtimecmp``.
         - ``mip.STIP`` is read-only when ``menvcfg.STCE=1`` (Sstc enabled)
           and reflects ``time >= stimecmp``; it is only deasserted by
-          writing ``stimecmp``. When Sstc is disabled, ``sip.STIP`` is
-          software-writable and the legacy ``csrc`` clear is what works.
+          writing ``stimecmp``. When Sstc is disabled, ``mip.STIP`` is
+          software-writable from M mode only and the ``csrc xip`` clear
+          below is what works.
 
-        Re-arm the comparators via the staged rvmodel_macros.h helpers so
-        the ACLINT base / Sstc addressing tracks the platform config, and
-        keep the ``csrc xip`` clear afterwards so the legacy / non-Sstc
-        path is also covered. ``clear_interrupt_bit`` also emits ``xret``,
-        so no separate return is needed.
+        Whenever the hardware implements Sstc the STI clear re-arms
+        ``stimecmp`` inline (a test may flip ``menvcfg.STCE`` on even when
+        the cpuconfig doesn't enable Sstc); without Sstc in hardware no
+        comparator exists and the ``csrc xip`` clear suffices. MTI still
+        re-arms ``mtimecmp`` via the staged rvmodel_macros.h helper so the
+        ACLINT base tracks the platform config. ``clear_interrupt_bit``
+        also emits ``xret``, so no separate return is needed.
         """
         # Every default clear path routes through the shared check_intr helper
         # AFTER doing its platform-source clear and xip bit clear, but BEFORE
@@ -512,7 +520,13 @@ class InterruptHandler:
             if interrupt_enum is RV.RiscvInterruptCause.MTI:
                 body.append("    RVMODEL_CLR_MTIMER_INT(t0, t1)")
             elif interrupt_enum is RV.RiscvInterruptCause.STI:
-                body.append("    RVMODEL_CLR_STIMER_INT(t0, t1)")
+                if self.sstc_supported:
+                    # Push the stimecmp deadline out whenever the hw implements Sstc — even if the
+                    # cpuconfig doesn't enable it, a test can set menvcfg.STCE and make STIP
+                    # comparator-driven; the csrc xip below is then a no-op and the trap would
+                    # re-fire forever. Without Sstc in hw the csrc clears mip.STIP (M mode only).
+                    body.append("    li t0, 0xffffffff")
+                    body.append("    csrw stimecmp, t0")
                 if self.deleg_virtualized and self.is_virtualized:
                     # In VS mode, this may come from hvip instead of vstimecmp
                     body.extend(self._clear_hvip_via_machine_ecall(f"(1<<VSTI)"))
@@ -531,7 +545,16 @@ class InterruptHandler:
                 # must NOT be used here.
                 body.append("    RVMODEL_CLR_SEXT_INT(t0, t1)")
             elif interrupt_enum is RV.RiscvInterruptCause.VSTI:
-                body.append("    RVMODEL_CLR_VSTIMER_INT(t0, t1)")
+                # hvip[6] is the VSTI source; undelegated, so this ISR always runs
+                # at HS (V=0) where hvip is reachable directly. hip.VSTIP =
+                # hvip.VSTIP OR (with Sstc) the vstimecmp comparator, so also
+                # reset vstimecmp when Sstc is enabled -- otherwise its
+                # independent signal keeps the interrupt pending.
+                body.append(f"    li t2, (1<<{interrupt_enum.name})")
+                body.append("    csrrc x0, hvip, t2")
+                if self.sstc_supported:
+                    body.append("    li t0, 0xffffffff")
+                    body.append("    csrw vstimecmp, t0")
             elif interrupt_enum is RV.RiscvInterruptCause.VSSI:
                 # hvip[2] is the VSSI source. sip[2] is read-only with VTI=1
                 # and raises Virtual Instruction from VS mode — clear hvip directly.
@@ -623,6 +646,7 @@ class TrapHandler(AssemblyGenerator):
             pool=self.pool,
             is_virtualized=(self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED),
             deleg_virtualized=deleg_virtualized,
+            sstc_supported=self.featmgr.is_feature_supported("sstc"),
         )
 
         self.env = self.featmgr.env
@@ -1075,6 +1099,74 @@ class TrapHandler(AssemblyGenerator):
             ecall
         """
 
+    def installed_excp_handler_dispatch(self) -> str:
+        """
+        Dispatch for the runtime-installed exception handler (OS_INSTALL_EXCP_HANDLER),
+        emitted at exception_path before save_context(). t0 holds xcause; t0/t1 are the
+        only clobberable registers and the scratch CSR still holds the hart-context
+        pointer (pre-swap).
+
+        Loads the hart-local excp_handler_cause; on xcause match (and expected-mode match
+        when excp_handler_mode is nonzero) jumps to the hart-local excp_handler_addr
+        (test-supplied body ending in xret). Any mismatch falls through to the original
+        exception path (FeatMgr overrides -> save_context -> excp_entry).
+
+        The handler address is materialized at the OS_INSTALL_EXCP_HANDLER call site in
+        test code, so this dispatch carries no relocation of its own for the jump's
+        reach: the jr reaches anywhere in the image regardless of how far the handler
+        label is from .runtime. The M-mode dispatch does relocate the loaded VA to a
+        PA before jumping (M-mode instruction fetches are never translated), assuming
+        the handler lives in .code — same code/code_pa idiom as _call_excp_hook.
+
+        The expected-mode gate guards against medeleg randomization, mid-test medeleg
+        writes, and trap origin (an M-mode ebreak lands in the M handler even with
+        medeleg[3]=1): a cause match arriving at the wrong-mode handler falls through
+        to the original path instead of jumping into a body written for another mode
+        (wrong xret, wrong CSR view, VA-vs-bare addressing).
+        """
+        excp_handler_cause = self.variable_manager.get_variable("excp_handler_cause")
+        excp_handler_mode = self.variable_manager.get_variable("excp_handler_mode")
+        excp_handler_addr = self.variable_manager.get_variable("excp_handler_addr")
+        prefix = f"{self.label_prefix}ih"
+        fallthrough = f"{prefix}_fallthrough"
+        my_mode = self._current_mode_for_handler()  # CHECK_EXCP_MODE_*: 1=M, 2=HS, 3=VS
+        indent = "            "
+
+        lines = [
+            f"{indent}# Installed exception-handler dispatch — matched before context save.",
+            f"{indent}# On cause (+mode) match: jump to excp_handler_addr (handler ends in {self.xret}); else fall through.",
+            f"{indent}csrr t1, {self.scratch_reg}",
+            f"{indent}{excp_handler_cause.load(dest_reg='t1', base_reg='t1')}",
+            f"{indent}bne t0, t1, {fallthrough}",
+            f"{indent}csrr t1, {self.scratch_reg}",
+            f"{indent}{excp_handler_mode.load(dest_reg='t1', base_reg='t1')}",
+            f"{indent}beqz t1, {prefix}_fire",
+            f"{indent}li t0, {my_mode}",
+            f"{indent}bne t1, t0, {prefix}_mode_miss",
+            f"{prefix}_fire:",
+            f"{indent}csrr t1, {self.scratch_reg}",
+            f"{indent}{excp_handler_addr.load(dest_reg='t1', base_reg='t1')}",
+        ]
+        if self.deleg_mode == RV.RiscvPrivileges.MACHINE:
+            # M-mode fetches are bare: relocate the stored VA to a PA, assuming the
+            # handler lives in .code (pa = va - align4k(code) + code_pa). Identity
+            # when paging is off, since then code_pa == align4k(code).
+            lines += [
+                f"{indent}li t0, code",
+                f"{indent}srli t0, t0, 12",
+                f"{indent}slli t0, t0, 12",
+                f"{indent}sub t1, t1, t0",
+                f"{indent}li t0, code_pa",
+                f"{indent}add t1, t1, t0",
+            ]
+        lines += [
+            f"{indent}jr t1",
+            f"{prefix}_mode_miss:",
+            f"{indent}csrr t0, {self.xcause}  # restore xcause for the original path",
+            f"{fallthrough}:",
+        ]
+        return "\n".join(lines) + "\n"
+
     def default_trap_handler(self):
         """
         Generates the default trap handler code. Checks for interrupt vs exception.
@@ -1117,6 +1209,9 @@ class TrapHandler(AssemblyGenerator):
 {excp_dispatch_body}"""
         else:
             excp_dispatch = ""
+
+        # Installed exception-handler dispatch runs first at exception_path; its fall-through is the original path.
+        ih_dispatch = self.installed_excp_handler_dispatch()
 
         if self.pool.init_aplic_interrupts:
             # APLIC path: xcause is read BEFORE save_context() so the exception-override
@@ -1197,7 +1292,7 @@ class TrapHandler(AssemblyGenerator):
                     {self.xret}
 
             {self.label_prefix}exception_path:
-{excp_dispatch}            {self.save_context()}
+{ih_dispatch}{excp_dispatch}            {self.save_context()}
             j {self.exception_handler_label}
             """
         else:
@@ -1235,7 +1330,7 @@ class TrapHandler(AssemblyGenerator):
                 jr t0                           # Jump to vector table entry
 
             {self.label_prefix}exception_path:
-{excp_dispatch}            {self.save_context()}
+{ih_dispatch}{excp_dispatch}            {self.save_context()}
             j {self.exception_handler_label}
             """
 

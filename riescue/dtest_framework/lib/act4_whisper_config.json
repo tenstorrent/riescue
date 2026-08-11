@@ -3,7 +3,7 @@
 
   "address_translation_pmms": ["off", "pm57"],
 
-  "isa": "rv64imafdcvhus_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zihintpause_zihpm_zimop_zawrs_zfa_zfbfmin_zfh_zkr_zcb_zcmop_zba_zbb_zbs_zvbb_zvbc_zvfbfmin_zvfbfwma_zvfh_zvkg_zvkned_zvknhb_zvqdotq_sdtrig_smaia_smmpm_smnpm_smrnmi_smstateen_ssaia_sscofpmf_ssnpm_ssqosid_sstc_svadu_svinval_svnapot_svpbmt_svvptc_zifencei_zabha_zbc_zkne_zknd_zknh_zbkb_zbkc_zbkx_zksed_zksh",
+  "isa": "rv64imafdcvhus_zicbom_zicbop_zicboz_zicntr_zicond_zicsr_zihintpause_zihpm_zimop_zacas_zawrs_zfa_zfbfmin_zfh_zkr_zcb_zcmop_zba_zbb_zbs_zvbb_zvbc_zvfbfmin_zvfbfwma_zvfh_zvkg_zvkned_zvknhb_zvqdotq_sdtrig_smaia_smmpm_smnpm_smrnmi_smstateen_ssaia_sscofpmf_ssnpm_ssqosid_sstc_svadu_svinval_svnapot_svpbmt_svvptc_zifencei_zabha_zbc_zkne_zknd_zknh_zbkb_zbkc_zbkx_zksed_zksh",
 
   "all_inst_addr_trigger": "false",
   "cancel_lr_on_trap": false,
@@ -31,6 +31,13 @@
   },
 
   "csr": {
+    "hstatus" : {
+        "reset-comment"   : "VSXL=10",
+        "reset"           : "0x0000000200000000",
+        "mask-comment"    : "Readonly fields: VSXL, remove VSBE once RTL implements Big-Endian",
+        "mask"            : "0x000300000073f3c0",
+        "poke_mask"       : "0x000300000073f3c0"
+    },
     "misa": {
       "reset": "0x80000000003411ad",
       "mask": "0x80",

@@ -1,6 +1,6 @@
 {
     "xlen" : 64,
-    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zvqdotq_zjpm_svpbmt_svadu_sstc_zvzip_zvabd_smcsrind",
+    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zacas_zawrs_zvqdotq_zjpm_svpbmt_svadu_sstc_zvzip_zvabd_smcsrind",
     "reset_vec"             : "0x0",
     "enable_performance_counters" : "true",
     "perf_count_atomic_load_store" : "true",
@@ -20,9 +20,16 @@
 	 },
 
     "csr" : {
+	    "hstatus" : {
+	        "reset-comment"   : "VSXL=10",
+	        "reset"           : "0x0000000200000000",
+	        "mask-comment"    : "Readonly fields: VSXL, remove VSBE once RTL implements Big-Endian",
+	        "mask"            : "0x000300000073f3c0",
+	        "poke_mask"       : "0x000300000073f3c0"
+	    },
 	    "misa" : {
 	        "reset-comment" : "imafdcvsu",
-	        "reset" : "0x403411af",
+	        "reset" : "0x80000000003411af",
 	        "mask" : "0x00000000002010a9",
 			"poke_mask" : "0x00000000002010a9"
 	    },

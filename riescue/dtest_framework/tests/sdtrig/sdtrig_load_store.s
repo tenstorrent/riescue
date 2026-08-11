@@ -65,7 +65,7 @@ test_setup:
 ;#discrete_test(test=sdtrig_load_bp_basic)
 sdtrig_load_bp_basic:
     OS_SETUP_CHECK_EXCP BREAKPOINT, load_bp_here, load_bp_after
-    ;#trigger_config(index=0, type=load, addr=ldst_lin, action=breakpoint)
+    ;#trigger_config(index=4, type=load, addr=ldst_lin, action=breakpoint)
     li t1, ldst_lin
 load_bp_here:
     ld t0, 0(t1)
@@ -78,7 +78,7 @@ load_bp_after:
 ;#discrete_test(test=sdtrig_load_bp_size_8)
 sdtrig_load_bp_size_8:
     OS_SETUP_CHECK_EXCP BREAKPOINT, load_size8_here, load_size8_after
-    ;#trigger_config(index=0, type=load, addr=ldst_lin, action=breakpoint, size=8)
+    ;#trigger_config(index=4, type=load, addr=ldst_lin, action=breakpoint, size=8)
     li t1, ldst_lin
 load_size8_here:
     ld t0, 0(t1)
@@ -91,7 +91,7 @@ load_size8_after:
 ;#discrete_test(test=sdtrig_load_bp_size_1)
 sdtrig_load_bp_size_1:
     OS_SETUP_CHECK_EXCP BREAKPOINT, load_size1_here, load_size1_after
-    ;#trigger_config(index=0, type=load, addr=ldst_lin, action=breakpoint, size=1)
+    ;#trigger_config(index=4, type=load, addr=ldst_lin, action=breakpoint, size=1)
     li t1, ldst_lin
 load_size1_here:
     lb t0, 0(t1)
@@ -103,7 +103,7 @@ load_size1_after:
 #####################
 ;#discrete_test(test=sdtrig_load_bp_no_fire)
 sdtrig_load_bp_no_fire:
-    ;#trigger_config(index=0, type=load, addr=ldst_lin+0x100, action=breakpoint)
+    ;#trigger_config(index=4, type=load, addr=ldst_lin+0x100, action=breakpoint)
     li t1, ldst_lin
 load_no_fire_here:
     ld t0, 0(t1)
@@ -115,7 +115,7 @@ load_no_fire_here:
 ;#discrete_test(test=sdtrig_store_bp_basic)
 sdtrig_store_bp_basic:
     OS_SETUP_CHECK_EXCP BREAKPOINT, store_bp_here, store_bp_after
-    ;#trigger_config(index=0, type=store, addr=ldst_lin, action=breakpoint)
+    ;#trigger_config(index=4, type=store, addr=ldst_lin, action=breakpoint)
     li t1, ldst_lin
 store_bp_here:
     sd x0, 0(t1)
@@ -128,7 +128,7 @@ store_bp_after:
 ;#discrete_test(test=sdtrig_store_bp_size_8)
 sdtrig_store_bp_size_8:
     OS_SETUP_CHECK_EXCP BREAKPOINT, store_size8_here, store_size8_after
-    ;#trigger_config(index=0, type=store, addr=ldst_lin, action=breakpoint, size=8)
+    ;#trigger_config(index=4, type=store, addr=ldst_lin, action=breakpoint, size=8)
     li t1, ldst_lin
 store_size8_here:
     sd x0, 0(t1)
@@ -141,7 +141,7 @@ store_size8_after:
 ;#discrete_test(test=sdtrig_store_bp_size_1)
 sdtrig_store_bp_size_1:
     OS_SETUP_CHECK_EXCP BREAKPOINT, store_size1_here, store_size1_after
-    ;#trigger_config(index=0, type=store, addr=ldst_lin, action=breakpoint, size=1)
+    ;#trigger_config(index=4, type=store, addr=ldst_lin, action=breakpoint, size=1)
     li t1, ldst_lin
 store_size1_here:
     sb x0, 0(t1)
@@ -153,7 +153,7 @@ store_size1_after:
 #####################
 ;#discrete_test(test=sdtrig_store_bp_no_fire)
 sdtrig_store_bp_no_fire:
-    ;#trigger_config(index=0, type=store, addr=ldst_lin+0x100, action=breakpoint)
+    ;#trigger_config(index=4, type=store, addr=ldst_lin+0x100, action=breakpoint)
     li t1, ldst_lin
 store_no_fire_here:
     sd x0, 0(t1)
@@ -165,7 +165,7 @@ store_no_fire_here:
 ;#discrete_test(test=sdtrig_ldst_bp_load)
 sdtrig_ldst_bp_load:
     OS_SETUP_CHECK_EXCP BREAKPOINT, ldst_load_here, ldst_load_after
-    ;#trigger_config(index=0, type=load_store, addr=ldst_lin, action=breakpoint)
+    ;#trigger_config(index=4, type=load_store, addr=ldst_lin, action=breakpoint)
     li t1, ldst_lin
 ldst_load_here:
     ld t0, 0(t1)
@@ -178,7 +178,7 @@ ldst_load_after:
 ;#discrete_test(test=sdtrig_ldst_bp_store)
 sdtrig_ldst_bp_store:
     OS_SETUP_CHECK_EXCP BREAKPOINT, ldst_store_here, ldst_store_after
-    ;#trigger_config(index=0, type=load_store, addr=ldst_lin, action=breakpoint)
+    ;#trigger_config(index=4, type=load_store, addr=ldst_lin, action=breakpoint)
     li t1, ldst_lin
 ldst_store_here:
     sd x0, 0(t1)

@@ -4,7 +4,7 @@
 import unittest
 from pathlib import Path
 
-import riescue.dtest_framework.lib.addrgen as addrgen
+import riescue.riemap.addrgen as addrgen
 import riescue.lib.enums as RV
 from riescue.dtest_framework.config import Memory
 from riescue.dtest_framework.lib.pma import PmaInfo
@@ -62,8 +62,12 @@ class AddrGenTest(unittest.TestCase):
     def test_addrgen_memory_conflicts(self):
         "Test that reserving memory then generating at same address will generate different address and not fail"
         generator = addrgen.AddrGen(self.rng, self.mem)
-        collide_addr = 0xB5D54872
-        expected_addr = 0x8DF03372
+        collide_addr = 0xB5D54872  # what this seed draws first with nothing reserved (test_addrgen)
+        # The value the retry lands on. It is a different window than the pre-refactor golden
+        # because a draw no longer materializes every free hole of the qualifier window first
+        # (see AddressCluster.find_ucluster): it probes the broad window and consults the
+        # allocated interval tree, so the probe's range -- and the value it picks -- differ.
+        expected_addr = 0xA1242E16
 
         generator.reserve_memory(
             address_type=RV.AddressType.PHYSICAL,
@@ -78,12 +82,16 @@ class AddrGenTest(unittest.TestCase):
             mask=0xFFFFFFFFFFFFF,
         )
         addr = generator.generate_address(physical_constraint)
+        self.assertFalse(
+            addr < collide_addr + self.address_size and collide_addr < addr + 0x400,
+            f"0x{addr:x} overlaps the reserved span at 0x{collide_addr:x}",
+        )
         self.assertEqual(addr, expected_addr)
 
 
-class AddrGenPmaExclusionTest(unittest.TestCase):
+class AddrGenExclusionTest(unittest.TestCase):
     """
-    Test AddrGen avoidance of excluded (randomized decoy) PMA regions.
+    Test AddrGen avoidance of excluded regions (RiescueD passes decoy PMA windows as ExcludedRegion).
     """
 
     def setUp(self):
@@ -102,16 +110,16 @@ class AddrGenPmaExclusionTest(unittest.TestCase):
     def test_unmasked_exclusion_avoided(self):
         """Generated physical addresses never land inside an unmasked excluded region"""
         decoy = PmaInfo(pma_name="pma_rand_0", pma_address=0x8000_0000, pma_size=0x1000_0000, pma_randomized=True)
-        generator = addrgen.AddrGen(self.rng, self.mem, excluded_pma_regions=[decoy])
+        generator = addrgen.AddrGen(self.rng, self.mem, excluded_regions=[decoy.excluded_region()])
         for _ in range(50):
             addr = generator.generate_address(self.physical_constraint())
-            self.assertIsNone(generator._hits_excluded_pma(addr, 0x1000), f"0x{addr:x} landed in the decoy")
+            self.assertIsNone(generator._hits_excluded_region(addr, 0x1000), f"0x{addr:x} landed in the decoy")
 
     def test_masked_exclusion_avoided(self):
         """Generated physical addresses never satisfy a masked decoy's congruence"""
         # Region matches any page whose bits [31:13] equal the base's (bit 12 is don't-care)
         decoy = PmaInfo(pma_name="pma_rand_1", pma_address=0x9000_0000, pma_size=0x1000, pma_mask=1 << 12, pma_randomized=True)
-        generator = addrgen.AddrGen(self.rng, self.mem, excluded_pma_regions=[decoy])
+        generator = addrgen.AddrGen(self.rng, self.mem, excluded_regions=[decoy.excluded_region()])
         mask = decoy.effective_match_mask()
         for _ in range(50):
             addr = generator.generate_address(self.physical_constraint())
@@ -121,7 +129,7 @@ class AddrGenPmaExclusionTest(unittest.TestCase):
         """A masked decoy excluding 50% of pages (bit 12 clear) is always avoided on the PHYSICAL path"""
         decoy = PmaInfo(pma_name="pma_rand_2", pma_address=0x0, pma_size=0x1000, pma_mask=PmaInfo.PMAMASK_ADDR_BITS & ~(1 << 12), pma_randomized=True)
         self.assertEqual(decoy.effective_match_mask(), 1 << 12)
-        generator = addrgen.AddrGen(self.rng, self.mem, excluded_pma_regions=[decoy])
+        generator = addrgen.AddrGen(self.rng, self.mem, excluded_regions=[decoy.excluded_region()])
         for _ in range(30):
             addr = generator.generate_address(self.physical_constraint())
             self.assertTrue(addr & (1 << 12), f"0x{addr:x} lies in the masked decoy window (bit 12 clear)")
@@ -129,13 +137,13 @@ class AddrGenPmaExclusionTest(unittest.TestCase):
     def test_exclusion_exhaustion_raises(self):
         """A decoy covering the whole 32-bit DRAM window makes generation fail loudly"""
         decoy = PmaInfo(pma_name="pma_rand_3", pma_address=0x0, pma_size=1 << 32, pma_randomized=True)
-        generator = addrgen.AddrGen(self.rng, self.mem, excluded_pma_regions=[decoy])
+        generator = addrgen.AddrGen(self.rng, self.mem, excluded_regions=[decoy.excluded_region()])
         with self.assertRaises(addrgen.AddrGenError):
             generator.generate_address(self.physical_constraint())
 
     def test_no_exclusions_no_behavior_change(self):
         """Without exclusions the generation stream matches the legacy expectation"""
-        generator = addrgen.AddrGen(self.rng, self.mem, excluded_pma_regions=[])
+        generator = addrgen.AddrGen(self.rng, self.mem, excluded_regions=[])
         legacy_constraint = addrgen.AddressConstraint(
             type=RV.AddressType.PHYSICAL,
             qualifiers={RV.AddressQualifiers.ADDRESS_DRAM},
@@ -156,13 +164,13 @@ class AddrGenPmaExclusionTest(unittest.TestCase):
         self.assertIn((0x9000_0000, 0x9000_1000), intervals)
 
     def test_extra_excluded_regions_avoided(self):
-        """Regions registered via exclude_pma_region are avoided like constructor exclusions"""
+        """Regions registered via exclude_region are avoided like constructor exclusions"""
         generator = addrgen.AddrGen(self.rng, self.mem)
         carveout = PmaInfo(pma_name="pma_carve", pma_address=0x8000_0000, pma_size=0x1000_0000, pma_valid=True)
-        generator.exclude_pma_region(carveout)
+        generator.exclude_region(carveout.excluded_region())
         for _ in range(20):
             addr = generator.generate_address(self.physical_constraint())
-            self.assertIsNone(generator._hits_excluded_pma(addr, 0x1000), f"0x{addr:x} landed in the excluded carve-out")
+            self.assertIsNone(generator._hits_excluded_region(addr, 0x1000), f"0x{addr:x} landed in the excluded carve-out")
 
 
 if __name__ == "__main__":

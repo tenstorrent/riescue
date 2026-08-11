@@ -58,7 +58,7 @@ re_execute_icount:
     #                  far_expected_pc, far_return_pc, gva_check,
     #                  expected_mode, re_execute
     OS_SETUP_CHECK_EXCP BREAKPOINT, rx_ic_after, rx_ic_after, 0, 0, 1, 0, 0, 0, 0, 1
-    ;#trigger_config(index=0, type=icount, count=3, action=breakpoint)
+    ;#trigger_config(index=8, type=icount, count=3, action=breakpoint)
 
     # Enough instructions to guarantee the icount fires within this region.
     addi x10, x0, 0
@@ -70,7 +70,7 @@ re_execute_icount:
     addi x10, x10, 1
     addi x10, x10, 1
 rx_ic_after:
-    ;#trigger_disable(index=0)
+    ;#trigger_disable(index=8)
     ;#test_passed()
 
 #####################
@@ -102,11 +102,11 @@ re_execute_icount_counter:
     # Count=1 → the icount fires on the very next retiring instruction
     # (the addi below). icount latches to 0 on fire, so the addi runs cleanly
     # on the re-fetch and no further triggers are pending.
-    ;#trigger_config(index=0, type=icount, count=1, action=breakpoint)
+    ;#trigger_config(index=8, type=icount, count=1, action=breakpoint)
 rx_ic_bump:
     addi x8, x8, 1
 rx_ic_bump_done:
-    ;#trigger_disable(index=0)
+    ;#trigger_disable(index=8)
     li x9, 1
     bne x8, x9, re_execute_icount_counter_fail
     ;#test_passed()

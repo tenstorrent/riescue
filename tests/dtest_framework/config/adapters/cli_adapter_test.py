@@ -284,6 +284,7 @@ class CliAdapterTest(unittest.TestCase):
         self.assertEqual(result.pma_random_regions, 8)
         self.assertEqual(result.pma_random_mask_pct, 25)
         self.assertEqual(result.pma_carveout_mask_pct, 0)
+        self.assertEqual(result.pma_indirect_access_pct, -1)  # unset: auto 50 when randomizing, else 0
 
     def test_enable_pma_randomization_implies_needs_pma(self):
         """--enable_pma_randomization sets the flag and forces needs_pma"""
@@ -313,3 +314,13 @@ class CliAdapterTest(unittest.TestCase):
         self.assertEqual(result.pma_carveout_mask_pct, 40)
         with self.assertRaises(ValueError):
             self.adapter.apply(self.builder, self.parser.parse_args(args=["--pma_carveout_mask_pct", "101"]))
+
+    def test_pma_indirect_access_pct_flag(self):
+        """--pma_indirect_access_pct lands in FeatMgr and validates its range"""
+        args = self.parser.parse_args(args=["--enable_pma_randomization", "--pma_indirect_access_pct", "75"])
+        result = self.adapter.apply(self.builder, args).featmgr
+        self.assertEqual(result.pma_indirect_access_pct, 75)
+        with self.assertRaises(ValueError):
+            self.adapter.apply(self.builder, self.parser.parse_args(args=["--pma_indirect_access_pct", "101"]))
+        with self.assertRaises(ValueError):
+            self.adapter.apply(self.builder, self.parser.parse_args(args=["--pma_indirect_access_pct", "-1"]))

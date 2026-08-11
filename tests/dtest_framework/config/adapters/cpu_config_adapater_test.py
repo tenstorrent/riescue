@@ -9,7 +9,7 @@ from pathlib import Path
 import riescue.lib.enums as RV
 from riescue.dtest_framework.config.builder import FeatMgrBuilder
 from riescue.dtest_framework.config.adapaters import CpuConfigAdapter
-from riescue.dtest_framework.config.memory import Memory, DramRange
+from riescue.riemap.memory import Memory, DramRange
 from riescue.lib.rand import RandNum
 
 

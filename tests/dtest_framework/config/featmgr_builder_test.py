@@ -305,6 +305,23 @@ class TestFeatMgrBuilder(FeatMgrBuilderBase):
 
         self.assertTrue(featmgr.linux_mode)
 
+    def test_pbmt_ncio_randomization_enables_pbmt_ncio(self):
+        """--pbmt_ncio_randomization 100 must actually turn pbmt_ncio on.
+
+        It only ever wrote featmgr.pbmt_ncio_randomization, which nothing read, so the flag
+        was a no-op: pbmt_ncio came solely from svpbmt feature discovery, which is
+        "randomize": 0 in every cpu_config in the tree. exception_test's test_excp_pbmt_ncio
+        has therefore never exercised PBMT at all."""
+        featmgr = self.builder.with_args(self.parse_args(["--pbmt_ncio_randomization", "100"])).build(rng=self.rng)
+        self.assertTrue(featmgr.pbmt_ncio)
+
+    def test_pbmt_ncio_randomization_zero_leaves_it_off(self):
+        featmgr = self.builder.with_args(self.parse_args(["--pbmt_ncio_randomization", "0"])).build(rng=self.rng)
+        self.assertFalse(featmgr.pbmt_ncio)
+
+    def test_pbmt_ncio_off_by_default(self):
+        self.assertFalse(self.builder.build(rng=self.rng).pbmt_ncio)
+
     def test_paging_g_mode_sv39(self):
         "Check that --test_paging_g_mode=sv39 is respected under a virtualized env"
         args = self.parse_args(["--test_paging_g_mode", "sv39", "--test_env", "virtualized"])

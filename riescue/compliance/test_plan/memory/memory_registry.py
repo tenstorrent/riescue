@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+from dataclasses import replace
 from typing import Any, TYPE_CHECKING, Optional
 
 from coretp.rv_enums import PmpAttribute
 
 from riescue.compliance.test_plan.types import Page, DataPage
-from riescue.dtest_framework.config.memory import Memory as MemoryMap
-from riescue.dtest_framework.config.memory import DramRange
+from riescue.riemap.memory import DramRange
 from riescue.compliance.config import TpCfg
 import riescue.lib.enums as RV
 
@@ -164,30 +164,21 @@ class MemoryRegistry:
             if dram_range.permissions == rv_pma_attr:
                 return dram_range
 
-        # if no region matches the attributes, try to split a configurable region
+        # if no region matches the attributes, try to split the first configurable region
         new_drams: list[DramRange] = []
         new_dram: Optional[DramRange] = None
-        found_configurable = False
 
         for dram_range in memory_map.dram_ranges:
-            if dram_range.configurable:
-                dram0, new_dram = dram_range.split(request_memory.size // 2)  # split in half to get requested data.
-                found_configurable = True
-                new_dram.permissions = rv_pma_attr
-                memory_map.dram_ranges.append(dram0)
-                memory_map.dram_ranges.append(new_dram)
-                break
+            if new_dram is None and dram_range.configurable:
+                dram0, remainder = dram_range.split(request_memory.size // 2)  # split in half to get requested data.
+                new_dram = replace(remainder, permissions=rv_pma_attr)
+                new_drams.append(dram0)
+                new_drams.append(new_dram)
             else:
                 new_drams.append(dram_range)
-        if found_configurable:
-            # create a new Memory object (since frozen) with the requested attributes
-            new_memory_map = MemoryMap(
-                dram_ranges=new_drams,
-                io_ranges=memory_map.io_ranges,
-                secure_ranges=memory_map.secure_ranges,
-                reserved_ranges=memory_map.reserved_ranges,
-            )
-            self.cfg.featmgr.memory = new_memory_map
+        if new_dram is not None:
+            # ranges and Memory are immutable, so publish a replacement memory map
+            self.cfg.featmgr.memory = replace(memory_map, dram_ranges=tuple(new_drams))
             return new_dram
         return None
 

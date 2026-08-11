@@ -10,7 +10,7 @@ container_run=$script_dir/container-run
 build_cmd="make -j 20 BOOST_LIB_DIR=/usr/lib64/ BOOST_INC=/usr/include/boost/ STATIC_LINK=0 SOFT_FLOAT=1"
 
 whisper_remote="https://github.com/tenstorrent/whisper.git"
-whisper_sha="aa4a72aa4817a313a0148435a3a542542f5728a9"
+whisper_sha="749b7bc65722a60135281cd836516460bcd09811"
 
 set -e
 set -o pipefail

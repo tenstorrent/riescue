@@ -51,7 +51,7 @@ test_setup:
 ;#discrete_test(test=sdtrig_multiple_same_prio)
 sdtrig_multiple_same_prio:
     ;#trigger_config(index=0, type=execute, addr=edge_same_addr, action=breakpoint)
-    ;#trigger_config(index=1, type=load, addr=edge_same_addr, action=breakpoint)
+    ;#trigger_config(index=4, type=load, addr=edge_same_addr, action=breakpoint)
     OS_SETUP_CHECK_EXCP BREAKPOINT, edge_same_addr, edge_same_after
     la t1, edge_same_addr
 edge_same_addr:

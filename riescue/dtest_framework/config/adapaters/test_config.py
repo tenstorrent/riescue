@@ -77,7 +77,23 @@ class TestConfigAdapter(Adapter):
         if test_header.opts:
             featmgr.opts = self.setup_test_opts(test_header.opts)  # Currently unused, double check that's intentional
 
+        # Handle ;#test.user_programmable_pmacfg - a floor, not an override: a test that programs N
+        # pmacfg entries itself needs at least N left free, and cannot adapt to a smaller number.
+        # Adapters run header -> cpu_config -> cli, so this is resolved as a max() in FeatMgrBuilder.build().
+        if test_header.user_programmable_pmacfg:
+            featmgr.user_programmable_pmacfg_required = self.setup_user_programmable_pmacfg(test_header.user_programmable_pmacfg)
+
         return builder
+
+    def setup_user_programmable_pmacfg(self, header_value: str) -> int:
+        "Parses ;#test.user_programmable_pmacfg <N>; accepts decimal or 0x-prefixed"
+        try:
+            entries = int(header_value.strip(), 0)
+        except ValueError as e:
+            raise ValueError(f";#test.user_programmable_pmacfg must be an integer, got {header_value.strip()!r}") from e
+        if entries < 0:
+            raise ValueError(f";#test.user_programmable_pmacfg must be >= 0, got {entries}")
+        return entries
 
     def setup_arch(self, arch_header: str) -> Candidate[RV.RiscvBaseArch]:
         entries: list[RV.RiscvBaseArch] = []

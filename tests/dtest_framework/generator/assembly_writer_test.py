@@ -2,10 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import unittest
+from unittest.mock import MagicMock
 
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.generator.assembly_writer import AssemblyWriter
+import riescue.lib.enums as RV
 from riescue.lib.enums import HookPoint
+from riescue.riemap.request import Page, Space
+from riescue.riemap.result import PageMeta
 
 
 class HookPointEnumTest(unittest.TestCase):
@@ -30,6 +34,25 @@ class HookPointEnumTest(unittest.TestCase):
 
     def test_call_hook_unregistered_returns_empty(self):
         self.assertEqual(FeatMgr().call_hook(HookPoint.PRE_DISCRETE_TEST), "")
+
+
+class ResolvePteLevelsTest(unittest.TestCase):
+    def test_symbolic_level_uses_pages_own_map_mode(self):
+        writer = AssemblyWriter.__new__(AssemblyWriter)
+        writer.featmgr = FeatMgr()
+        writer.featmgr.paging_mode = RV.RiscvPagingModes.SV39
+        page = Page(
+            space=Space(paging_mode=RV.RiscvPagingModes.SV48),
+            pagesize=RV.RiscvPageSizes.S512GB,
+        )
+        writer._get_page_for_addr_name = lambda _name: page  # type: ignore[method-assign]
+        writer.pool = MagicMock()
+        writer.pool.allocation_result.page_meta.return_value = PageMeta(pagesize=page.pagesize)
+
+        level, g_level = writer._resolve_pte_levels("mixed", "leaf", None)
+
+        self.assertEqual(level, 0)
+        self.assertIsNone(g_level)
 
 
 class WeaveDiscreteTestHooksTest(unittest.TestCase):

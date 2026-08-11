@@ -27,6 +27,10 @@ RiESCUE consists of three main tools:
 - :doc:`RiescueC <reference/python_api/RiescueC>` **- Compliance Test Generator**
 - :doc:`CTK <reference/python_api/CTK>` **- Compliance Test Kit**
 
+It also ships a standalone page-table generator:
+
+- :doc:`RieMap <reference/riemap/index>` **- Constraint-based RISC-V Page Table Generator**
+
 
 Getting Started
 ---------------

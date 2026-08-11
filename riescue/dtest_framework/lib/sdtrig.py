@@ -116,6 +116,41 @@ _ALL_MODES = ("m", "s", "u", "vs", "vu")
 _DEFAULT_PRIV_MODE = ("m", "s", "u", "vs", "vu")
 
 
+# Trigger slots are type-specialized: a slot's tdata1 write mask only exposes the access-type bits it
+# implements, so programming a type onto the wrong slot leaves those bits 0 and silently arms nothing.
+# Mirrors the "triggers" array masks in dtest_framework/lib/whisper_config.json:
+#   slots 0-3  mask 0x...01c077dc  execute[2] writable, load[0]/store[1] read-only 0
+#   slots 4-7  mask 0x...01c077db  load[0]/store[1] writable, execute[2] read-only 0
+#   slot  8    mask 0x...07ffffc7  icount (only slot with the 14-bit count field at [23:10])
+EXEC_TRIGGER_SLOTS = range(0, 4)
+LOAD_STORE_TRIGGER_SLOTS = range(4, 8)
+ICOUNT_TRIGGER_SLOTS = range(8, 9)
+
+_SLOT_CAPABILITY: dict = {
+    TriggerType.EXECUTE: EXEC_TRIGGER_SLOTS,
+    TriggerType.LOAD: LOAD_STORE_TRIGGER_SLOTS,
+    TriggerType.STORE: LOAD_STORE_TRIGGER_SLOTS,
+    TriggerType.LOAD_STORE: LOAD_STORE_TRIGGER_SLOTS,
+    TriggerType.ICOUNT: ICOUNT_TRIGGER_SLOTS,
+}
+
+
+def slot_supports(index: int, trigger_type: TriggerType) -> bool:
+    """Return True if trigger slot *index* can hold *trigger_type*.
+
+    itrigger/etrigger are not in the standard slot map (no slot advertises them in tinfo), so they
+    are reported as supported everywhere and left to the ISS/DUT to mask.
+    """
+    slots = _SLOT_CAPABILITY.get(trigger_type)
+    return True if slots is None else index in slots
+
+
+def legal_slots_for(trigger_type: TriggerType) -> list:
+    """Return the list of slot indices that implement *trigger_type* (empty if unconstrained)."""
+    slots = _SLOT_CAPABILITY.get(trigger_type)
+    return [] if slots is None else list(slots)
+
+
 def modes_to_priv_bits(priv_mode: Sequence[str]) -> dict:
     """
     Convert a list of privilege mode strings to a dict of individual enable bits.
@@ -226,6 +261,8 @@ def build_tdata1_icount(
     action: TriggerAction = TriggerAction.BREAKPOINT,
     priv_mode: Sequence[str] = _DEFAULT_PRIV_MODE,
     pending: int = 0,
+    hit: int = 0,
+    dmode: int = 0,
 ) -> int:
     """
     Build tdata1 value for icount trigger (type=3).
@@ -237,16 +274,19 @@ def build_tdata1_icount(
     :param priv_mode: privilege modes in which instructions are counted, e.g. ["m", "s", "u"].
                       Use ["any"] to count in all modes.
     :param pending: Pending bit — holds trigger for one extra cycle before firing
+    :param hit: Hit bit [24]. Hardware sets it on a fire; software may preset it.
+    :param dmode: Debug-mode bit [59]. Only writable from debug mode; a write from M-mode is ignored.
     :returns: 64-bit tdata1 value
     """
     bits = modes_to_priv_bits(priv_mode)
 
     # type[63:60] = 3
     val = TDATA1_TYPE_ICOUNT << 60
-    # dmode[59] = 0
+    val |= (dmode & 1) << 59
     # vs[26], vu[25], hit[24]
     val |= bits["vs"] << 26
     val |= bits["vu"] << 25
+    val |= (hit & 1) << 24
     # count[23:10] (14 bits)
     val |= (count & 0x3FFF) << 10
     # m[9], pending[8], s[7], u[6]

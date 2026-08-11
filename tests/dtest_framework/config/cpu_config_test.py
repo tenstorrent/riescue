@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from riescue.dtest_framework.config import CpuConfig, Memory
-from riescue.dtest_framework.config.memory import IoRange, DramRange
+from riescue.riemap.memory import IoRange, DramRange
 from riescue.dtest_framework.config.cpu_config import InterruptsSupported, TestGeneration
 import riescue.lib.enums as RV
 

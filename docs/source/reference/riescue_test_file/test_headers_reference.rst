@@ -169,6 +169,31 @@ Configuring the ISS to actually present these ``mhartid`` values (e.g. Whisper's
 The same set can be supplied on the command line with ``--hart_ids 0,2,4`` (available on
 RiescueD, RiescueC, Voyager2, and rieorder).
 
+**;#test.user_programmable_pmacfg** - Reserved PMA Entries
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Number of ``pmacfg`` entries ``[0..N)`` the test programs itself, and which RiescueD must
+therefore leave free. Declared in the test file because a given ``.s`` hand-programs a fixed
+set of entries and cannot adapt to a smaller number.
+
+**Syntax:**
+
+.. code-block:: asm
+
+    ;#test.user_programmable_pmacfg <count>
+
+**Examples:**
+
+.. code-block:: asm
+
+    ;#test.user_programmable_pmacfg 2      # entries 0-1 belong to the test
+    ;#test.user_programmable_pmacfg 0x10   # hex accepted
+
+The same count can come from ``mmap.pma.user_programmable_pmacfg`` in the cpuconfig or from
+``--user_programmable_pmacfg``. The header is a *floor*: when the sources disagree the larger
+value wins, since a test tolerates extra free entries but not fewer. See
+:ref:`pma-fixed-windows` and :doc:`/user_guides/pma`.
+
 **;#test.mp_mode** - Multiprocessor Mode
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

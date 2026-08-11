@@ -108,39 +108,17 @@ class PmaInfo:
         size_mask = self.PMAMASK_ADDR_BITS & ~((1 << size_bits) - 1)
         return ~self.pma_mask & size_mask
 
+    def excluded_region(self):
+        """Translate this PMA into a generic RieMap :class:`~riescue.riemap.addrgen.types.ExcludedRegion`."""
+        from riescue.riemap.addrgen.types import ExcludedRegion
+
+        if self.pma_mask == 0:
+            return ExcludedRegion.from_interval(self.pma_address, self.get_end_address())
+        return ExcludedRegion.from_mask(self.effective_match_mask(), self.pma_address)
+
     def matches_phys_range(self, start: int, size: int) -> bool:
         """Whisper regionMatches over [start, start+size): masked regions ignore the NAPOT interval."""
-        end = start + max(size, 1) - 1
-        if self.pma_mask == 0:
-            return start < self.get_end_address() and self.pma_address <= end
-        mask = self.effective_match_mask()
-        if mask == 0:
-            return True  # degenerate mask matches everything; randomizer forbids this by construction
-        tag = self.pma_address & mask
-        first = self._first_masked_match_at_or_above(start & ~0xFFF, mask, tag)
-        return first is not None and first <= end
-
-    @staticmethod
-    def _first_masked_match_at_or_above(addr: int, mask: int, tag: int) -> int | None:
-        """
-        Smallest page-aligned A >= addr with A & mask == tag, or None (O(64), no page walking).
-
-        Beyond a direct hit, the minimal match agrees with addr above some bit p, has 1 at p where
-        addr has 0 (so A > addr), and is minimal below (free bits 0, compare bits = tag); the lowest
-        legal p gives the smallest such A.
-        """
-        if (addr & mask) == tag:
-            return addr
-        for p in range(12, 64):
-            if (addr >> p) & 1:
-                continue  # A must gain a 1 at p where addr has 0
-            if (mask >> p) & 1 and not ((tag >> p) & 1):
-                continue  # compare bit forced to 0 here
-            above = ~((1 << (p + 1)) - 1)
-            if (addr & mask & above) != (tag & above):
-                continue  # addr's prefix above p conflicts with the tag
-            return (addr & above) | (1 << p) | (tag & ((1 << p) - 1))
-        return None
+        return self.excluded_region().overlaps(start, size)
 
     def attrib_matches(self, other: PmaInfo) -> bool:
         if self.pma_memory_type != other.pma_memory_type:

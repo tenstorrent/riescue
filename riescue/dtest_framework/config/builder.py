@@ -15,7 +15,7 @@ from riescue.dtest_framework.parser import ParsedTestHeader
 from .candidate import Candidate
 from .adapaters import TestConfigAdapter, CpuConfigAdapter, CliAdapter
 from .cpu_config import CpuConfig
-from .memory import Memory
+from riescue.riemap.memory import Memory
 from .featmanager import FeatMgr
 from .conf import Conf
 import riescue.dtest_framework.config.cmdline as cmdline
@@ -176,11 +176,16 @@ class FeatMgrBuilder:
         self.priv_mode = Candidate(*priv_mode_candiadtes)
 
         # Handle pbmt randomization using feature system
-        # is pbmt_ncio_randomization supposed to be pbmt_ncio_probability?
         feature_discovery = featmgr.cpu_config.features
         if feature_discovery.is_feature_supported("svpbmt") and feature_discovery.get_feature_randomize("svpbmt") > 0:
             if rng.with_probability_of(feature_discovery.get_feature_randomize("svpbmt")):
                 featmgr.pbmt_ncio = True
+        # ``--pbmt_ncio_randomization`` is the same probability spelled on the command line.
+        # It only ever set featmgr.pbmt_ncio_randomization, which nothing read, so the flag was
+        # a no-op and pbmt_ncio came solely from svpbmt discovery above. Roll it here, where the
+        # rng lives (the CLI adapter runs before build() and has none).
+        if featmgr.pbmt_ncio_randomization > 0 and rng.with_probability_of(featmgr.pbmt_ncio_randomization):
+            featmgr.pbmt_ncio = True
         if feature_discovery.is_feature_supported("svadu") and feature_discovery.get_feature_randomize("svadu") > 0:
             if rng.with_probability_of(feature_discovery.get_feature_randomize("svadu")):
                 featmgr.svadu = True
@@ -233,6 +238,13 @@ class FeatMgrBuilder:
 
         if featmgr.secure_mode:
             featmgr.setup_pmp = True
+
+        # ;#test.user_programmable_pmacfg is what the test needs, cpu_config/CLI is what the platform offers.
+        # A test hand-programs a fixed set of entries and cannot scale down, so the requirement wins when higher.
+        if featmgr.user_programmable_pmacfg_required > featmgr.user_programmable_pmacfg:
+            if featmgr.user_programmable_pmacfg:
+                log.info(f"Test requires {featmgr.user_programmable_pmacfg_required} user-programmable pmacfg entries; " f"raising configured value {featmgr.user_programmable_pmacfg}")
+            featmgr.user_programmable_pmacfg = featmgr.user_programmable_pmacfg_required
 
         # Disable paging mode if in machine mode and not explicitly set
         if featmgr.priv_mode == RV.RiscvPrivileges.MACHINE and not featmgr.enable_machine_paging:

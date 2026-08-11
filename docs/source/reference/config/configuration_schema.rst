@@ -26,7 +26,7 @@ The program counter value when the processor starts.
 
 The Memory Map is configured with the ``mmap`` key, using the Memory class:
 
-.. autoclass:: riescue.dtest_framework.config.memory.Memory
+.. autoclass:: riescue.riemap.memory.Memory
    :noindex:
 
 
@@ -37,7 +37,7 @@ Memory Map Components
 **dram** - DRAM Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. autoclass:: riescue.dtest_framework.config.memory.DramRange
+.. autoclass:: riescue.riemap.memory.DramRange
    :members: from_dict
    :noindex:
 
@@ -48,12 +48,28 @@ Memory Map Components
 - ``secure`` (optional) - Marks the region as a Trusted Execution Environment (TEE) zone, matching Whisper's TEE implementation; TEE is not standard RISC-V, so this can be ignored unless targeting TEE (boolean, default: ``false``).
 - ``configurable`` (optional) - Whether the region can be split/reconfigured during test generation (boolean, default: ``false``).
 
+- ``tags`` (optional) - Free-form string labels for the region (list of strings, default: ``[]``). Also accepted on ``io`` and ``custom`` regions.
+- ``pma_randomization`` (optional) - Whether PMA randomization may touch the region (boolean, default: ``true``). ``dram`` only.
+
+These two keys are independent. ``tags`` makes a region *selectable*: a ``;#random_addr`` can name any
+of its tags in ``custom_region=``, exactly as it can name the region itself. RiescueD attaches no other
+meaning to a tag.
+
+``pma_randomization: false`` makes a region a *fixed window*: it is split out of ``dram_ranges``, given
+default cacheable-RWX PMA attributes at high priority, excluded from decoy placement and mask stress,
+kept out of the general DRAM pool, and published to the test as ``pma_<region name>_base`` / ``_size`` /
+``_end`` equates.
+
+A tag never implies ``pma_randomization: false``; only the key itself makes a region a fixed window.
+Note that the ``secure`` *tag* does not make a region secure — the ``secure`` key (or a ``secure*``
+name) does that. See :ref:`pma-fixed-windows`.
+
 **io** - I/O Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Memory-mapped I/O regions and devices.
 
-.. autoclass:: riescue.dtest_framework.config.memory.IoRange
+.. autoclass:: riescue.riemap.memory.IoRange
    :members: from_dict
    :noindex:
 
@@ -70,16 +86,20 @@ Memory-mapped I/O regions and devices.
 PMA Configuration
 -----------------
 
-Physical Memory Attributes (PMA) define hardware-enforced memory properties per region. PMA configuration is specified under ``mmap.pma``.
+Physical Memory Attributes (PMA) define hardware-enforced memory properties per region — whether a range of physical addresses behaves like normal cacheable RAM, uncached memory, or a memory-mapped device, and which kinds of accesses (reads, writes, fetches, atomics) it accepts. PMA configuration is specified under ``mmap.pma``.
+
+For a walkthrough of how PMAs work in RiescueD — including the runtime CSR programming and the ``--enable_pma_randomization`` feature — see :doc:`/user_guides/pma`.
 
 **Top-Level PMA Fields:**
 
-- ``max_regions`` (optional) - Maximum number of PMA regions (integer)
+- ``max_regions`` (optional) - Maximum number of PMA regions test generation may use (integer, 1-64, default: 64)
+- ``num_pmas`` (optional) - Number of PMA CSR entries implemented by the target (integer, 2-64, default: 64). The first 16 entries are direct CSRs; the rest are reached indirectly through ``miselect``/``mireg``/``mireg2``. **Must match the ISS (whisper) configuration** — changing this requires a matching whisper config. Can also be set with the ``--num_pmas`` CLI flag.
+- ``user_programmable_pmacfg`` (optional) - Reserve the first N ``pmacfg`` entries (indices ``0`` to ``N-1``) for the test's own runtime programming; the framework puts no region there (integer, default: 0). Because entry 0 has the highest match priority, a test can claim a reserved entry at runtime and override the attributes of any page. With ``--enable_pma_randomization`` the reserved entries are zeroed once at boot so a count above 14 cannot leave the ISS boot catch-alls at entries 14/15 shadowing every region below. Maximum value is ``max_regions - 2`` (the top two entries are always kept as catch-all regions).
 
 **regions** - Predefined PMA Regions
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-A dictionary of named PMA regions. Each region has:
+Explicit PMA regions with known attributes. Accepts either a dictionary keyed by region name or a list of objects with a ``name`` field. Each region has:
 
 - ``base`` (optional) - Base address (hex string or integer). Auto-generated if not specified.
 - ``size`` (optional) - Region size in bytes (hex string or integer). Defaults to 16MB if not specified.
@@ -101,14 +121,20 @@ A dictionary of named PMA regions. Each region has:
 **hints** - PMA Generation Hints
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-A dictionary of named hints that guide automatic PMA region generation. Each hint has:
+Hints ask the framework to auto-generate PMA regions with the requested attributes but framework-chosen addresses. Accepts either a dictionary keyed by hint name or a list of objects with a ``name`` field. Each hint has:
 
 - ``name`` - Unique hint name
-- ``combinations`` (optional) - List of specific PMA attribute combination dicts
-- ``adjacent`` (optional) - Request adjacent regions (boolean, default: ``false``)
+- ``combinations`` - List of PMA attribute combination dicts; one region is generated per combination. Each combination may contain ``memory_type``, ``cacheability`` (memory) or ``combining`` (io), ``rwx`` (a string like ``"rwx"`` or ``"rw"``), ``amo_type``, and ``routing``.
+- ``adjacent`` (optional) - Place the generated regions adjacent to each other (boolean, default: ``false``)
 - ``min_regions`` (optional) - Minimum number of regions to generate
 - ``max_regions`` (optional) - Maximum number of regions to generate
 - ``size`` (optional) - Size of generated PMA regions in bytes (hex string or integer)
+
+.. note::
+
+   In the cpu config JSON, hints must use the ``combinations`` form. The attribute-list style
+   (``memory_types=[...]``, ``rwx_combos=[...]``, etc.) is only supported by the ``;#pma_hint``
+   test-file directive — see :doc:`/reference/riescue_test_file/directives_reference`.
 
 **PMA Example:**
 
@@ -116,6 +142,8 @@ A dictionary of named hints that guide automatic PMA region generation. Each hin
 
     "pma": {
         "max_regions": 15,
+        "num_pmas": 16,
+        "user_programmable_pmacfg": 0,
         "regions": {
             "predefined_region1": {
                 "base": "0x90000000",
@@ -133,14 +161,30 @@ A dictionary of named hints that guide automatic PMA region generation. Each hin
         },
         "hints": {
             "config_hint1": {
-                "memory_types": ["memory"],
-                "cacheability": ["noncacheable"],
-                "rwx_combos": ["rw"],
+                "combinations": [
+                    {"memory_type": "memory", "cacheability": "noncacheable", "rwx": "rw"}
+                ],
                 "size": 524288,
                 "adjacent": false
             }
         }
     }
+
+A complete working example ships at ``riescue/dtest_framework/tests/cpu_config_pma.json``.
+
+PMA CLI Flags
+^^^^^^^^^^^^^^
+
+PMA behavior can also be controlled from the command line:
+
+- ``--needs_pma`` - Enable PMA support: the loader programs a PMA CSR entry for every defined region at boot
+- ``--num_pmas <N>`` - Number of implemented PMA CSR entries (2-64); overrides the cpu config value and requires a matching whisper config
+- ``--enable_pma_randomization`` - Program randomized *decoy* PMA regions with legal random ``pmacfg``/``pmamask`` values (implies ``--needs_pma``)
+- ``--pma_random_regions <N>`` - Number of randomized decoy regions when randomization is enabled (default: 8)
+- ``--pma_random_mask_pct <P>`` - Percent (0-100) of decoy regions that get a nonzero ``pmamask`` (default: 25)
+- ``--pma_carveout_mask_pct <P>`` - Percent (0-100) of named test-defined PMA regions that get a random ``pmamask``; requires ``--enable_pma_randomization`` (default: 0)
+
+See :doc:`/user_guides/pma` for what each of these means in practice.
 
 Feature Configuration
 ---------------------

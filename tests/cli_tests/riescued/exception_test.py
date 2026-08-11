@@ -54,6 +54,22 @@ class Test_ExcpTests(BaseRiescuedTest):
         runs = self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
         self.excp_checks(runs)
 
+    def test_excp_virtualized_env_gstage(self):
+        """test_excp under a real two-stage walk (VS sv39 under g-stage sv39).
+
+        The only automated coverage of test07, the LOAD_GUEST_PAGE_FAULT case at
+        test_excp.s:342, whose htval check names ``lin8__vsleaf0__gpa`` -- one of the
+        ``__vsleaf{N}`` / ``__vslevel{N}`` g-stage equates. Every other test here runs with
+        PAGING_G_MODE_DISABLE=1 (``paging_g_mode`` defaults to a singleton DISABLE candidate
+        and nothing passes --test_paging_g_mode), so test07 is compiled out and a missing
+        equate family assembles fine. This makes it load-bearing without touching any
+        existing test."""
+        args = ["--run_iss", "--test_env", "virtualized", "--test_paging_mode", "sv39", "--test_paging_g_mode", "sv39"]
+        self.testname = "dtest_framework/tests/test_excp.s"
+        runs = self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
+        self.excp_checks(runs)
+        self.htval_checks(runs)
+
     def test_excp_basic(self):
         args = ["--run_iss"]
         self.testname = "dtest_framework/tests/test_excp.s"

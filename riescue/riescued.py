@@ -383,6 +383,15 @@ class RiescueD(CliBase):
             "-T", str(linker_script),
             "-o", str(self.generated_files.elf),
             str(self.generated_files.obj),
+            # skip_page_map sections (M-mode runtime/code) are fetched untranslated at
+            # their physical address, so their VMA is that PA (an identity label). A
+            # mapped section's VMA is a virtual address in a page-table space that
+            # resolves to a *different* PA. The two live in different translation
+            # regimes but share one flat VMA namespace in the ELF, so their VMAs can
+            # coincide numerically while their bytes load to distinct LMAs -- harmless.
+            # ld's overlap check models only the flat VMA namespace and cannot tell the
+            # two regimes apart, so it rejects the benign coincidence; disable it.
+            "-Wl,--no-check-sections",
         ]
         if relink_selfcheck:
             linker_args.append(str(self.generated_files.selfcheck_obj))

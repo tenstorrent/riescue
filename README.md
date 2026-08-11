@@ -15,6 +15,7 @@ Check out the [Intro to RiESCUE, RiescueD, and RiescueC on docs.tenstorrent.com]
 * `RiescueD` - RiESCUE Directed Test Framework
 * `RiescueC` - RiESCUE Compliance Test Generator
 * `CTK` - RiESCUE Compliance Test Kit
+* `RieMap` - RiESCUE Page Table Generator
 
 Other Riescue projects include:
 * `CoreArchCoverage` - RISC-V ISA Coverage from ISS (Separate Repository Available in the Future)
@@ -71,6 +72,14 @@ High-level tool used to generates a directory of tests given an ISA string (e.g.
 - See the [CTK Guide on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/tutorials/ctk/ctk_tutorial.html) for a tutorial on running `ctk`.
 - Just looking to generate a single extension of tests? See the User Guide on [Generating a Vector Test Kit on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/user_guides/ctk/vector_test_kit.html) to see how a test kit can be generated for just vector tests.
 
+### 4. RieMap - Page Table Generator
+RieMap is a constraint-based RISC-V page-table generator. A consumer describes
+address spaces, pages, mappings, and address constraints; RieMap solves the
+constraints and builds the page-table trees. It provides the `riemap` console
+script, a JSON frontend, and the `PageTableBuilder` Python API used by RiescueD.
+Source is in `riescue/riemap`; see the
+[RieMap documentation](https://docs.tenstorrent.com/riescue/reference/riemap/index.html).
+
 
 ## Installation and Usage
 For info on installing dependencies, see the [Installation Guide on docs.tenstorrent.com](https://docs.tenstorrent.com/riescue/tutorials/install.html)
@@ -82,7 +91,9 @@ For info on installing dependencies, see the [Installation Guide on docs.tenstor
 python3 -m pip install git+https://github.com/tenstorrent/riescue.git
 ```
 
-This installs the command line scripts `riescued`, `riescuec`, and `ctk`, along with making the `riescue` Python package available for importing. This doesn't source some of the non-python requirements for Riescue.
+This installs the command line scripts `riescued`, `riescuec`, `ctk`, and `riemap`,
+along with making the `riescue` Python package available for importing. This doesn't
+source some of the non-python requirements for Riescue.
 
 ### Requirements
 The following non-Python dependencies must be installed before running:
