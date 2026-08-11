@@ -9,7 +9,7 @@ from typing import Any
 import riescue.lib.common as common
 import riescue.lib.enums as RV
 from riescue.lib.counters import Counters
-from riescue.dtest_framework.lib.pma import PmaInfo
+from riescue.dtest_framework.lib.pma import PmaInfo, PmaRegion
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 
 log = logging.getLogger(__name__)
@@ -23,6 +23,19 @@ PMA_DIRECT_CSR_ENTRIES = 16
 PMA_IO_CATCHALL = 0x7C00000000000007  # IO/non-cacheable 0-2GB (pmacfg14 boot reset value)
 PMA_DRAM_CATCHALL = 0xE0000000000001E7  # cacheable-coherent RWX 0-2^56 (pmacfg15 boot reset value)
 PMA_NUM_CATCHALLS = 2  # the last two entries (lowest priority) re-established as IO/DRAM catchalls
+
+
+def decoy_pma_budget(reserved: int, essential_regions: int, num_pmas: int) -> int:
+    """How many randomized decoy PMA entries fit after everything else must be emitted.
+
+    Shared between :meth:`Loader.setup_pma`'s emission-time truncation and the generator's
+    pre-RieMap projection (``Generator._project_decoy_budget``) so both agree on how many
+    decoys will actually survive to be programmed -- the generator must truncate the decoy
+    exclusion list *before* RieMap allocates, or a decoy that is later truncated away at
+    emission time would still have vetoed page-table placements for no reason.
+    """
+    essential = reserved + essential_regions + PMA_NUM_CATCHALLS
+    return max(num_pmas - essential, 0)
 
 
 class Loader(AssemblyGenerator):
@@ -183,6 +196,7 @@ loader__done:
             code += self.init_fp_registers()
         if self.featmgr.feature.is_supported("v"):
             code += self.init_vector_registers()
+        code += self.clear_misa_bits()
         code += self.validate_hartid()
         code += self.hart_context_loader()
 
@@ -263,13 +277,29 @@ loader__done:
 
     def set_misa_bits(self):
         "Generate code to set MISA bits. Adds MISA bits based on enabled features"
-        code = f"""
+        return f"""
 loader__set_misa_bits:
     li t0, 0x{self.featmgr.get_misa_bits():x} # OR in new MISA bits with existing value
     csrrs t0, misa, t0
             """
 
-        return code
+    def clear_misa_bits(self) -> str:
+        """Clear disabled base-extension bits after architectural register initialization.
+
+        FP and vector initialization is based on hardware support rather than test enablement.
+        Clearing their misa bits before that initialization makes those instructions trap.
+        """
+        # csrrs can only set bits, so a base extension marked disabled in cpuconfig still reads as
+        # present whenever the reset misa has its bit set. Clear those explicitly; emitted only when
+        # there is something to clear so configs that disable nothing keep byte-identical output.
+        clear_bits = self.featmgr.get_misa_clear_bits()
+        if not clear_bits:
+            return ""
+        return f"""
+loader__clear_misa_bits:
+    li t0, 0x{clear_bits:x} # clear MISA bits for base extensions disabled in cpuconfig
+    csrrc t0, misa, t0
+            """
 
     def set_mstatus(self) -> str:
         """
@@ -465,68 +495,118 @@ loader__validate_hartid_done:
         """
         Generate code to setup PMA registers.
 
-        Entry layout: [0..X) untouched user-reserved entries (X = featmgr.user_programmable_pmacfg),
-        then defined regions, then randomized decoys, then (randomization only) invalidated entries
-        up to the catchalls at the last two entries (num_pmas - 2 / num_pmas - 1). With randomization
-        on, named pma_* carve-outs and decoys are emitted before memory-map regions so both win
-        first-match-wins priority. Note: with randomization off, carve-outs remain shadowed by
-        lower-index memory-map entries (known quirk of the flag-off emission order).
+        Entry layout, lowest index (highest priority) first: [0..X) untouched user-reserved entries
+        (X = featmgr.user_programmable_pmacfg), then test-defined pma_* carve-outs, then either
+        randomized decoys (randomization on) or invalidated entries (randomization off), then the
+        cpu-config memory-map regions packed directly under the catchalls at the last two entries
+        (num_pmas - 2 / num_pmas - 1). Carve-outs therefore win first-match-wins priority over the
+        memory-map regions containing them, with or without randomization.
+
+        The reserved entries hold no region: randomization zeroes them once at boot (so a reserved
+        count above 14 cannot leave whisper's boot pmacfg14/15 catchalls shadowing every real entry),
+        then leaves them for the test to program at runtime. Flag-off emission never touches them.
+
+        Entries 0-15 are reachable both ways; pma_indirect_access_pct rolls each write (entry and
+        invalidate alike) between the direct CSRs and miselect/mireg, defaulting to 50 when
+        randomizing and 0 otherwise. Entries above 15 are always indirect.
         """
         randomize = self.featmgr.enable_pma_randomization
-        pmas = self.pool.pma_regions.consolidated_entries(merge_named=not randomize)
         random_pmas = self.pool.pma_random_regions
         reserved = self.featmgr.user_programmable_pmacfg
         num_pmas = self.featmgr.num_pmas
         catchall_base = num_pmas - PMA_NUM_CATCHALLS
+        # merge_named=False keeps every carve-out intact; the memory-map group is re-consolidated below
+        pmas = self.pool.pma_regions.consolidated_entries(merge_named=False)
         if not pmas and not random_pmas:
             return ""
 
+        carveouts = sorted((p for p in pmas if p.pma_name.startswith("pma_")), key=lambda p: (p.pma_size, p.pma_address))
+        unnamed = [p for p in pmas if not p.pma_name.startswith("pma_")]
+        # Randomization keeps unmerged map entries (gap-merged io windows align NAPOT bases below the test); flag-off re-merges
+        memmap_regions = unnamed if randomize else self._consolidate_memmap_regions(unnamed)
+        essential = reserved + len(carveouts) + len(memmap_regions) + PMA_NUM_CATCHALLS
+        if essential > num_pmas:
+            raise ValueError(
+                f"PMA entries exceed capacity: user_programmable={reserved} + carveouts={len(carveouts)} "
+                f"+ memory_map={len(memmap_regions)} + {PMA_NUM_CATCHALLS} catchalls = {essential} > {num_pmas} PMA entries"
+            )
+        self._check_carveout_overlap(carveouts, memmap_regions)
+
         if randomize:
-            carveouts = sorted((p for p in pmas if p.pma_name.startswith("pma_")), key=lambda p: (p.pma_size, p.pma_address))
-            memmap_regions = [p for p in pmas if not p.pma_name.startswith("pma_")]
-            essential = reserved + len(carveouts) + len(memmap_regions) + PMA_NUM_CATCHALLS
-            if essential > num_pmas:
-                raise ValueError(
-                    f"PMA entries exceed capacity: user_programmable={reserved} + carveouts={len(carveouts)} "
-                    f"+ memory_map={len(memmap_regions)} + {PMA_NUM_CATCHALLS} catchalls = {essential} > {num_pmas} PMA entries"
-                )
             # Decoys are pure coverage: truncate to whatever fits rather than failing the test
-            decoy_budget = num_pmas - essential
+            decoy_budget = decoy_pma_budget(reserved, len(carveouts) + len(memmap_regions), num_pmas)
             decoys = list(random_pmas[:decoy_budget])
             if len(decoys) < len(random_pmas):
                 log.warning(f"PMA randomization: truncating decoys {len(random_pmas)} -> {len(decoys)} to fit " f"{num_pmas} PMA entries")
-                del random_pmas[len(decoys) :]  # keep pool/addrgen exclusion consistent with emission
+                self.pool.truncate_pma_random_regions(len(decoys))  # keep pool/addrgen exclusion consistent with emission
+                random_pmas = self.pool.pma_random_regions
+                decoys = list(random_pmas)
             # Carve-outs first (specific beats containing), decoys before memory-map so they are live
             ordered = carveouts + decoys + memmap_regions
+            groups = [(reserved, ordered, True)]
+            invalidate = (reserved + len(ordered), catchall_base)
         else:
-            if reserved + len(pmas) + PMA_NUM_CATCHALLS > num_pmas:
-                raise ValueError(
-                    f"PMA entries exceed capacity: user_programmable={reserved} + regions={len(pmas)} "
-                    f"+ {PMA_NUM_CATCHALLS} catchalls = {reserved + len(pmas) + PMA_NUM_CATCHALLS} > {num_pmas} PMA entries"
-                )
-            ordered = pmas
+            # Carve-outs claim the lowest entries; the memory map packs directly under the catchalls
+            # Map regions stay on the legacy encoder, so only the carve-out group is force-encoded
+            groups = [(reserved, carveouts, True), (catchall_base - len(memmap_regions), memmap_regions, False)]
+            # The band between the two groups is invalidated so boot entries 14/15 stop shadowing the memory map
+            invalidate = (reserved + len(carveouts), catchall_base - len(memmap_regions))
 
+        indirect_pct = self.featmgr.pma_indirect_access_pct
+        if indirect_pct < 0:
+            indirect_pct = 50 if randomize else 0  # auto: split direct/indirect for entries 0-15 when randomizing
         code = "\nloader__setup_pma:\n"
         log.info("Setting up PMAs")
-        used = reserved + len(ordered)
-        if randomize:
-            # Catchalls at the top entries first: boot entries 14/15 still hold catchall values
-            # here, so default memory coverage never lapses while lower entries change.
-            code += self._setup_pma_catchall(used, catchall_base, clear_masks=False)
-        for i, pma in enumerate(ordered):
-            code += self._pma_entry_code(reserved + i, pma, force=randomize)
-        if randomize:
-            code += self._pma_invalidate_code(used, catchall_base)
-        else:
-            code += self._setup_pma_catchall(used, catchall_base)
+        # Catchalls first: boot entries 14/15 still hold catchall values, so coverage never lapses while lower entries change
+        code += self._setup_pma_catchall(reserved + len(carveouts), catchall_base, clear_masks=False)
+        if randomize and reserved:
+            # Zero the reserved entries: boot pmacfg14/15 catchalls would outrank every real entry
+            code += self._pma_invalidate_code(0, reserved, indirect_pct=indirect_pct)
+        for base, group, force in groups:
+            for i, pma in enumerate(group):
+                # force=True: the legacy encoder emits pmacfg=0 for pma_valid carve-out/hint regions
+                code += self._pma_entry_code(base + i, pma, force=force, indirect_pct=indirect_pct)
+        code += self._pma_invalidate_code(*invalidate, indirect_pct=indirect_pct)
         return code
 
-    def _pma_entry_code(self, index: int, pma: PmaInfo, force: bool = False) -> str:
-        """Emit one pmacfg/pmamask entry; direct CSRs below 16, indirect via miselect/mireg/mireg2 above."""
+    def _consolidate_memmap_regions(self, regions: list[PmaInfo]) -> list[PmaInfo]:
+        """Re-merge the unnamed cpu-config memory-map entries on their own (gap-merging io windows)."""
+        if not regions:
+            return []
+        builder = PmaRegion()
+        for region in regions:
+            builder.add_entry(region)
+        return builder.consolidated_entries(merge_named=True)
+
+    def _check_carveout_overlap(self, carveouts: list[PmaInfo], memmap_regions: list[PmaInfo]) -> None:
+        """
+        Reject a test carve-out that partially straddles a cpu-config memory-map region.
+
+        Full containment is the normal carve-out and is resolved by index priority: the carve-out sits
+        at a lower entry than the region containing it, so it matches first. A partial straddle has no
+        such resolution - the half outside the map region silently keeps the map region's attributes.
+        """
+        for carveout in carveouts:
+            for region in memmap_regions:
+                if carveout.get_end_address() <= region.pma_address or region.get_end_address() <= carveout.pma_address:
+                    continue  # disjoint
+                if region.contains(carveout):
+                    continue  # the ordinary carve-out; priority resolves it
+                if carveout.contains(region):
+                    log.warning(f"PMA carve-out {carveout.pma_name} ({carveout!r}) fully contains memory-map region ({region!r}); the map entry is dead")
+                    continue
+                raise ValueError(
+                    f"PMA carve-out '{carveout.pma_name}' [0x{carveout.pma_address:x}, 0x{carveout.get_end_address():x}) "
+                    f"partially overlaps cpu-config memory-map region [0x{region.pma_address:x}, 0x{region.get_end_address():x}) "
+                    f"(type={region.pma_memory_type}); a carve-out must sit entirely inside or entirely outside a map region"
+                )
+
+    def _pma_entry_code(self, index: int, pma: PmaInfo, force: bool = False, indirect_pct: int = 0) -> str:
+        """Emit one pmacfg/pmamask entry; indirect via miselect/mireg/mireg2 above 15, rolled per indirect_pct below."""
         value = pma.generate_pma_value(force=force)
         mask_value = pma.generate_pma_mask_value()
-        if index >= PMA_DIRECT_CSR_ENTRIES:
-            # Higher entries have no direct CSRs; access via miselect/mireg (pmacfg) and mireg2 (pmamask)
+        if index >= PMA_DIRECT_CSR_ENTRIES or (indirect_pct > 0 and self.rng.with_probability_of(indirect_pct)):
+            # Indirect access via miselect/mireg (pmacfg) and mireg2 (pmamask); mandatory above entry 15
             code = f"""
                 # Setting up pmacfg{index} (indirect, miselect=0x{PMA_INDIRECT_SELECT_BASE + index:x}) for {str(pma)}
                 li t1, 0x{PMA_INDIRECT_SELECT_BASE + index:x}
@@ -563,11 +643,11 @@ loader__validate_hartid_done:
             """
         return code
 
-    def _pma_invalidate_code(self, start: int, end: int) -> str:
+    def _pma_invalidate_code(self, start: int, end: int, indirect_pct: int = 0) -> str:
         """Write pmacfg=0 (and clear pmamask) for stale entries in [start, end); kills boot 14/15 shadows."""
         code = ""
         for index in range(start, end):
-            if index >= PMA_DIRECT_CSR_ENTRIES:
+            if index >= PMA_DIRECT_CSR_ENTRIES or (indirect_pct > 0 and self.rng.with_probability_of(indirect_pct)):
                 code += f"""
                 # Invalidate pmacfg{index} (indirect)
                 li t1, 0x{PMA_INDIRECT_SELECT_BASE + index:x}
@@ -627,8 +707,8 @@ loader__validate_hartid_done:
         hidelg_val = self.featmgr.hideleg
         henvcfg_val = self.featmgr.henvcfg
 
-        # Handle pbmt randomization
-        if self.featmgr.pbmt_ncio:
+        # Handle pbmt randomization / directed svpbmt: henvcfg.PBMTE enables Svpbmt in VS/VU.
+        if self.featmgr.pbmt_ncio or self.featmgr.is_feature_enabled("svpbmt"):
             henvcfg_val |= 1 << 62
 
         # Handle svadu randomization
@@ -661,8 +741,10 @@ loader__validate_hartid_done:
 
         # vstimecmp resets to 0; once henvcfg.STCE=1, time + htimedelta >= vstimecmp fires VSTIP
         # immediately. Pre-write vstimecmp to all-ones BEFORE writing henvcfg so VSTIP cannot
-        # spuriously latch. (M-mode can write vstimecmp regardless of STCE.)
-        if self.featmgr.is_feature_enabled("sstc"):
+        # spuriously latch — whenever the hw implements Sstc, since a test can set henvcfg.STCE
+        # itself even when the cpuconfig doesn't enable it. (M-mode can write vstimecmp
+        # regardless of STCE.)
+        if self.featmgr.is_feature_supported("sstc"):
             code += """
                 setup_vstimecmp:
                     li t0, -1
@@ -790,18 +872,23 @@ loader__setup_mideleg:"""
 
         code = "\nloader__setup_menvcfg:"
         menvcfg_val = 0
-        if self.featmgr.pbmt_ncio:
-            menvcfg_val |= 1 << 62  # Enable svpbmt when randomization kicks in for pbmp NCIO
+        if self.featmgr.pbmt_ncio or self.featmgr.is_feature_enabled("svpbmt"):
+            menvcfg_val |= 1 << 62  # menvcfg.PBMTE: enable Svpbmt -- for pbmt_ncio randomization, or
+            # whenever svpbmt is enabled directly (e.g. directed pbmt tests). Without PBMTE a nonzero
+            # leaf PBMT is a reserved encoding and every access to it page-faults.
         if self.featmgr.svadu:
             menvcfg_val |= 1 << 61  # Enable svadu when randomization kicks in for ad-bit randomization
-        if self.featmgr.is_feature_enabled("sstc"):
-            menvcfg_val |= 1 << 63  # Enable Sstc so S/HS can access stimecmp/time
-            # stimecmp resets to 0; once STCE=1, time >= stimecmp fires STIP immediately.
-            # Pre-write stimecmp to all-ones before setting STCE so STIP cannot spuriously latch.
+        if self.featmgr.is_feature_supported("sstc"):
+            # stimecmp resets to 0; once STCE=1, time >= stimecmp fires STIP immediately, and mip
+            # writes cannot clear it. Pre-write stimecmp to all-ones whenever the hw implements
+            # Sstc (M-mode access is legal regardless of STCE) so neither this loader's STCE
+            # write below nor a test setting menvcfg.STCE mid-run can spuriously latch STIP.
             code += """
                     li t0, -1
                     csrw stimecmp, t0
                     """
+        if self.featmgr.is_feature_enabled("sstc"):
+            menvcfg_val |= 1 << 63  # Enable Sstc so S/HS can access stimecmp/time
 
         if self.featmgr.menvcfg != 0:
             menvcfg_val |= self.featmgr.menvcfg

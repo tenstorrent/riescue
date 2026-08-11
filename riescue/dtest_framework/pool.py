@@ -6,8 +6,12 @@ from __future__ import annotations
 import logging
 import re
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from riescue.riemap.result import AllocationResult
+    from riescue.dtest_framework.generator.pt_request_builder import Translation
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.lib.pma import PmaInfo, PmaRegion
@@ -31,8 +35,6 @@ from riescue.dtest_framework.parser import (
 from riescue.lib.address import Address
 from riescue.dtest_framework.lib.discrete_test import DiscreteTest
 
-from riescue.dtest_framework.lib.page_map import PageMap, Page
-
 
 
 log = logging.getLogger(__name__)
@@ -40,10 +42,49 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class SectionInfo:
-    """Holds both the virtual memory address (VMA) and load/physical memory address (LMA) for a section."""
+    """Holds both the virtual memory address (VMA) and load/physical memory address
+    (LMA) for a section. RiescueD's own concept -- riemap knows nothing about sections."""
 
     vma: int
     lma: int
+
+
+@dataclass
+class PageInfo:
+    """RiescueD's own lightweight page record: a mapped page's names + resolved
+    addresses, as read back from RieMap's ``AllocationResult`` (see
+    ``generator._readback_allocation``). This is *not* riemap's walker page -- riemap
+    owns the actual page-table tree and its own (address-keyed, unnamed) page
+    bookkeeping; this is only what RiescueD's own name-keyed lookups need (section /
+    init_mem address resolution, see :meth:`Pool.add_section`)."""
+
+    name: str
+    phys_name: str
+    lin_addr: Optional[int] = None
+    phys_addr: Optional[int] = None
+    alias: bool = False
+    in_private_map: bool = False
+
+
+@dataclass
+class PageMapInfo:
+    """RiescueD's own lightweight per-page-table-space bookkeeping: the paging mode
+    and the resolved root address (``sptbr``), plus the named pages joined to this
+    map. Replaces riemap's walker ``PageMap`` as far as ``Pool`` is concerned --
+    RiescueD no longer builds or walks page tables itself (riemap does, and is read
+    back through ``AllocationResult``); this only holds what CSR programming
+    (``loader.py``) and RiescueD's own section lookups need."""
+
+    name: str
+    paging_mode: RV.RiscvPagingModes
+    sptbr: int = 0  # resolved root page-table frame address; set during page-table build
+    pages: dict[str, "PageInfo"] = field(default_factory=dict)
+
+    def add_page(self, page: "PageInfo") -> None:
+        self.pages[page.name] = page
+
+    def get_page(self, page_name: str) -> "PageInfo":
+        return self.pages[page_name]
 
 
 class Pool:
@@ -99,17 +140,46 @@ class Pool:
         self.discrete_tests: dict[str, DiscreteTest] = dict()
         self.random_data: dict[str, int] = dict()
         self.random_addrs: dict[str, "Address"] = dict()
-        self.page_mappings: dict[str, ParsedPageMapping] = dict()
-        self.page_maps: dict[str, "PageMap"] = dict()
+        self.page_maps: dict[str, "PageMapInfo"] = dict()
+        # The riemap build result (roots, page-table trees, allocated addresses).
+        # riemap owns all page-table building and address allocation; RiescueD reads
+        # the trees + roots back out of here to emit assembly and program satp/hgatp.
+        self.allocation_result: "Optional[AllocationResult]" = None
+        # The object-keyed Translation build_page_tables() built the result from
+        # (page_names/page_source/space_names/...). RiescueD keeps this alongside the
+        # AllocationResult so assembly_writer can name spaces/pages without riemap
+        # ever assigning names of its own.
+        self.page_translation: "Optional[Translation]" = None
+        # Section page layout RiescueD declares (SectionSpec, in layout order). riemap
+        # allocates + maps these alongside the page mappings; the read-back fills each
+        # section's address into random_addrs + sections from the build result.
+        self.section_specs: list = []
         self.sections: dict[str, SectionInfo] = dict()
         self.pma_regions: PmaRegion = PmaRegion()
         self.pma_random_regions: list[PmaInfo] = []  # randomized decoys; kept out of PmaRegion consolidation
+        # Generic ExcludedRegion list kept 1:1 with pma_random_regions; RieMap sees only this.
+        self.pma_random_exclusions: list = []
         self.pmp_regions: PmpRegion = PmpRegion()
 
         # os include files
         self.runtime_files: list[str] = ["loader", "os", "exception"]
 
         self.testname: str = ""  # Update once we know the commandline args
+
+    def set_pma_random_regions(self, regions: list[PmaInfo]) -> None:
+        """Replace decoys and keep the aligned generic exclusion list in sync."""
+        self.pma_random_regions[:] = list(regions)
+        self.pma_random_exclusions[:] = [region.excluded_region() for region in self.pma_random_regions]
+
+    def extend_pma_random_regions(self, regions: list[PmaInfo]) -> None:
+        """Append decoys and keep the aligned generic exclusion list in sync."""
+        self.pma_random_regions.extend(regions)
+        self.pma_random_exclusions.extend(region.excluded_region() for region in regions)
+
+    def truncate_pma_random_regions(self, count: int) -> None:
+        """Truncate decoys and exclusions together so non-emitted decoys stop excluding draws."""
+        del self.pma_random_regions[count:]
+        del self.pma_random_exclusions[count:]
 
     # parsed_random_data setters and getters
     def add_parsed_data(self, parsed_random_data: ParsedRandomData) -> None:
@@ -397,43 +467,15 @@ class Pool:
     def get_random_addr(self, addr_name: str) -> "Address":
         return self.random_addrs[addr_name]
 
-    # page_mapping setters and getters
-    def add_page_mapping(self, key: str, val: ParsedPageMapping) -> None:
-        self.page_mappings[key] = val
-
-    def get_page_mapping(self, key: str) -> ParsedPageMapping:
-        return self.page_mappings[key]
-
-    def get_page_mappings(self) -> dict[str, ParsedPageMapping]:
-        return self.page_mappings
-
     # page_map setters and getters
-    def add_page_map(self, map_instance: "PageMap") -> None:
+    def add_page_map(self, map_instance: "PageMapInfo") -> None:
         self.page_maps[map_instance.name] = map_instance
 
-    def get_page_map(self, map_name: str) -> "PageMap":
+    def get_page_map(self, map_name: str) -> "PageMapInfo":
         return self.page_maps[map_name]
 
-    def get_page_maps(self) -> dict[str, "PageMap"]:
+    def get_page_maps(self) -> dict[str, "PageMapInfo"]:
         return self.page_maps
-
-    def get_min_linear_addr_bits_for_page_maps(self, page_map_list: Optional[list[str]] = None) -> int:
-        filtered_page_maps = self.page_maps
-        if page_map_list is not None:
-            filtered_page_maps = set(self.page_maps.keys()).intersection(page_map_list)
-        return min([self.page_maps[x].get_linear_addr_bits() for x in filtered_page_maps])
-
-    def get_min_physical_addr_bits_for_page_maps(self, page_map_list: Optional[list[str]] = None) -> int:
-        filtered_page_maps = self.page_maps
-        if page_map_list is not None:
-            filtered_page_maps = set(self.page_maps.keys()).intersection(page_map_list)
-        return min([self.page_maps[x].get_physical_addr_bits() for x in filtered_page_maps])
-
-    def get_map(self, map_name: str) -> "PageMap":
-        if map_name in self.page_maps:
-            return self.page_maps[map_name]
-        else:
-            raise KeyError(f"{map_name} does not exist in page_maps")
 
     # Page management
     def page_exists(self, name: str, map_name: str) -> bool:
@@ -442,7 +484,7 @@ class Pool:
         """
         return name in self.get_all_pages(map_name=map_name)
 
-    def add_page(self, page: "Page", map_names: list[str]) -> None:
+    def add_page(self, page: "PageInfo", map_names: list[str]) -> None:
         for map_name in map_names:
             map_inst = self.get_page_map(map_name)
             if (map_inst.name == "map_os") or not page.in_private_map:
@@ -452,12 +494,12 @@ class Pool:
 
             map_inst.add_page(p)
 
-    def get_page(self, page_name: str, map_name: str) -> "Page":
+    def get_page(self, page_name: str, map_name: str) -> "PageInfo":
         map_inst = self.get_page_map(map_name)
 
         return map_inst.get_page(page_name)
 
-    def get_all_pages(self, map_name: str) -> dict[str, "Page"]:
+    def get_all_pages(self, map_name: str) -> dict[str, "PageInfo"]:
         map_inst = self.get_page_map(map_name)
 
         return map_inst.pages
@@ -468,6 +510,10 @@ class Pool:
 
     def get_section(self, section_name: str) -> SectionInfo:
         return self.sections[section_name]
+
+    def set_section(self, section_name: str, vma: int, lma: int) -> None:
+        """Register a section with explicit VMA/LMA (RieMap already chose them)."""
+        self.sections[section_name] = SectionInfo(vma=vma, lma=lma)
 
     def add_section(self, section_name: str, address: Optional[int] = None) -> None:
         # Post process section_name and address

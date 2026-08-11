@@ -3,6 +3,7 @@
 
 # pyright: strict
 
+import copy
 import random
 import abc
 import uuid
@@ -58,6 +59,13 @@ class RandNum:
         Return the seed used for the random number generator.
         """
         return self.seed
+
+    def clone(self) -> "RandNum":
+        result = copy.copy(self)
+        result.rand = copy.copy(self.rand)  # shares immutable MT state tuple
+        result.distribution = copy.copy(self.distribution)
+        result.distribution.rand = result.rand
+        return result
 
     def random(self) -> float:
         """Generate a random float from the chosen distribution.
@@ -297,7 +305,7 @@ class RandNum:
         """
         return self.rand.choice(x)
 
-    def choices(self, x: Sequence[T], weights: Optional[Sequence[int]] = None, k: int = 1) -> list[T]:
+    def choices(self, x: Sequence[T], weights: Optional[Sequence[float]] = None, k: int = 1) -> list[T]:
         """
         Return a list of k unique random elements from the list x.  Uses random.Random.choices()
 

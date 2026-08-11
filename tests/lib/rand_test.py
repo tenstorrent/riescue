@@ -116,6 +116,41 @@ class RandNumTest(unittest.TestCase):
         rand.shuffle(test_list)
         self.assertCountEqual(test_list, original_list, f"Shuffled list {test_list} does not contain the same elements as original {original_list}")
 
+    def test_clone_contract(self):
+        """Clone reproduces deepcopy's object graph without advancing the original."""
+        original = RandNum(seed=42, distribution="beta")
+        clone = original.clone()
+
+        # Same initial stream
+        for _ in range(20):
+            self.assertEqual(original.random(), clone.random())
+            self.assertEqual(original.random_in_range(0, 1000), clone.random_in_range(0, 1000))
+            self.assertEqual(original.randint(1, 100), clone.randint(1, 100))
+
+        # Reference for upcoming draws without advancing original
+        reference = RandNum(seed=42, distribution="beta")
+        for _ in range(20):
+            reference.random()
+            reference.random_in_range(0, 1000)
+            reference.randint(1, 100)
+        expected = reference.random()
+        expected_range = reference.random_in_range(0, 500)
+        expected_randint = reference.randint(1, 100)
+
+        # Draws on clone do not advance original
+        clone.random()
+        clone.random_in_range(0, 500)
+        clone.randint(1, 100)
+
+        self.assertEqual(expected, original.random())
+        self.assertEqual(expected_range, original.random_in_range(0, 500))
+        self.assertEqual(expected_randint, original.randint(1, 100))
+
+        # Distribution shares the clone's RNG instance
+        self.assertIs(clone.distribution.rand, clone.rand)
+        self.assertIsNot(clone.distribution.rand, original.rand)
+        self.assertIsNot(clone.rand, original.rand)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

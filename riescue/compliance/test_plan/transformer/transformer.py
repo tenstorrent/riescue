@@ -49,6 +49,11 @@ class Transformer:
     :param rng: :class:`RandNum` object to use for randomization.
     """
 
+    # InstructionCatalog(isa) filters ~1k instructions through an Extension bit-mask
+    # per construction; a tp_mode matrix rebuilds one Transformer per seed and the
+    # filter alone was ~0.3 s. Catalogs are immutable after __init__, so share by ISA.
+    _catalog_cache: dict[str, InstructionCatalog] = {}
+
     def __init__(self, rng: RandNum, mem_reg: MemoryRegistry, featmgr: FeatMgr, isa: str = "rv64i_zicsr"):
         self.rng = rng
         self.mem_reg = mem_reg  # Memory Registry exists for life of Transformer
@@ -59,7 +64,11 @@ class Transformer:
         self.legalizer = Legalizer()  # Legalizes Instructions
         self.allocator = Allocator()  # Allocates Instructions into Subroutines
         self.test_harness = TestHarness()  # Adds test harness code
-        self.catalog = InstructionCatalog(isa)
+        catalog = Transformer._catalog_cache.get(isa)
+        if catalog is None:
+            catalog = InstructionCatalog(isa)
+            Transformer._catalog_cache[isa] = catalog
+        self.catalog = catalog
 
     def transform_tests(self, tests: list[DiscreteTest], env: TestEnv) -> tuple[TextSegment, DataSegment]:
         """
@@ -513,7 +522,10 @@ class Transformer:
         """Select a random CSR valid for current privilege mode and operation."""
         priv = ctx.env.priv.name.lower()
 
-        FILTERED_CSRS = ["mip", "mie", "sip", "sie", "satp"]  # Do not create new interrupts
+        # Do not create new interrupts (mip/mie/sip/sie) or repoint address translation (satp), and
+        # do not clobber the RiescueD-reserved *scratch (per-hart-context pointer) / *tvec (trap vector)
+        # CSRs. Kept in sync with step translators
+        FILTERED_CSRS = ["mip", "mie", "sip", "sie", "satp", "mscratch", "sscratch", "vsscratch", "mtvec", "stvec", "vstvec"]
 
         # Map privilege to Accessibility filter
         accessibility_map = {

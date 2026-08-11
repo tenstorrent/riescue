@@ -76,6 +76,16 @@ class Runtime:
         # after xret, masking the test's actual readback / next step.
         self.variable_manager.register_hart_variable("check_excp_disable_triggers", 0)
 
+        # Runtime-installed exception handler slot (OS_INSTALL_EXCP_HANDLER /
+        # OS_UNINSTALL_EXCP_HANDLER). excp_handler_cause == -1 means no handler armed.
+        # The trap dispatch compares xcause against excp_handler_cause, gates on
+        # excp_handler_mode (0 = any; CHECK_EXCP_MODE_* otherwise), and on match
+        # jumps to excp_handler_addr. Cleared at every scheduler dispatch so arming
+        # is scoped to a single discrete test by default.
+        self.variable_manager.register_hart_variable("excp_handler_cause", -1)
+        self.variable_manager.register_hart_variable("excp_handler_addr", 0)
+        self.variable_manager.register_hart_variable("excp_handler_mode", 0)
+
         # Interrupt assertion checking variables (analogous to check_excp for exceptions)
         self.variable_manager.register_hart_variable("check_intr", 0x0, size=1)
         self.variable_manager.register_hart_variable("check_intr_expected_cause", 0xFF)

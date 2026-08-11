@@ -8,7 +8,7 @@ from riescue.dtest_framework.lib.pma_generator import PmaGenerator
 from riescue.dtest_framework.lib.pma import PmaInfo
 from riescue.dtest_framework.parser import ParsedPmaHint
 from riescue.dtest_framework.config.pma_config import PmaConfig, PmaAttributes, PmaRegionConfig, PmaHintConfig
-from riescue.dtest_framework.config.memory import Memory, DramRange, IoRange
+from riescue.riemap.memory import Memory, DramRange, IoRange
 from riescue.lib.rand import RandNum
 
 
@@ -18,7 +18,7 @@ class PmaGeneratorTest(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.rng = RandNum(seed=42)
-        self.memory = Memory(dram_ranges=[DramRange(start=0x80000000, size=0x10000000)], io_ranges=[IoRange(start=0x10000000, size=0x1000000)])
+        self.memory = Memory(dram_ranges=(DramRange(start=0x80000000, size=0x10000000),), io_ranges=(IoRange(start=0x10000000, size=0x1000000),))
 
     def test_generate_from_simple_hint(self):
         """Test generating regions from simple hint"""

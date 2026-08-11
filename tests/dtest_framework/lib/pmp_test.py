@@ -5,7 +5,7 @@ import unittest
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.lib.pmp import PmpRegisters, PmpRegion, PmpCfg, PmpAddr, RiscvPmpAddressMatchingModes
-from riescue.dtest_framework.config.memory import DramRange
+from riescue.riemap.memory import DramRange
 
 
 class PmpTest(unittest.TestCase):

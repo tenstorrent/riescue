@@ -122,6 +122,25 @@ class PmaRandomizerTest(unittest.TestCase):
             self.assertTrue(region.pma_randomized)
             self.assertTrue(region.pma_valid)
 
+    def test_memory_type_bias_favors_cacheable(self):
+        """Decoy attributes follow the fixed bias: ~78% cacheable / ~10% noncacheable / 10% io / 2% ch0+ch1."""
+        counts = {"cacheable": 0, "noncacheable": 0, "io": 0, "ch0": 0, "ch1": 0}
+        total = 0
+        for seed in range(20):
+            for region in self.make_randomizer(seed=seed, mask_pct=0).generate(50, []):
+                key = region.pma_cacheability if region.pma_memory_type == "memory" else region.pma_memory_type
+                counts[key] += 1
+                total += 1
+        self.assertGreater(counts["cacheable"] / total, 0.72)
+        self.assertLess(counts["cacheable"] / total, 0.84)
+        self.assertGreater(counts["noncacheable"] / total, 0.05)
+        self.assertLess(counts["noncacheable"] / total, 0.15)
+        self.assertGreater(counts["io"] / total, 0.05)
+        self.assertLess(counts["io"] / total, 0.15)
+        # ch0/ch1 keep a small slice so memory-type encodings 2/3 stay exercised
+        self.assertGreater(counts["ch0"] + counts["ch1"], 0)
+        self.assertLess((counts["ch0"] + counts["ch1"]) / total, 0.06)
+
     def test_all_strategies_produce_legal_masks(self):
         """Every mask shape strategy yields a nonzero mask using only the candidate bits."""
         for seed in range(5):
@@ -149,6 +168,17 @@ class PmaRandomizerTest(unittest.TestCase):
         blocked = [(0x0, 0x80_0000), (0x80_1000, 1 << 24)]
         self.assertFalse(randomizer.apply_random_mask(region, blocked, force=True))
         self.assertEqual(region.pma_mask, 0)
+
+    def test_forced_mask_single_bit_sweep_fallback(self):
+        """force=True finds the lone safe single-bit mask on every seed via the fallback sweep."""
+        # candidate bits are 12..15; only bit 15's window (0x80_8000) is unblocked, so any
+        # multi-bit or lower-bit mask collides and the sweep is the only reliable path
+        blocked = [(0x0, 0x80_0000), (0x80_1000, 0x80_8000), (0x80_9000, 1 << 24)]
+        for seed in range(10):
+            randomizer = PmaRandomizer(RandNum(seed=seed), mask_pct=100, phys_addr_bits=24)
+            region = PmaInfo(pma_name="pma_forced_sweep", pma_address=0x80_0000, pma_size=0x1000, pma_valid=True)
+            self.assertTrue(randomizer.apply_random_mask(region, blocked, force=True), f"seed {seed} found no mask")
+            self.assertEqual(region.pma_mask, 1 << 15, f"seed {seed} picked unsafe mask 0x{region.pma_mask:x}")
 
 
 if __name__ == "__main__":

@@ -23,6 +23,8 @@ If you're new to RiESCUE, start with the installation guide at :doc:`/tutorials/
 
    riescued_user_guide
    riescuec_user_guide
+   riemap_user_guide
+   pma
    modifying_end_of_test
    rvcp_print_messages
    selfcheck

@@ -9,7 +9,7 @@ import riescue.lib.common as common
 from riescue.dtest_framework.lib.pma import PmaInfo
 from riescue.dtest_framework.parser import ParsedPmaHint
 from riescue.dtest_framework.config.pma_config import PmaConfig, PmaRegionConfig
-from riescue.dtest_framework.config.memory import Memory
+from riescue.riemap.memory import Memory
 from riescue.lib.rand import RandNum
 
 log = logging.getLogger(__name__)
@@ -367,7 +367,9 @@ class PmaRandomizer:
     MASK_ATTEMPTS = 8
     # Mask shape strategies: structured patterns exercise more of the pmamask compare space
     MASK_STRATEGY_WEIGHTS = {"subset": 35, "contiguous": 20, "single_bit": 15, "dense": 10, "sparse_low": 10, "sparse_high": 10}
-    MEMORY_TYPE_WEIGHTS = {"memory": 50, "io": 30, "ch0": 10, "ch1": 10}
+    MEMORY_TYPE_WEIGHTS = {"memory": 88, "io": 10, "ch0": 1, "ch1": 1}
+    # Effective decoy mix: ~78% cacheable / ~10% noncacheable / 10% io / 2% ch0+ch1
+    CACHEABILITY_WEIGHTS = {"cacheable": 8, "noncacheable": 1}
     # IO-type legal rwx combos: whisper rejects write-without-read
     IO_RWX_CHOICES = [(0, 0, 0), (1, 0, 0), (0, 0, 1), (1, 0, 1), (1, 1, 0), (1, 1, 1)]
 
@@ -406,7 +408,7 @@ class PmaRandomizer:
         memory_type = self.rng.random_choice_weighted(self.MEMORY_TYPE_WEIGHTS)
         if memory_type == "memory":
             read, write, execute = self.rng.random_entry_in([(1, 1, 1), (0, 0, 0)])
-            cacheability = self.rng.random_entry_in(["cacheable", "noncacheable"])
+            cacheability = self.rng.random_choice_weighted(self.CACHEABILITY_WEIGHTS)
             if cacheability == "cacheable":
                 amo_type, routing_to = "arithmetic", "coherent"
             else:
@@ -448,6 +450,8 @@ class PmaRandomizer:
         A masked region matches scattered congruence windows across all memory, so candidate masks
         whose windows cover any blocked interval (loader/OS/fixed pages) are rejected and retried.
         The region's own span must NOT be in ``blocked``: every mask matches its own base window.
+        Forced requests that exhaust the random attempts fall back to a shuffled sweep of all
+        single-bit masks, failing only when no single-bit mask is safe.
 
         :param pma_info: Region to mask in place; ``pma_mask`` is left 0 when no safe mask is found
         :param blocked: Occupied [start, end) physical intervals no scattered window may cover
@@ -466,6 +470,14 @@ class PmaRandomizer:
             pma_info.pma_mask = self._build_mask(strategy, candidate_bits)
             if not any(pma_info.matches_phys_range(start, end - start) for start, end in blocked):
                 return True
+        if force:
+            # Forced requests must not die on unlucky draws: a single-bit mask has exactly
+            # one scattered window besides the base, so sweeping all of them in random
+            # order finds a safe mask whenever one exists at that density
+            for bit in self.rng.sample(candidate_bits, len(candidate_bits)):
+                pma_info.pma_mask = 1 << bit
+                if not any(pma_info.matches_phys_range(start, end - start) for start, end in blocked):
+                    return True
         log.debug(f"PMA randomizer: no safe mask found for {pma_info.pma_name}; leaving unmasked")
         pma_info.pma_mask = 0
         return False

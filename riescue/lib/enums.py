@@ -549,7 +549,12 @@ class RiscvPagingModes(MyEnum):
         else:
             raise ValueError(f"{mode} not supported")
 
-        # If we are in g-stage, there are extra 2-bits in the pagetables
+        # Architecturally a g-stage GPA is 2 bits WIDER than a VA in the same mode (Sv39x4
+        # takes a 41-bit GPA), and the extra bits are indexed by a 4x-sized root table --
+        # 2048 entries / 16 KiB. riemap's g-stage root is an ordinary 512-entry table, whose
+        # capacity comes from index_bits(mode, root_level), so widening the GPA here would
+        # alias two distinct GPAs into one root slot and silently corrupt the tree. Adding 0
+        # is therefore deliberate, not unfinished: the x4 root has to land first.
         if gstage and (mode != RiscvPagingModes.DISABLE):
             linear_addr_bits += 0
 

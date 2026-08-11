@@ -59,12 +59,22 @@ Creates random memory addresses with alignment and size constraints.
 
 **Physical Memory Attributes (PMA) Parameters:**
 
-- ``in_pma`` - Include in PMA configuration (``1`` or ``0``)
-- ``pma_size`` - PMA region size in bytes
+Setting ``in_pma=1`` on a *physical* address places it inside a PMA region with the requested
+attributes (requires running with ``--needs_pma``). If the attributes match a region that already
+exists — from a ``;#pma_hint`` directive or an earlier ``in_pma`` address — the existing region is
+reused instead of consuming another PMA CSR entry. See :doc:`/user_guides/pma` for the full
+workflow.
+
+- ``in_pma`` - Place this address inside a PMA region (``1`` or ``0``)
+- ``pma_size`` - PMA region size in bytes (defaults to the ``size`` parameter if omitted)
 - ``pma_read``, ``pma_write``, ``pma_execute`` - Access permissions (``1`` or ``0``)
-- ``pma_mem_type`` - Memory type: ``'memory'``, ``'io'``, ``'ch0'``, ``'ch1'``
-- ``pma_amo_type`` - Atomic operation support: ``'none'``, ``'logical'``, ``'swap'``, ``'arithmetic'``
-- ``pma_cacheability`` - Cache behavior: ``'cacheable'``, ``'noncacheable'``
+- ``pma_memory_type`` - Memory type: ``memory``, ``io``, ``ch0``, ``ch1``
+- ``pma_amo_type`` - Atomic operation support: ``none``, ``logical``, ``swap``, ``arithmetic``
+- ``pma_cacheability`` - Cache behavior for memory type: ``cacheable``, ``noncacheable``
+- ``pma_combining`` - Combining behavior for io type: ``combining``, ``noncombining``
+- ``pma_routing_to`` - Coherency routing: ``coherent``, ``noncoherent``
+- ``pma_masked`` - Force the region to be programmed with a random ``pmamask`` value; requires
+  ``in_pma=1`` and ``--enable_pma_randomization`` (``1`` or ``0``, default: ``0``)
 
 **Examples:**
 
@@ -73,6 +83,84 @@ Creates random memory addresses with alignment and size constraints.
     ;#random_addr(name=addr1, type=physical, size=0x1000, and_mask=0xfffff000)
     ;#random_addr(name=vaddr, type=linear, size=0x2000)
     ;#random_addr(name=io_addr, type=physical, io=1, size=0x100)
+
+    # Physical address inside a cacheable RWX PMA region
+    ;#random_addr(name=phys_cacheable, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1)
+
+    # Physical address inside an MMIO window, in a read/write io-type PMA region
+    ;#random_addr(name=phys_io, type=physical, size=0x1000, and_mask=0xfffffffffffff000, io=1, in_pma=1, pma_size=0x1000, pma_memory_type=io, pma_read=1, pma_write=1, pma_execute=0, pma_amo_type=none, pma_routing_to=noncoherent)
+
+**;#pma_hint** - Request Auto-Generated PMA Regions
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Asks the framework to create one or more PMA regions with the requested attributes at
+framework-chosen addresses. Use this when a test needs regions with particular attribute
+*shapes* (e.g. "one cacheable and one noncacheable region, adjacent to each other") without
+caring where they land. Requires running with ``--needs_pma``. Regions created by hints can be
+targeted by ``;#random_addr(..., in_pma=1, ...)`` addresses with matching attributes.
+
+**Syntax (attribute-list form):**
+
+The framework generates one region for every combination in the cartesian product of the
+attribute lists.
+
+.. code-block:: asm
+
+    ;#pma_hint(name=<hint_name>, memory_types=[...], cacheability=[...], rwx_combos=[...] [, combining=[...]] [, amo_types=[...]] [, routing=[...]] [, adjacent=<true|false>] [, min_regions=<N>] [, max_regions=<N>] [, size=<bytes>])
+
+**Syntax (explicit combinations form):**
+
+One region is generated per combination dict.
+
+.. code-block:: asm
+
+    ;#pma_hint(name=<hint_name>, combinations=[{memory_type=<type>, cacheability=<c>, rwx=<rwx>, amo_type=<amo>, routing=<r>}, ...] [, adjacent=<true|false>] [, size=<bytes>])
+
+**Parameters:**
+
+- ``name`` (required) - Unique hint name; generated regions are named ``pma_<hint_name>_<index>``
+- ``memory_types`` - List of memory types: ``memory``, ``io``, ``ch0``, ``ch1`` (default: ``[memory]``)
+- ``cacheability`` - List of cache behaviors for memory type: ``cacheable``, ``noncacheable`` (default: ``[cacheable]``)
+- ``combining`` - List of combining behaviors for io type: ``combining``, ``noncombining`` (default: ``[noncombining]``)
+- ``rwx_combos`` - List of permission strings, e.g. ``rwx``, ``rw``, ``r`` (default: ``[rwx]``)
+- ``amo_types`` - List of atomic support levels: ``none``, ``logical``, ``swap``, ``arithmetic`` (default: ``[arithmetic]``)
+- ``routing`` - List of coherency routings: ``coherent``, ``noncoherent`` (default: ``[coherent]``)
+- ``combinations`` - Explicit list of attribute dicts; when given, the attribute lists above are ignored
+- ``adjacent`` - Place the generated regions adjacent to each other (default: ``false``)
+- ``min_regions`` / ``max_regions`` - Bound the number of generated regions
+- ``size`` - Size of each generated region in bytes (hex accepted)
+
+**Examples:**
+
+.. code-block:: text
+
+    # Two adjacent memory regions: one cacheable, one noncacheable, both RWX
+    ;#pma_hint(name=simple_hint,
+        memory_types=[memory],
+        cacheability=[cacheable, noncacheable],
+        rwx_combos=[rwx],
+        adjacent=true
+    )
+
+    # Explicit combinations
+    ;#pma_hint(name=combo_hint,
+        combinations=[
+            {memory_type=memory, cacheability=cacheable, rwx=rwx, amo_type=arithmetic, routing=coherent},
+            {memory_type=memory, cacheability=noncacheable, rwx=rwx, amo_type=arithmetic, routing=coherent}
+        ],
+        adjacent=true
+    )
+
+    # A single 1MB noncacheable read/write region
+    ;#pma_hint(name=custom_size_hint,
+        memory_types=[memory],
+        cacheability=[noncacheable],
+        rwx_combos=[rw],
+        size=0x100000,
+        max_regions=1
+    )
+
+A complete reference test ships at ``riescue/dtest_framework/tests/test_pma_hint.s``.
 
 CSR Read/Write/Set/Clear API
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -406,6 +494,10 @@ Sets up vectored interrupt handling for specific interrupt sources.
     ;#vectored_interrupt(MTI, timer_interrupt_handler)
     ;#vectored_interrupt(13, custom_interrupt_handler)
 
+Runtime-installed exception handlers (``OS_INSTALL_EXCP_HANDLER`` /
+``OS_UNINSTALL_EXCP_HANDLER``) are macros, not ``;#`` directives — see
+:ref:`install_excp_handler_macro` in the Macro Reference below.
+
 Random Memory Breakpoint
 ------------------------
 
@@ -626,3 +718,89 @@ Sets up expected exceptions and verifies that they occur with correct parameters
     addi x10, x10, 1
     ic_after:
     ;#trigger_disable(index=0)
+
+.. _install_excp_handler_macro:
+
+**OS_INSTALL_EXCP_HANDLER** - Arm a Runtime Exception Handler
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Stores a handler address, expected mode, and cause in the hart-local
+``excp_handler_addr`` / ``excp_handler_mode`` / ``excp_handler_cause``
+variables (the cause store commits the arming). On a matching exception the
+trap dispatch — running before ``save_context()`` — jumps directly to the
+handler label; any other cause falls back to the **original exception path**
+(``FeatMgr`` overrides, ``OS_SETUP_CHECK_EXCP`` handling, then the default
+fail-on-unexpected behavior). Use it for on-demand, region-scoped exception
+handling without changing the test-wide default exception path.
+
+The arming state is **hart-local**, so in MP tests each hart arms its handler
+independently. It is also scoped to the current discrete test: the scheduler
+disarms the slot at every dispatch. There is a single slot per hart — arming
+again overwrites the previous handler.
+
+**Syntax:**
+
+.. code-block:: text
+
+    OS_INSTALL_EXCP_HANDLER <cause>, <handler_label> [, <mode> [, <far_addr> \
+        [, <force_machine> [, <force_supervisor> [, <force_user>]]]]
+
+**Parameters:**
+
+- ``cause`` (required) - Synchronous exception cause the handler responds to
+  (name or number), e.g. ``BREAKPOINT``.
+- ``handler_label`` (required) - Label of the handler body in the test. The
+  handler runs *before* the framework's context save, so it must end with
+  ``mret``/``sret`` and may only clobber ``t0``/``t1`` unless it saves and
+  restores any other registers itself. The label must live in ``.code``: when
+  the trap lands in the M-mode trap handler, the dispatch relocates the stored
+  VA to a PA via the ``.code`` base equates before jumping (M-mode instruction
+  fetches are never translated).
+- ``mode`` (optional) - Expected trap-handler privilege mode:
+  ``CHECK_EXCP_MODE_MACHINE``, ``CHECK_EXCP_MODE_HS``, or
+  ``CHECK_EXCP_MODE_VS``. 0 means any mode (default: 0). When set, a cause
+  match arriving at a different-mode trap handler (e.g. a ``medeleg``
+  mismatch) falls through to the original path instead of jumping into a body
+  written for another mode.
+- ``far_addr`` (optional) - When 1, use ``li`` instead of ``la`` for
+  ``handler_label`` (use with equate addresses; default: 0)
+- ``force_machine`` / ``force_supervisor`` / ``force_user`` (optional) -
+  Hart-context access override, same as ``OS_SETUP_CHECK_EXCP`` (default: 0).
+
+**Clobbers:** ``a0``, ``tp``, ``t3``. In S/U mode also ``t0`` and ``t1``
+(the hart-context syscall ABI).
+
+**Examples:**
+
+.. code-block:: asm
+
+    OS_INSTALL_EXCP_HANDLER BREAKPOINT, my_bp_handler, CHECK_EXCP_MODE_MACHINE
+    ebreak                       # dispatches to my_bp_handler
+    OS_UNINSTALL_EXCP_HANDLER    # disarm; back to the original path
+
+Reference tests ship at
+``riescue/dtest_framework/tests/non_instr_tests/install_excp_handler.s``
+(single core), ``install_excp_handler_mp.s`` (MP, per-hart arming), and
+``install_excp_handler_s.s`` (paged S-mode, exercising the M-mode VA->PA
+relocation).
+
+**OS_UNINSTALL_EXCP_HANDLER** - Disarm the Runtime Exception Handler
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Clears the armed handler (``excp_handler_cause`` = -1), returning exception
+processing to the original path. Only needed for scoping finer than a
+discrete test — the scheduler disarms automatically at every test boundary.
+
+**Syntax:**
+
+.. code-block:: text
+
+    OS_UNINSTALL_EXCP_HANDLER [<force_machine> [, <force_supervisor> [, <force_user>]]]
+
+**Parameters:**
+
+- ``force_machine`` / ``force_supervisor`` / ``force_user`` (optional) -
+  Hart-context access override, same as ``OS_SETUP_CHECK_EXCP`` (default: 0).
+
+**Clobbers:** ``a0``, ``tp``, ``t3``. In S/U mode also ``t0`` and ``t1``
+(the hart-context syscall ABI).

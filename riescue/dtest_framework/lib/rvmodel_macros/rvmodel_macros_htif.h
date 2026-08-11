@@ -81,24 +81,5 @@
   li _R2, CVW_SSIP_ADDRESS; \
   sw zero, 0(_R2);
 
-#define RVMODEL_SET_STIMER_INT(_R1, _R2) \
-  csrwi stimecmp, 0;
-
-#define RVMODEL_CLR_STIMER_INT(_R1, _R2) \
-  li _R1, 0xffffffff; \
-  csrw stimecmp, _R1;
-
-#define RVMODEL_SET_VSTIMER_INT(_R1, _R2) \
-  csrwi vstimecmp, 0;
-
-#define RVMODEL_CLR_VSTIMER_INT(_R1, _R2) \
-  li _R1, 0xffffffff; \
-  csrw vstimecmp, _R1;
-
-#define RVMODEL_SET_STIMER_INT_SOON(_R1, _R2) \
-  rdtime _R1; \
-  addi _R1, _R1, 5000; \
-  csrw stimecmp, _R1;
-  
 
 #endif

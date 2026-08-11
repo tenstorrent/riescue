@@ -6,7 +6,7 @@ Package for RiESCUE D Framework Configuration
 
 """
 
-from .memory import Memory
+from riescue.riemap.memory import Memory
 from .cpu_config import CpuConfig
 from .builder import FeatMgrBuilder
 from .candidate import Candidate

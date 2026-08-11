@@ -700,7 +700,25 @@ class CsrDirectAccessAction(Action):
         """Select a random CSR valid for current privilege mode and operation."""
         priv = ctx.env.priv.name.lower()
 
-        FILTERED_CSRS = ["mip", "mie", "sip", "sie", "satp"]  # Do not create new interrupts
+        # Do not create new interrupts (mip/mie/sip/sie) or repoint address translation (satp).
+        # Also exclude CSRs the RiescueD runtime reserves for its own use: the *scratch CSRs hold
+        # the per-hart-context pointer (os_get_hart_context reads them back) and the *tvec CSRs hold
+        # the trap vectors; a random write (e.g. csrrw -1) to any of these corrupts the OS and faults
+        # the test on the next trap/syscall. See the removed SID_ZICSR_19 (sscratch) for the concrete
+        # failure mode. Kept in sync with the sibling random-CSR filters
+        FILTERED_CSRS = [
+            "mip",
+            "mie",
+            "sip",
+            "sie",
+            "satp",
+            "mscratch",
+            "sscratch",
+            "vsscratch",
+            "mtvec",
+            "stvec",
+            "vstvec",
+        ]
 
         # Map privilege to Accessibility filter
         accessibility_map = {

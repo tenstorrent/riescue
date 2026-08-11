@@ -108,7 +108,10 @@ Configuration
 - ``csr_init``: List of CSRs to initialize (format: ``csr=value``)
 - ``csr_init_mask``: List of CSRs to initialize with mask (format: ``csr=mask=value``)
 - ``counter_event_path``: Path to event file for enabling performance counters
-- ``needs_pma``: Setup PMA regions
+- ``needs_pma``: Setup PMA regions (see `PMA Setup`_ below)
+- ``num_pmas``: Number of implemented PMA CSR entries (2-64, default 64); must match the ISS config
+- ``enable_pma_randomization``: Also program randomized decoy PMA regions (implies ``needs_pma``)
+- ``user_programmable_pmacfg``: Leave the first N PMA entries untouched for the test to program at runtime
 - ``setup_pmp``: Setup PMP regions
 - ``secure_mode``: Enable secure mode
 - ``env``: Test environment (TEST_ENV_VIRTUALIZED or standard)
@@ -120,3 +123,32 @@ Configuration
 - ``svadu``: Enable SVADU extension
 - ``menvcfg``: Value to OR with default menvcfg
 - ``medeleg``: Custom medeleg value
+
+
+PMA Setup
+----------
+
+When ``needs_pma`` is set, ``loader__initialize_runtime`` includes a ``loader__setup_pma`` block
+that programs one PMA CSR entry per defined region, in machine mode, before any test code runs.
+
+Each PMA entry is a ``pmacfg``/``pmamask`` register pair. The first 16 entries are direct CSRs
+(``pmacfg`` at ``0x7E0 + i``, ``pmamask`` at ``0x7F0 + i``); entries 16 and above are accessed
+indirectly by writing ``miselect = 0x8000000000000000 | entry`` and then accessing ``mireg``
+(``pmacfg``) and ``mireg2`` (``pmamask``). Writing an entry's ``pmacfg`` resets its mask, so the
+``pmamask`` write is always emitted after the ``pmacfg`` write.
+
+Entry layout, from index 0 (highest match priority) upward:
+
+1. ``user_programmable_pmacfg`` untouched entries reserved for the test's own runtime programming
+2. Named test regions (from ``;#pma_hint`` and ``in_pma`` directives), then randomized decoy
+   regions when ``enable_pma_randomization`` is set, then memory-map regions
+3. Invalidated (zeroed) entries up to the catch-alls, when randomization is set
+4. Two catch-all entries at ``num_pmas - 2`` / ``num_pmas - 1``: an IO/noncacheable region
+   covering 0-2GB and a cacheable-coherent RWX region covering all of memory, matching the
+   boot reset values of ``pmacfg14``/``pmacfg15``
+
+With randomization on, the catch-alls are written *first* (the boot entries 14/15 still provide
+default coverage at that point, so no access ever lacks a matching entry), then the stale boot
+entries are invalidated at the end.
+
+See :doc:`/user_guides/pma` for a full guide to PMA configuration and randomization.

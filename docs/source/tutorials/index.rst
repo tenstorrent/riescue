@@ -20,4 +20,5 @@ Once you've completed the tutorials, see the :doc:`/user_guides/index` for pract
    riescued/index
    riescuec/index
    ctk/index
+   riemap/index
    cpu_configuration

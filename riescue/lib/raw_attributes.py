@@ -70,7 +70,9 @@ class RawAttributes:
         if attr not in RawAttributes.valid_attrs:
             raise ValueError(f"{self.__class__.__name__} class has no member {attr}")
 
-        return self.__dict__[attr]
+        # getattr, not __dict__, so a subclass that resolves part of its schema lazily
+        # through __getattr__ answers here too.
+        return getattr(self, attr)
 
     def set(self, attr, value):
         if attr not in RawAttributes.valid_attrs:

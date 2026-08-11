@@ -10,7 +10,7 @@ from pathlib import Path
 import riescue.lib.common as common
 import riescue.lib.enums as RV
 from riescue.dtest_framework.lib.pma import PmaInfo
-from riescue.dtest_framework.lib.sdtrig import TriggerType, TriggerAction, TriggerMatch
+from riescue.dtest_framework.lib.sdtrig import TriggerType, TriggerAction, TriggerMatch, legal_slots_for, slot_supports
 
 if TYPE_CHECKING:
     from riescue.dtest_framework.pool import Pool
@@ -1113,6 +1113,16 @@ class Parser:
             log.warning(";#trigger_config requires addr= parameter for mcontrol6 triggers")
             return
 
+        # Slots are type-specialized; a mismatch masks the access-type bits to 0 so the trigger arms
+        # nothing and never fires -- which reads as a passing test. Warn loudly rather than fail, since
+        # a test may target an unsupported slot on purpose to check the WARL masking.
+        if not slot_supports(index, trigger_type):
+            log.warning(
+                f";#trigger_config(index={index}, type={trigger_type.value}) targets a slot that does not "
+                f"implement that trigger type; tdata1 will mask the access-type bits and the trigger will "
+                f"never fire. Legal slots for type={trigger_type.value}: {legal_slots_for(trigger_type)}."
+            )
+
         # Add ParsedCsrAccess for tselect, tdata1, and (if needed) tdata2
         csr_names = ("tselect", "tdata1", "tdata2") if needs_tdata2 else ("tselect", "tdata1")
         csr_ids = []
@@ -1473,6 +1483,11 @@ class ParsedPageMapping:
     w_leaf_gleaf: Optional[bool] = None
     x: bool = True
     x_nonleaf: Optional[bool] = None
+    x_level0: Optional[bool] = None
+    x_level1: Optional[bool] = None
+    x_level2: Optional[bool] = None
+    x_level3: Optional[bool] = None
+    x_level4: Optional[bool] = None
     x_nonleaf_gnonleaf: Optional[bool] = None
     x_nonleaf_gleaf: Optional[bool] = None
     x_leaf_gnonleaf: Optional[bool] = None
@@ -1518,13 +1533,19 @@ class ParsedPageMapping:
     pbmt_nonleaf_gleaf: int = 0
     pbmt_leaf_gnonleaf: int = 0
     pbmt_leaf_gleaf: int = 0
+    # The NAPOT N bit is the one PTE bit whose "unset" and "0" are NOT the same thing: on a
+    # 64 KiB page an explicit n=0 means "do not use Svnapot", while unset means "let the
+    # generator use Svnapot". These therefore default to None, not 0 -- a 0 default is
+    # forwarded to riemap as a deliberate force (``_attrs`` only skips None), which silently
+    # cleared N on every 64 KiB page. Every other per-level bit's 0 IS its insignificant
+    # value, so those keep their int defaults.
     n: Optional[int] = None
-    n_nonleaf: int = 0
-    n_level0: int = 0
-    n_level1: int = 0
-    n_level2: int = 0
-    n_level3: int = 0
-    n_level4: int = 0
+    n_nonleaf: Optional[int] = None
+    n_level0: Optional[int] = None
+    n_level1: Optional[int] = None
+    n_level2: Optional[int] = None
+    n_level3: Optional[int] = None
+    n_level4: Optional[int] = None
     n_nonleaf_gnonleaf: int = 0
     n_nonleaf_gleaf: int = 0
     n_leaf_gnonleaf: int = 0
@@ -1547,7 +1568,7 @@ class ParsedPageMapping:
     _1gbpage: bool = False
     _512gbpage: bool = False
     _256tbpage: bool = False
-    final_pagesize: int = 0
+    final_pagesize: Optional[RV.RiscvPageSizes] = None
     modify_pt: bool = False
     modify_leaf_pt: bool = False
     modify_nonleaf_pt: bool = False
@@ -1555,15 +1576,23 @@ class ParsedPageMapping:
     address_mask: int = 0xFFFFFFFFFFFFF000
     phys_address_size: int = 0x1000
     phys_address_mask: int = 0xFFFFFFFFFFFFF000
-    linked_page_mappings: list["ParsedPageMapping"] = field(default_factory=list)
-    linked_ppm_offset: int = 0x0
+    # When lin_name/phys_name is ``random_addr+offset``, OffsetFrom that bare
+    # address recipe. A base page_mapping(lin_name=random_addr) SameAs the same
+    # recipe; the random_addr owns the window. Tuple is (random_addr name, byte offset).
+    lin_addr_link: Optional[tuple[str, int]] = None
+    phys_addr_link: Optional[tuple[str, int]] = None
+
+    # Pinned-address literals as written in the directive (valid iff *_specified below).
+    lin_addr: str = ""
+    phys_addr: str = ""
+    # G-stage leaf/non-leaf pagesizes resolved by randomize_pagesize (two-stage only).
+    gstage_vs_leaf_final_pagesize: Optional[RV.RiscvPageSizes] = None
+    gstage_vs_nonleaf_final_pagesize: Optional[RV.RiscvPageSizes] = None
 
     # Internal use members
     resolve_priority: int = 0
     lin_addr_specified: bool = False
     phys_addr_specified: bool = False
-    is_linked: bool = False
-    has_linked_ppms: bool = False
     alias: bool = False  # Used to mark if physical address is an alias for another address
 
 
@@ -1588,6 +1617,7 @@ class ParsedTestHeader:
     mp: str = ""
     mp_mode: str = ""
     opts: str = ""
+    user_programmable_pmacfg: str = ""  # Minimum pmacfg entries [0..N) this test needs left free to program itself
 
 
 @dataclass

@@ -64,6 +64,13 @@ class Macros(AssemblyGenerator):
         self.mp_enabled = self.mp_active
         self.macros = list()
 
+        # Mode equates shared by OS_SETUP_CHECK_EXCP and OS_INSTALL_EXCP_HANDLER
+        # (0 = any mode). Registered at init so they exist regardless of which
+        # macros a test ends up using.
+        self.register_equate("CHECK_EXCP_MODE_MACHINE", "1")
+        self.register_equate("CHECK_EXCP_MODE_HS", "2")
+        self.register_equate("CHECK_EXCP_MODE_VS", "3")
+
     def get_hart_context(self) -> str:
         """
         Generates code to get the hart context pointer into the tp register.
@@ -119,6 +126,8 @@ class Macros(AssemblyGenerator):
         code = ""
         self.gen_os_setup_check_excp()
         self.gen_os_skip_check_excp()
+        self.gen_os_install_excp_handler()
+        self.gen_os_uninstall_excp_handler()
         self.gen_os_setup_check_intr()
         self.gen_os_get_hartid()
         self.gen_get_hart_index()
@@ -143,7 +152,12 @@ class Macros(AssemblyGenerator):
         """
         Store the expected exception parameters in the hart context.
 
-        Clobbers a0, tp, t3
+        Clobbers a0, tp, t3. In S/U mode, also clobbers t0 and t1: this macro's
+        get_hart_context_with_override() call falls back to get_hart_context(),
+        which issues an ecall in S/U mode, and per the SysCalls ABI (syscalls.py)
+        every syscall return clobbers t0 (the return address) and t1 (scratch in
+        ret_from_os_fn). Callers must not keep values live in t0/t1 across this
+        macro when running S/U-mode tests.
         """
         name = "OS_SETUP_CHECK_EXCP"
         macro = Macro(name=name)
@@ -213,7 +227,7 @@ class Macros(AssemblyGenerator):
             li t3, \\__gva_check
             {check_excp_gva_check.store(src_reg="t3")}
 
-            # Expected handler mode (0 = any)
+                # Expected handler mode (0 = any)
             li t3, \\__expected_mode
             {check_excp_expected_mode.store(src_reg="t3")}
 
@@ -233,15 +247,15 @@ class Macros(AssemblyGenerator):
 
         """
 
-        self.register_equate("CHECK_EXCP_MODE_MACHINE", "1")
-        self.register_equate("CHECK_EXCP_MODE_HS", "2")
-        self.register_equate("CHECK_EXCP_MODE_VS", "3")
-
         self.macros.append(macro)
 
     def gen_os_skip_check_excp(self):
         """
-        Clobbers t3, tp, and a0
+        Clobbers t3, tp, and a0. In S/U mode, also clobbers t0 and t1 -- this macro's
+        get_hart_context_with_override() call falls back to get_hart_context(), whose
+        S/U-mode ecall clobbers t0 (return address) and t1 (ret_from_os_fn scratch)
+        per the SysCalls ABI (syscalls.py). Callers must not keep values live in
+        t0/t1 across this macro when running S/U-mode tests.
         """
         name = "OS_SKIP_CHECK_EXCP"
         macro = Macro(name=name)
@@ -264,6 +278,87 @@ class Macros(AssemblyGenerator):
             {check_excp.store(src_reg="t3")}
 
         """
+        self.macros.append(macro)
+
+    def gen_os_install_excp_handler(self):
+        """
+        Arm the runtime-installed exception handler: store the handler address,
+        expected mode, and cause in the hart-local excp_handler_* variables. The
+        trap dispatch jumps to __label when an exception with cause __cause arrives
+        at a trap handler whose mode matches __mode (0 = any).
+
+        The cause store is last so it commits the arming (a trap landing between
+        the stores sees either the previous handler or none).
+
+        __label must live in .code: when the trap lands in the M-mode handler
+        (medeleg[__cause] = 0) the dispatch relocates the stored VA to a PA via
+        the .code base equates before jumping, because M-mode instruction
+        fetches are never translated. HS/VS-mode handlers execute with
+        translation enabled and use the stored VA directly.
+
+        The arming is scoped to the current discrete test: the scheduler clears
+        the slot at every dispatch. Use OS_UNINSTALL_EXCP_HANDLER only for
+        scoping finer than a discrete test.
+
+        Clobbers t3, tp, and a0. In S/U mode, also clobbers t0 and t1 -- this macro's
+        get_hart_context_with_override() call falls back to get_hart_context(), whose
+        S/U-mode ecall clobbers t0 (return address) and t1 (ret_from_os_fn scratch)
+        per the SysCalls ABI (syscalls.py).
+        """
+        name = "OS_INSTALL_EXCP_HANDLER"
+        macro = Macro(name=name)
+        macro.args = ["__cause", "__label", "__mode=0", "__far_addr=0", "__force_machine=0", "__force_supervisor=0", "__force_user=0"]
+
+        excp_handler_addr = self.variable_manager.get_variable("excp_handler_addr")
+        excp_handler_mode = self.variable_manager.get_variable("excp_handler_mode")
+        excp_handler_cause = self.variable_manager.get_variable("excp_handler_cause")
+
+        macro.code = f"""
+            {self.get_hart_context_with_override()}
+            # Handler address (use la for labels; when __far_addr=1 use li for equates)
+            .if \\__far_addr
+            li t3, \\__label
+            .else
+            la t3, \\__label
+            .endif
+            {excp_handler_addr.store(src_reg="t3")}
+
+            # Expected handler mode (0 = any)
+            li t3, \\__mode
+            {excp_handler_mode.store(src_reg="t3")}
+
+            # Armed cause -- stored last; commits the arming
+            li t3, \\__cause
+            {excp_handler_cause.store(src_reg="t3")}
+
+        """
+
+        self.macros.append(macro)
+
+    def gen_os_uninstall_excp_handler(self):
+        """
+        Disarm the runtime-installed exception handler (excp_handler_cause = -1).
+        Not required at test end -- the scheduler clears the slot at every
+        dispatch -- only for scoping finer than a discrete test.
+
+        Clobbers t3, tp, and a0. In S/U mode, also clobbers t0 and t1 -- this macro's
+        get_hart_context_with_override() call falls back to get_hart_context(), whose
+        S/U-mode ecall clobbers t0 (return address) and t1 (ret_from_os_fn scratch)
+        per the SysCalls ABI (syscalls.py).
+        """
+        name = "OS_UNINSTALL_EXCP_HANDLER"
+        macro = Macro(name=name)
+        macro.args = ["__force_machine=0", "__force_supervisor=0", "__force_user=0"]
+
+        excp_handler_cause = self.variable_manager.get_variable("excp_handler_cause")
+
+        macro.code = f"""
+            {self.get_hart_context_with_override()}
+            li t3, -1
+            {excp_handler_cause.store(src_reg="t3")}
+
+        """
+
         self.macros.append(macro)
 
     def gen_os_setup_check_intr(self):

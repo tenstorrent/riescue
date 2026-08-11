@@ -1,6 +1,6 @@
 {
     "xlen" : 64,
-    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zawrs_zicntr_zihpm_zvqdotq_zjpm_svpbmt_svadu_sstc_ssu64xl_ssnpm_smmpm_smnpm_svnapot_zvzip_zvabd_smcsrind",
+    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zacas_zawrs_zicntr_zihpm_zvqdotq_zjpm_svpbmt_svadu_sstc_ssu64xl_ssnpm_smmpm_smnpm_svnapot_zvzip_zvabd_smcsrind_sdtrig",
     "reset_vec"             : "0x80000000",
     "enable_performance_counters" : "true",
     "perf_count_atomic_load_store" : "true",
@@ -24,9 +24,16 @@
 		"size"               : "0x00fffffffffff000"
 	 },
     "csr" : {
+	    "hstatus" : {
+	        "reset-comment"   : "VSXL=10",
+	        "reset"           : "0x0000000200000000",
+	        "mask-comment"    : "Readonly fields: VSXL, remove VSBE once RTL implements Big-Endian",
+	        "mask"            : "0x000300000073f3c0",
+	        "poke_mask"       : "0x000300000073f3c0"
+	    },
 	    "misa" : {
 	        "reset-comment" : "imafdcvsu",
-	        "reset" : "0x403411af",
+	        "reset" : "0x80000000003411af",
 	        "mask" : "0x00000000002010a9",
 			"poke_mask" : "0x00000000002010a9"
 	    },
@@ -430,6 +437,59 @@
 	    "Load"         : "0x00c00000",
 	    "Store"        : "0x00d00000"
     },
+
+	"trigger_use_tcontrol" : false,
+    "all_inst_addr_trigger" : "false",
+    "trigger_on_all_data_addr" : [ [0, true], [1, false], [2, true], [3, true], [4, false], [5, false], [8, true], [9, false], [12, false], [13, false] ],
+    "trigger_types" : [ "none", "disabled", "mcontrol6", "icount"],
+    "trigger_actions" : ["raisebreak", "enterdebug", "starttrace", "stoptrace", "emittrace"],
+    "triggers" : [
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077dc", "0xffffffffffffffff", "0xffffffffffffffff", 0],
+        "poke_mask" : ["0xf800000001c077dc", "0xffffffffffffffff", "0xffffffffffffffff", 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077dc", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077dc", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077dc", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077dc", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077dc", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077dc", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077db", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077db", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077db", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077db", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077db", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077db", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000000", 0, 0, "0x1008040"],
+        "mask" : ["0xf800000001c077db", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000001c077db", "0xff", 0, 0]
+      },
+      {
+        "reset": ["0xf000000000000400", 0, 0, "0x1008008"],
+        "mask" : ["0xf800000007ffffc7", "0xffffffffffffffff", 0, 0],
+        "poke_mask" : ["0xf800000007ffffc7", "0xff", 0, 0]
+      }
+    ],
 
    "vector" : {
       "bytes_per_vec"        : 32,

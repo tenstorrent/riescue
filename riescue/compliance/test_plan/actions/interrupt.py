@@ -85,6 +85,16 @@ def _in_vu_mode(ctx: "LoweringContext") -> bool:
     return ctx.env.priv == PrivilegeMode.U and ctx.env.virtualized
 
 
+def _sstc_enabled(ctx: "LoweringContext") -> bool:
+    """True when the cpuconfig enables Sstc (stimecmp-based STI set/clear)."""
+    return ctx.featmgr.is_feature_enabled("sstc")
+
+
+def _sti_directly_controllable(ctx: "LoweringContext") -> bool:
+    """STI set/clear uses stimecmp with Sstc; otherwise mip.STIP, which only M mode can write."""
+    return _sstc_enabled(ctx) or ctx.env.priv == PrivilegeMode.M
+
+
 def _wrap_in_supervisor(ctx: "LoweringContext", directive: str) -> list[Action]:
     """Wrap a privileged interrupt set/clear directive in a SupervisorCode block.
 
@@ -327,12 +337,28 @@ class DisableInterruptsAction(Action):
                         actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="RVMODEL_CLR_HGEI_INT(t0, t1, t2)"))
                     elif cause == InterruptCause.STI:
                         if ctx.env.virtualized:
-                            # Use force_machine_rw=true so vstimecmp is written via ecall from
-                            # HS/M mode — direct csrw stimecmp from VS mode is blocked by VTI=1
-                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="li t2, -1"))
-                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(vstimecmp, write, false, true)"))
+                            # vstimecmp only exists with Sstc, so gate the write on that (use
+                            # force_machine_rw=true so it's written via ecall from HS/M mode --
+                            # direct csrw stimecmp from VS mode is blocked by VTI=1). Also
+                            # always clear hvip.VSTIP (via the same escalating ecall, since
+                            # hvip traps directly from VS/VU) in case that source is what's
+                            # live -- hip.VSTIP is the OR of both, and either could be set.
+                            if _sstc_enabled(ctx):
+                                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="li t2, -1"))
+                                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(vstimecmp, write, false, true)"))
+                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="li t2, 0x40"))
+                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(hvip, clear, false, true)"))
                         else:
-                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="RVMODEL_CLR_VSTIMER_INT(t0, t1)"))
+                            # hvip.VSTIP (bit 6) is always set on trigger regardless of
+                            # Sstc, so always clear it here too. hip.VSTIP = hvip.VSTIP OR
+                            # (with Sstc) the vstimecmp comparator, so also reset
+                            # vstimecmp when Sstc is enabled so its independent signal
+                            # can't keep the interrupt pending.
+                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="li t2, 0x40"))
+                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(hvip, clear, false, true)"))
+                            if _sstc_enabled(ctx):
+                                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="li t2, -1"))
+                                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(vstimecmp, write, false, true)"))
             else:
                 bitmask = _cause_bitmask(causes)
                 # For HS mode: clear mie first (M level), then sie (HS level).
@@ -355,7 +381,14 @@ class DisableInterruptsAction(Action):
                     elif cause == InterruptCause.MSI:
                         actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="RVMODEL_CLR_MSW_INT(t0, t1)"))
                     elif cause == InterruptCause.STI:
-                        actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="RVMODEL_CLR_STIMER_INT(t0, t1)"))
+                        if _sstc_enabled(ctx):
+                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="li t0, 0xffffffff"))
+                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="csrw stimecmp, t0"))
+                        elif ctx.env.priv == PrivilegeMode.M:
+                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=f"li t0, (1 << {InterruptCause.STI.value})"))
+                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="csrc mip, t0"))
+                        else:
+                            actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="# STI pending clear skipped: mip.STIP is M-mode-only when sstc disabled"))
                     elif cause == InterruptCause.MTI:
                         actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="RVMODEL_CLR_MTIMER_INT(t0, t1)"))
 
@@ -552,7 +585,11 @@ class TriggerInterruptAction(Action):
         elif self.cause == InterruptCause.MSI:
             return "RVMODEL_SET_MSW_INT(t0, t1)", False
         elif self.cause == InterruptCause.STI:
-            return "RVMODEL_SET_STIMER_INT(t0, t1)", True
+            if _sstc_enabled(ctx):
+                return "csrwi stimecmp, 0", True
+            if ctx.env.priv == PrivilegeMode.M:
+                return f"li t0, (1 << {InterruptCause.STI.value})\ncsrs mip, t0", False
+            return "nop  # TriggerInterrupt STI: mip.STIP is M-mode-only when sstc disabled", False
         elif self.cause == InterruptCause.MTI:
             return "RVMODEL_SET_MTIMER_INT(t0, t1)", False
         elif self.cause == InterruptCause.SEI:
@@ -571,9 +608,18 @@ class TriggerInterruptAction(Action):
             # ecall path and works regardless of current privilege mode (VS/HS/VU).
             return "li t2, 0x4\n;#csr_rw(hvip, set, false, true)", False
         elif self.cause == InterruptCause.VSTI:
-            # Arms vstimecmp (aliased by stimecmp when V=1). A CSR write that VU
-            # cannot perform, so it needs the SupervisorCode wrapper from VU.
-            return f"RVMODEL_SET_{'' if virtualized else 'V'}STIMER_INT(t0, t1)", True
+            # Guest-side (V=1): arms vstimecmp, but only if Sstc exists. Without
+            # Sstc, hvip is HS-only and traps from VS/VU, so go through the
+            # auto-escalating csr_rw ecall instead (no SupervisorCode wrap needed).
+            # Host-side: the wrapped/HS variant only ever runs at HS/M, where hvip
+            # is reachable inline -- must NOT use the escalating ecall here, since
+            # nesting it inside an enclosing SupervisorCode wrap makes the wrap's
+            # own return get skipped, crashing into unmapped memory.
+            if virtualized and _sstc_enabled(ctx):
+                return "csrwi stimecmp, 0", True
+            if virtualized:
+                return "li t2, 0x40\n;#csr_rw(hvip, set, false, true)", False
+            return "li t2, 0x40\ncsrs hvip, t2", False
         elif self.cause == InterruptCause.VSEI:
             # IMSIC guest interrupt file 1 delivery (analogous to SEI via S-IMSIC).
             # t2 holds the guest interrupt file index (1, the VGEIN home); the HGEI
@@ -654,7 +700,11 @@ class ClearInterruptAction(Action):
         elif self.cause == InterruptCause.MSI:
             return "RVMODEL_CLR_MSW_INT(t0, t1)", False
         elif self.cause == InterruptCause.STI:
-            return "li t0, -1        # push stimecmp deadline to max\ncsrw stimecmp, t0", True
+            if _sstc_enabled(ctx):
+                return "li t0, 0xffffffff  # push stimecmp deadline out\ncsrw stimecmp, t0", True
+            if ctx.env.priv == PrivilegeMode.M:
+                return f"li t0, (1 << {InterruptCause.STI.value})\ncsrc mip, t0", False
+            return "nop  # ClearInterrupt STI: mip.STIP is M-mode-only when sstc disabled", False
         elif self.cause == InterruptCause.MTI:
             asm = "\n".join(
                 [
@@ -692,10 +742,20 @@ class ClearInterruptAction(Action):
             # hvip[2] (VSSIP) is the source — csr_rw auto-escalates from any mode.
             return "li t2, 0x4\n;#csr_rw(hvip, clear, false, true)", False
         elif self.cause == InterruptCause.VSTI:
-            # Push the timer compare to max, de-asserting the VS timer interrupt.
-            # vstimecmp (aliased by stimecmp when V=1) is unreachable from VU, so
-            # this is wrapped in a SupervisorCode (HS) block.
-            return f"RVMODEL_CLR_{'' if virtualized else 'V'}STIMER_INT(t0, t1)", True
+            # Mirrors the trigger above (guest-side needs Sstc; host-side hvip
+            # must stay inline, never the escalating ecall, to avoid breaking an
+            # enclosing SupervisorCode wrap). hip.VSTIP = hvip.VSTIP OR (with
+            # Sstc) the vstimecmp comparator, and either side could be the one
+            # that's live, so always clear both — reset vstimecmp when Sstc is
+            # implemented, and clear hvip via the auto-escalating ecall (since it
+            # traps directly from VS/VU).
+            if virtualized and _sstc_enabled(ctx):
+                return "li t0, 0xffffffff\ncsrw stimecmp, t0\nli t2, 0x40\n;#csr_rw(hvip, clear, false, true)", True
+            if virtualized:
+                return "li t2, 0x40\n;#csr_rw(hvip, clear, false, true)", False
+            if _sstc_enabled(ctx):
+                return "li t2, 0x40\ncsrc hvip, t2\nli t0, 0xffffffff\ncsrw vstimecmp, t0", False
+            return "li t2, 0x40\ncsrc hvip, t2", False
         elif self.cause == InterruptCause.COI:
             # hvip[13] (virtual LCOFI) — csr_rw auto-escalates.
             return "li t2, 0x2000\n;#csr_rw(hvip, clear, false, true)", False
@@ -768,6 +828,11 @@ class AssertInterruptAction(AssertionBase):
         if not _supported(ctx, self.cause):
             self.code = []
             return [DirectiveAction(step_id=ctx.new_value_id(), directive=f"nop  # AssertInterrupt {self.cause.name}: unsupported by cpuconfig")]
+
+        # Without Sstc the nested STI trigger nops outside M mode — collapse the assertion too.
+        if self.cause == InterruptCause.STI and not _sti_directly_controllable(ctx):
+            self.code = []
+            return [DirectiveAction(step_id=ctx.new_value_id(), directive="nop  # AssertInterrupt STI: needs M mode when sstc disabled")]
 
         self.trigger_label = ctx.unique_label("intr_trigger_label")
         self.intr_return_label = ctx.unique_label("intr_return_label")

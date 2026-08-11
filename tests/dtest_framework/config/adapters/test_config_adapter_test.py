@@ -225,3 +225,53 @@ class TestConfigAdapterFeatureDiscovery(unittest.TestCase):
         """Test that setup_features with empty string returns empty list"""
         empty_features = self.adapter.setup_features("")
         self.assertEqual(empty_features, [])
+
+
+class UserProgrammablePmacfgHeaderTest(unittest.TestCase):
+    """;#test.user_programmable_pmacfg states how many pmacfg entries the test programs itself."""
+
+    def setUp(self):
+        self.adapter = TestConfigAdapter()
+        self.rng = RandNum(seed=0)
+
+    def test_parses_decimal_and_hex(self):
+        self.assertEqual(self.adapter.setup_user_programmable_pmacfg("4"), 4)
+        self.assertEqual(self.adapter.setup_user_programmable_pmacfg(" 8 "), 8)
+        self.assertEqual(self.adapter.setup_user_programmable_pmacfg("0x10"), 16)
+
+    def test_rejects_non_integer(self):
+        with self.assertRaises(ValueError):
+            self.adapter.setup_user_programmable_pmacfg("lots")
+
+    def test_rejects_negative(self):
+        with self.assertRaises(ValueError):
+            self.adapter.setup_user_programmable_pmacfg("-1")
+
+    def test_header_records_requirement_not_final_value(self):
+        """The adapter records a floor; build() resolves it against cpu_config/CLI"""
+        builder = FeatMgrBuilder()
+        self.adapter.apply(builder, ParsedTestHeader(user_programmable_pmacfg="4"))
+        self.assertEqual(builder.featmgr.user_programmable_pmacfg_required, 4)
+
+    def test_requirement_raises_lower_configured_value(self):
+        """A test needing 6 entries wins over a config offering 2 - it cannot use fewer"""
+        builder = FeatMgrBuilder()
+        builder.featmgr.user_programmable_pmacfg = 2
+        self.adapter.apply(builder, ParsedTestHeader(user_programmable_pmacfg="6"))
+        featmgr = builder.build(rng=self.rng)
+        self.assertEqual(featmgr.user_programmable_pmacfg, 6)
+
+    def test_higher_configured_value_is_kept(self):
+        """A platform reserving more than the test needs keeps its larger value"""
+        builder = FeatMgrBuilder()
+        builder.featmgr.user_programmable_pmacfg = 12
+        self.adapter.apply(builder, ParsedTestHeader(user_programmable_pmacfg="4"))
+        featmgr = builder.build(rng=self.rng)
+        self.assertEqual(featmgr.user_programmable_pmacfg, 12)
+
+    def test_absent_header_leaves_value_alone(self):
+        builder = FeatMgrBuilder()
+        builder.featmgr.user_programmable_pmacfg = 3
+        self.adapter.apply(builder, ParsedTestHeader())
+        featmgr = builder.build(rng=self.rng)
+        self.assertEqual(featmgr.user_programmable_pmacfg, 3)

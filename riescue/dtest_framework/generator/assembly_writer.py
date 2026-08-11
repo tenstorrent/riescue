@@ -26,7 +26,8 @@ from riescue.dtest_framework.lib.sdtrig import (
 )
 from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.parser import Parser, ParsedPageMapping
-from riescue.dtest_framework.lib.page_map import Page
+from riescue.riemap.request import Page
+from riescue.riemap.result import SpaceResult
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.runtime import Runtime
 from riescue.dtest_framework.artifacts import GeneratedFiles
@@ -74,6 +75,10 @@ class AssemblyWriter:
         else:
             self.code_offset = self.rng.random_in_range(0, 0x3F * 5, 16)
         self.single_assembly_file = self.featmgr.single_assembly_file or self.featmgr.linux_mode
+
+        # Lazily-built (lin_name, map_name) -> riemap declaration Page cache, from
+        # pool.page_translation; see _get_page_for_addr_name.
+        self._page_by_name_and_map: dict[tuple[str, str], Page] | None = None
 
     def write(self, rasm: Path, generated_files: GeneratedFiles) -> None:
         """
@@ -306,7 +311,7 @@ class AssemblyWriter:
             if rest.startswith(","):
                 rest_parts = [p.strip().rstrip(")") for p in rest[1:].split(",")]
                 if rest_parts and "=" not in rest_parts[0]:
-                    # Old format: ;#csr_rw(csr, action, direct_rw, force_machine_rw)
+                    # Positional form: ;#csr_rw(csr, action, direct_rw, force_machine_rw)
                     direct_rw = rest_parts[0].lower()
                     if len(rest_parts) > 1:
                         force_machine_rw_line = rest_parts[1].lower() == "true"
@@ -1276,27 +1281,76 @@ __c__stack:
 
     def _generate_pagetable_assembly(self) -> list[str]:
         """
-        Generate pagetables text, return it as a list of strings.
+        Emit the page-table assembly from the RieMap :class:`AllocationResult`.
 
-        :param pt_file_handle: Filehandle to write pagetables to
+        RieMap already built every tree during allocation; RiescueD consumes the
+        result and formats it -- it does not rebuild the tables. Emit VS/single-stage
+        trees before G-stage trees to match the historical section ordering.
+
         :return: List of strings containing pagetables assembly
         """
-        # Create pagetables here
-        pagetable_content: list[str] = []
-        # Handle the vs-stage pagetables first since we need to know the guest physical
-        # address to generate the g-stage pagetables
-        for map in self.pool.get_page_maps().values():
-            if not map.g_map and map.paging_mode != RV.RiscvPagingModes.DISABLE:
-                map.create_pagetables(self.rng)
-                pagetable_content.append("\n".join(map.generate_pagetables_assembly()))
+        result = self.pool.allocation_result
+        if result is None:
+            return []
 
-        # Now that the vs-stage pagetables are generated, handle the g-stage pagetables
-        if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-            for map in self.pool.get_page_maps().values():
-                if map.g_map:
-                    map.create_pagetables(self.rng)
-                    pagetable_content.append("\n".join(map.generate_pagetables_assembly()))
+        pagetable_content: list[str] = []
+        spaces = list(result.spaces())
+        for space in spaces:
+            if not space.is_gstage and space.paging_mode != RV.RiscvPagingModes.DISABLE:
+                pagetable_content += self._emit_space_tables(space)
+        for space in spaces:
+            if space.is_gstage:
+                pagetable_content += self._emit_space_tables(space)
         return pagetable_content
+
+    @staticmethod
+    def _pagetable_section_name(map_name: str, addr: int) -> str:
+        """RiescueD's linker section name for a page-table node. The core yields
+        structured records; this is where RiescueD's assembly naming convention lives."""
+        return f"__pagetable_{map_name}_0x{addr:016x}"
+
+    def _emit_space_tables(self, space: SpaceResult) -> list[str]:
+        """Format one space's built page-table nodes as assembly and register their sections.
+
+        RieMap's ``TableView`` carries the ``Space`` object, not a name -- look up
+        RiescueD's own map name from ``pool.page_translation`` (the object-keyed
+        ``Translation`` the generator built alongside the ``AllocationResult``)."""
+        lines: list[str] = []
+        translation = self.pool.page_translation
+        map_name = translation.space_names.get(space.space, "unknown") if translation is not None else "unknown"
+        for table in space.tables():
+            section_name = self._pagetable_section_name(map_name, table.addr)
+            lines.append(f'.section .{section_name}, "aw"')
+            self.pool.add_section(section_name=section_name, address=table.addr)
+            lines.append(f"{section_name}:\n.globl {section_name}")
+            entry_size_str = "" if table.entry_size == 0 else f"{table.entry_size}"
+            for entry in table.entries:
+                offset = table.entry_size * entry.index
+                base_addr = (entry.value >> 10) << 12  # PPN of the child table / mapped page
+                lines.append(f"    .org 0x{offset:x}")
+                lines.append(f"        .{entry_size_str}byte 0x{entry.value:016x}")
+                lines.append(f"            #level: {entry.level}: index: 0x{entry.index:x}, base_addr: 0x{base_addr:016x}, value: {entry.value:016x}")
+                lines.append(f"            #attrs: {entry.attrs}")
+        lines += self._page_debug_comments(space, map_name)
+        return lines
+
+    def _page_debug_comments(self, space: SpaceResult, map_name: str) -> list[str]:
+        """Per-page debug comments (name -> address, pagesize) for one space, read
+        straight from the AllocationResult + the object-keyed Translation (no more
+        walker PageMap to iterate -- riemap owns the tree, RiescueD only names it)."""
+        lines: list[str] = ["\n#=========================================================="]
+        lines.append(f"#printing pagetables for debug: map: {map_name}, base_addr: {space.root_addr:016x}, paging_mode: {space.paging_mode}")
+        lines.append("#==========================================================")
+        result = self.pool.allocation_result
+        translation = self.pool.page_translation
+        if result is not None and translation is not None:
+            for page, (lin_name, phys_name) in translation.page_names.items():
+                if page.space is not space.space:
+                    continue
+                va, pa = result.address_of(page)
+                pagesize = result.page_meta(page).pagesize
+                lines.append(f"\n#Page: {lin_name}, 0x{va:016x} -> {phys_name}, 0x{pa:016x}, pagesize:{pagesize}")
+        return lines
 
     def _resolve_pte_levels(
         self,
@@ -1313,12 +1367,13 @@ __c__stack:
         :raises ValueError: On invalid combinations (e.g. 'final' without g_level).
         """
         page = self._get_page_for_addr_name(lin_name)
+        page_meta = self.pool.allocation_result.page_meta(page) if page is not None and self.pool.allocation_result is not None else None
+        paging_mode = page.space.paging_mode if page is not None else self.featmgr.paging_mode
 
         if level_str in ("leaf", "nonleaf", "final"):
-            if page is None:
+            if page_meta is None:
                 raise ValueError(f";#read_pte/;#write_pte: cannot resolve '{level_str}' — no page found for '{lin_name}'")
-            paging_mode = self.featmgr.paging_mode
-            pagesize: RV.RiscvPageSizes = page.pagesize
+            pagesize: RV.RiscvPageSizes = page_meta.pagesize
             leaf_level = RV.RiscvPagingModes.max_levels(paging_mode) - 1 - RV.RiscvPageSizes.pt_leaf_level(pagesize)
             if level_str == "leaf":
                 level = leaf_level
@@ -1334,15 +1389,16 @@ __c__stack:
         g_level: int | None = None
         if g_level_str is not None:
             if g_level_str in ("leaf", "nonleaf"):
-                if page is None:
+                if page_meta is None:
                     raise ValueError(f";#read_pte/;#write_pte: cannot resolve g_level='{g_level_str}' — no page found for '{lin_name}'")
                 g_paging_mode = self.featmgr.paging_g_mode
                 if level_str == "final":
-                    g_pagesize = page.gstage_vs_leaf_pagesize
+                    g_pagesize = page_meta.gstage_vs_leaf_pagesize
                     if g_pagesize is None:
                         raise ValueError(f";#read_pte/;#write_pte: cannot resolve g_level='{g_level_str}' — gstage_vs_leaf_pagesize not set for '{lin_name}'")
                 else:  # "leaf", "nonleaf", or integer level
-                    g_pagesize = page.gstage_vs_nonleaf_pagesize
+                    walker_level = RV.RiscvPagingModes.max_levels(paging_mode) - 1 - level
+                    g_pagesize = page_meta.gstage_node_pagesizes.get(walker_level, page_meta.gstage_vs_nonleaf_pagesize)
                     if g_pagesize is None:
                         raise ValueError(f";#read_pte/;#write_pte: cannot resolve g_level='{g_level_str}' — gstage_vs_nonleaf_pagesize not set for '{lin_name}'")
                 g_leaf_level = RV.RiscvPagingModes.max_levels(g_paging_mode) - 1 - RV.RiscvPageSizes.pt_leaf_level(g_pagesize)
@@ -1353,11 +1409,25 @@ __c__stack:
         return (level, g_level)
 
     def _get_page_for_addr_name(self, lin_name: str) -> Page | None:
-        """Return a Page for this lin_name, or None if not found."""
+        """Return the riemap declaration Page for this lin_name, or None if not found.
+
+        RiescueD's own ``(lin_name, map_name) -> Page`` lookup, built lazily from
+        ``pool.page_translation`` (``page_names``/``page_source``, the object-keyed
+        maps the generator's read-back populated) -- riemap assigns no names of its
+        own, so this is entirely RiescueD-side bookkeeping."""
         map_names = self.pool.get_parsed_page_mapping_with_lin_name(lin_name)
-        if map_names and self.pool.page_exists(lin_name, map_names[0]):
-            return self.pool.get_page(lin_name, map_names[0])
-        return None
+        if not map_names:
+            return None
+        if self._page_by_name_and_map is None:
+            self._page_by_name_and_map = {}
+            translation = self.pool.page_translation
+            if translation is not None:
+                for page, (page_lin_name, _phys_name) in translation.page_names.items():
+                    source = translation.page_source.get(page)
+                    if source is None:
+                        continue
+                    self._page_by_name_and_map[(page_lin_name, source[0])] = page
+        return self._page_by_name_and_map.get((lin_name, map_names[0]))
 
     def _get_page_mapping_for_addr_name(self, addr_name: str) -> ParsedPageMapping | None:
         """Return a ParsedPageMapping for this equate name if it is a lin_name or phys_name."""

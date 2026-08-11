@@ -4,31 +4,58 @@
 import re
 import io
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 import copy
 
-import riescue.dtest_framework.lib.addrgen as addrgen
+import riescue.riemap.addrgen as addrgen
+import riescue.riemap.resolve as resolve
 import riescue.lib.common as common
 import riescue.lib.enums as RV
 from riescue.dtest_framework.runtime.rand_mem_breakpoint import apply as apply_rand_mem_breakpoint
+from riescue.dtest_framework.runtime.loader import decoy_pma_budget
+from riescue.dtest_framework.runtime.rand_mem_breakpoint import apply_icount_park as apply_rand_mem_icount_park
 from riescue.dtest_framework.runtime.selfcheck import SELFCHECK_CHECKSUM_SIZE
 from riescue.dtest_framework.runtime.test_execution_logger import TEST_EXECUTION_DATA_PER_HART_SIZE
 from riescue.lib.address import Address
 from riescue.lib.numgen import NumGen
 from riescue.lib.rand import RandNum
-from riescue.dtest_framework.pool import Pool
-from riescue.dtest_framework.parser import PmaInfo, ParsedPageMapping, Parser, ParsedRandomAddress, ParsedRandomData
+from riescue.dtest_framework.pool import Pool, PageMapInfo, PageInfo
+from riescue.dtest_framework.parser import PmaInfo, ParsedPageMapping, Parser, ParsedRandomData
 from riescue.dtest_framework.config import FeatMgr
 from riescue.dtest_framework.config.pma_config import MAX_PMA_REGIONS
-from riescue.dtest_framework.lib.page_map import Page, PageMap
+from riescue.dtest_framework.generator.pt_request_builder import build_page_tables, SectionAddr, SectionSpec, _Placement
 from riescue.dtest_framework.lib.pma_generator import PmaGenerator, PmaRandomizer
 from riescue.dtest_framework.generator.assembly_writer import AssemblyWriter
 from riescue.dtest_framework.artifacts import GeneratedFiles
-from riescue.dtest_framework.config.memory import DramRange, IoRange
+from riescue.riemap.memory import DramRange, IoRange
 from riescue.lib.enums import PmpAttributes
 
 log = logging.getLogger(__name__)
+
+
+def pma_fixed_region_name(range_name: str) -> str:
+    """The PMA region name a fixed memory-map window is published under (``pma_<range name>``)."""
+    return f"pma_{range_name}"
+
+
+@dataclass
+class PmaRegionBinding:
+    """Provenance for one pre-allocated PMA region: the :class:`PmaInfo` itself, plus
+    whether the read-back must register it into ``pool.pma_regions``.
+
+    Decided at the exact moment :meth:`Generator._pre_allocate_pma_regions_for_in_pma`
+    resolves an ``in_pma`` address to a region: a brand-new region (never seen by the
+    pool before) must be registered once its address is read back
+    (``register_on_readback=True``); a reused hint region, an adopted randomized decoy,
+    or a region shared with an earlier ``in_pma`` address in this same pre-allocation
+    pass is already tracked elsewhere (``pool.pma_regions`` or ``pool.pma_random_regions``)
+    and must NOT be registered again, or it would double-count a PMA entry at emission.
+    """
+
+    info: PmaInfo
+    register_on_readback: bool
 
 
 class Generator:
@@ -49,6 +76,9 @@ class Generator:
             self.featmgr.debug_mode = True
         self.numgen = NumGen(self.rng)
         self.numgen.default_genops()
+
+        # PMA region names owned by fixed memory-map windows; exempt from carve-out mask randomization
+        self._pma_fixed_region_names: set[str] = set()
 
         self.run_dir = run_dir
         self.writer = AssemblyWriter(rng=self.rng, pool=self.pool, run_dir=self.run_dir, featmgr=self.featmgr)
@@ -181,6 +211,12 @@ class Generator:
             # Since this secure region, we need to set bit-55 to 1 for PMP entries only
             self.pool.pmp_regions.add_region(range=range, secure=True)
 
+        # Memory-map ranges with pma_randomization: false. Named after the range so the test reaches the
+        # window through pma_<name>_base/_size/_end, and so decoys never shadow it.
+        for range in memory.pma_fixed_ranges:
+            self.pool.pma_regions.add_entry(PmaInfo(pma_name=pma_fixed_region_name(range.name), pma_address=range.start, pma_size=range.size, pma_valid=True))
+            self._pma_fixed_region_names.add(pma_fixed_region_name(range.name))
+
         for range in memory.io_ranges + memory.reserved_ranges:
             self.pool.pma_regions.add_region(base=range.start, size=range.size, type="io")
             if isinstance(range, IoRange) and (range.name == "htif" or range in memory.io_ranges):
@@ -222,13 +258,15 @@ class Generator:
         # Generate randomized decoy PMA regions (no-op unless enable_pma_randomization)
         self._generate_random_pma_regions(memory)
 
-        # PMA placement bookkeeping: fully-reserved regions, per-region page spans, promised capacity
-        # Values keep a PmaInfo reference so id() keys stay live (consolidation copies can be GC'd)
-        self._fully_reserved_region_ids: set[int] = set()
-        self._pma_region_page_spans: dict[int, tuple["PmaInfo", list[tuple[int, int]]]] = {}
+        # PMA region promised-capacity bookkeeping. The value keeps a PmaInfo reference
+        # so id() keys stay live (consolidation copies can be GC'd).
         self._pma_region_promised: dict[int, tuple["PmaInfo", int]] = {}
-        # Derived buddy addrs placed inside their source's double-span allocation (see generate_addr)
-        self._span_placed_buddies: set[str] = set()
+
+        # Explicit provenance for every pre-allocated PMA region, keyed by id(PmaInfo): whether
+        # the read-back must register it into pool.pma_regions (see PmaRegionBinding). Decided
+        # at the exact decision point in _pre_allocate_pma_regions_for_in_pma, not re-derived
+        # heuristically at read-back time.
+        self._pma_region_bindings: dict[int, PmaRegionBinding] = {}
 
         # Pre-allocate PMA regions for all in_pma=1 addresses
         # This ensures all PMA regions are determined during initialization
@@ -239,8 +277,7 @@ class Generator:
             memory,
             self.featmgr.addrgen_limit_indices,
             self.featmgr.addrgen_limit_way_predictor_multihit,
-            pma_regions=self.pool.pma_regions,  # Pass PMA regions for address checking
-            excluded_pma_regions=self.pool.pma_random_regions,  # decoys: generated addresses must avoid these
+            excluded_regions=self.pool.pma_random_exclusions,  # decoys: generated addresses must avoid these
         )
 
     def _generate_pma_from_hints(self, memory) -> None:
@@ -307,7 +344,7 @@ class Generator:
                 blocked.append((region.pma_address, region.get_end_address()))
 
         randomizer = PmaRandomizer(self.rng, self.featmgr.pma_random_mask_pct, self.physical_addr_bits)
-        self.pool.pma_random_regions.extend(randomizer.generate(self.featmgr.pma_random_regions, blocked))
+        self.pool.extend_pma_random_regions(randomizer.generate(self.featmgr.pma_random_regions, blocked))
         log.info(f"Generated {len(self.pool.pma_random_regions)} randomized decoy PMA regions")
 
     def _fixed_blocked_intervals(self, memory) -> "list[tuple[int, int]]":
@@ -315,10 +352,10 @@ class Generator:
         Collect every fixed/known physical [start, end) interval decoys and masks must avoid.
 
         :param memory: Memory configuration object
-        :return: List of blocked intervals (secure/reserved/custom, reset_pc, IO windows, fixed addrs)
+        :return: List of blocked intervals (secure/reserved/custom/fixed, reset_pc, IO windows, fixed addrs)
         """
         blocked: list[tuple[int, int]] = []
-        for mem_range in memory.secure_ranges + memory.reserved_ranges + memory.custom_ranges:
+        for mem_range in memory.secure_ranges + memory.reserved_ranges + memory.custom_ranges + memory.pma_fixed_ranges:
             blocked.append((mem_range.start, mem_range.start + mem_range.size))
         blocked.append((self.featmgr.reset_pc, self.featmgr.reset_pc + 0x100_0000))
         for io_addr, io_size in (
@@ -357,7 +394,9 @@ class Generator:
         if not self.featmgr.enable_pma_randomization:
             return  # keep zero rng draws when disabled
 
-        carveouts = [r for r in self.pool.pma_regions.consolidated_entries(merge_named=False) if r.pma_name.startswith("pma_") and r.pma_address != 0]
+        carveouts = [
+            r for r in self.pool.pma_regions.consolidated_entries(merge_named=False) if r.pma_name.startswith("pma_") and r.pma_name not in self._pma_fixed_region_names and r.pma_address != 0
+        ]
         if not carveouts:
             return
 
@@ -367,18 +406,26 @@ class Generator:
 
         randomizer = PmaRandomizer(self.rng, self.featmgr.pma_carveout_mask_pct, self.physical_addr_bits)
         for region in carveouts:
-            # Drop intervals fully inside the region's own span: every mask matches its own base window
+            # Clip the region's own span out of every interval: every mask matches its own base
+            # window, so an interval overlapping the span (e.g. the addrgen cluster run that
+            # contains the carveout's own allocation) would otherwise veto every candidate mask
             span_start, span_end = region.pma_address, region.get_end_address()
-            blocked_other = [iv for iv in blocked if not (iv[0] >= span_start and iv[1] <= span_end)]
+            blocked_other = []
+            for start, end in blocked:
+                if start < span_start:
+                    blocked_other.append((start, min(end, span_start)))
+                if end > span_end:
+                    blocked_other.append((max(start, span_end), end))
             if region.pma_mask_requested:
                 if not randomizer.apply_random_mask(region, blocked_other, force=True):
                     raise ValueError(
-                        f"pma_masked region '{region.pma_name}' (base=0x{region.pma_address:x}, size=0x{region.pma_size:x}): " f"no safe pmamask found after {randomizer.MASK_ATTEMPTS} attempts"
+                        f"pma_masked region '{region.pma_name}' (base=0x{region.pma_address:x}, size=0x{region.pma_size:x}): "
+                        f"no safe pmamask found after {randomizer.MASK_ATTEMPTS} random attempts and a single-bit sweep"
                     )
             else:
                 randomizer.apply_random_mask(region, blocked_other)
             if region.pma_mask:
-                self.addrgen.exclude_pma_region(region)
+                self.addrgen.exclude_region(region.excluded_region())
                 log.info(f"Masked carve-out region {region.pma_name}: mask=0x{region.pma_mask:x}")
 
     def _pre_allocate_pma_regions_for_in_pma(self, memory) -> None:
@@ -416,7 +463,8 @@ class Generator:
         if not self.featmgr.enable_pma_randomization:
             for addr_name, parsed_addr in in_pma_addresses:
                 if parsed_addr.pma_masked:
-                    # Legacy loader emits pmacfg=0 for pma_valid regions, so a masked-legacy region is nonsense
+                    # The non-randomized PMA loader emits pmacfg=0 for
+                    # pma_valid regions and cannot represent a masked region.
                     raise ValueError(f"random_addr {addr_name}: pma_masked=1 requires --enable_pma_randomization")
 
         log.info(f"Pre-allocating PMA regions for {len(in_pma_addresses)} addresses with in_pma=1")
@@ -478,6 +526,11 @@ class Generator:
                 # Store reference to existing region
                 self._pre_allocated_pma_regions[addr_name] = matching_region
                 # Update parsed_addr to point to existing region
+                # Reused hint / adopted decoy / shared-with-an-earlier-member region: it is
+                # already tracked in pool.pma_regions or pool.pma_random_regions, so read-back
+                # must not register it again (setdefault: a share only ever revisits the SAME
+                # object this loop already bound, never overwrites its provenance).
+                self._pma_region_bindings.setdefault(id(matching_region), PmaRegionBinding(info=matching_region, register_on_readback=False))
                 parsed_addr.pma_info = matching_region
             else:
                 # Need to create new PMA region
@@ -502,6 +555,9 @@ class Generator:
                 self._pre_allocated_pma_regions[addr_name] = pma_info
                 # Update parsed_addr to point to pre-allocated region
                 parsed_addr.pma_info = pma_info
+                # Brand new: never seen by pool.pma_regions before, so read-back must register
+                # it exactly once when its address is finally chosen.
+                self._pma_region_bindings[id(pma_info)] = PmaRegionBinding(info=pma_info, register_on_readback=True)
 
                 # Track this region by attributes for potential sharing
                 attr_key = (
@@ -517,8 +573,8 @@ class Generator:
                 )
                 pre_allocated_by_attrs[attr_key] = pma_info
 
-                # Note: We don't add it to pool.pma_regions yet because we don't have the address
-                # It will be added in handle_random_addr when the address is generated
+                # Not added to pool.pma_regions yet: its address is chosen later, when the
+                # builder resolves the region and the allocation is read back.
                 available_slots -= 1
                 log.debug(f"Pre-allocated PMA region for {addr_name}: " f"size=0x{pma_info.pma_size:x}, type={pma_info.pma_memory_type}")
 
@@ -580,68 +636,6 @@ class Generator:
         """Reject regions whose promised placements would overflow them."""
         return region.pma_size - self._promised_bytes(region) >= size
 
-    def _anchor_pma_region(self, region: "PmaInfo", constraints: addrgen.AddressConstraint) -> None:
-        """Anchor a new in_pma region: pow2 size, size-aligned base, whole region reserved, decoys avoided."""
-        region.pma_size = 1 << max(12, (region.pma_size - 1).bit_length())
-        # Base alignment must satisfy both the NAPOT region size and the page constraint's alignment
-        alignment = max(region.pma_size, max(constraints.mask & -constraints.mask, 0x1000))
-        region_constraint = addrgen.AddressConstraint(
-            type=RV.AddressType.PHYSICAL,
-            qualifiers=constraints.qualifiers,
-            bits=constraints.bits,
-            size=region.pma_size,
-            mask=(~(alignment - 1)) & 0xFFFFFFFFFFFFFFFF,
-        )
-        try:
-            region.pma_address = self.addrgen.generate_address(constraint=region_constraint)
-        except Exception as e:
-            raise addrgen.AddrGenError(f"Could not anchor PMA region '{region.pma_name}' (size 0x{region.pma_size:x})") from e
-        self._fully_reserved_region_ids.add(id(region))
-        self.pool.pma_regions.add_entry(region)
-        log.debug(f"Anchored PMA region '{region.pma_name}' at 0x{region.pma_address:x}, size 0x{region.pma_size:x}")
-
-    def _place_in_pma_region(self, region: "PmaInfo", constraints: addrgen.AddressConstraint) -> Optional[int]:
-        """Collision-free random placement inside a region; reserves the span unless the region is fully reserved."""
-        size = constraints.size
-        step = max(constraints.mask & -constraints.mask, 0x1000)  # alignment granularity from the AND-mask
-        first = (region.pma_address + step - 1) & ~(step - 1)
-        last = min(region.get_end_address(), 1 << constraints.bits) - size
-        if last < first:
-            return None
-        num_slots = (last - first) // step + 1
-        fully_reserved = id(region) in self._fully_reserved_region_ids
-        taken = self._pma_region_page_spans.setdefault(id(region), (region, []))[1]
-        for _ in range(32):
-            address = first + self.rng.random_in_range(0, num_slots) * step
-            span_end = address + size
-            if any(start < span_end and address < end for start, end in taken):
-                continue
-            if not fully_reserved and self.addrgen.physical_overlap(address, size):
-                continue
-            taken.append((address, span_end))
-            if not fully_reserved:
-                self.addrgen.reserve_memory(address_type=RV.AddressType.PHYSICAL, start_address=address, size=size)
-            log.debug(f"Placed 0x{address:x} (+0x{size:x}) in PMA region '{region.pma_name}'")
-            return address
-        return None
-
-    def _pma_mapped_region_for_lin(self, lin_name: str) -> Optional[tuple["PmaInfo", str]]:
-        """Paging-disable: return (region, phys_name) of the pre-allocated PMA region mapped to this lin name."""
-        if not self.pool.parsed_page_mapping_with_lin_name_exists(lin_name):
-            return None
-        for map_key in self.pool.get_parsed_page_mapping_with_lin_name(lin_name):
-            parsed_page_mapping = self.pool.get_parsed_page_mapping(lin_name, map_key)
-            if parsed_page_mapping.phys_name in self._pre_allocated_pma_regions:
-                return self._pre_allocated_pma_regions[parsed_page_mapping.phys_name], parsed_page_mapping.phys_name
-        return None
-
-    def _resolved_lin_for_phys(self, phys_name: str) -> Optional[int]:
-        """Return the already-resolved linear address whose page mapping references phys_name."""
-        for (lin_name, _), parsed_page_mapping in self.pool.get_parsed_page_mappings().items():
-            if parsed_page_mapping.phys_name == phys_name and lin_name in self.pool.get_random_addrs():
-                return self.pool.get_random_addr(lin_name).address
-        return None
-
     def _resolved_request_size(self, phys_name: str) -> int:
         """Bytes phys_name's placement will request: directive size grown by any resolved mapping pagesize."""
         size = self.pool.get_parsed_addr(phys_name).size if self.pool.parsed_random_addr_exists(addr_name=phys_name) else 0x1000
@@ -658,6 +652,26 @@ class Generator:
         """Total bytes all sharers of this pre-allocated region will place (mapping pagesizes resolve after pre-allocation)."""
         return sum(self._resolved_request_size(name) for name, shared in self._pre_allocated_pma_regions.items() if shared is region)
 
+    def _project_decoy_budget(self) -> int:
+        """Project how many randomized decoys will survive to be emitted, before RieMap runs.
+
+        ``loader.setup_pma`` truncates decoys to fit only at emission time (deep inside
+        ``writer.write()``), long after RieMap already drew page-table frames and pages
+        avoiding every decoy in ``pool.pma_random_exclusions``. A decoy that would be
+        truncated away at emission time must not still veto placements here, so this
+        mirrors that same essential-entry accounting (:func:`decoy_pma_budget`) using the
+        entries already known before RieMap runs: the current consolidated PMA count plus
+        every ``in_pma`` region this pass pre-allocated but has not yet added to the pool
+        (``register_on_readback=True`` bindings whose address is still unresolved).
+        """
+        if not self.featmgr.enable_pma_randomization:
+            return len(self.pool.pma_random_regions)
+        randomize = True
+        existing = len(self.pool.pma_regions.consolidated_entries(merge_named=not randomize))
+        pending_new = len({id(binding.info) for binding in self._pma_region_bindings.values() if binding.register_on_readback and binding.info.pma_address == 0})
+        reserved = self.featmgr.user_programmable_pmacfg
+        return decoy_pma_budget(reserved, existing + pending_new, self.featmgr.num_pmas)
+
     def generate(self, file_in: Path, generated_files: GeneratedFiles):
         """
         Generate random data, randomize addresses, create page mappings, reserve memory, and write all files
@@ -666,7 +680,13 @@ class Generator:
         # via ;#rand_mem_breakpoint_pool directives. No-op when the switch is 0
         # or the pool is empty. Must run before writer.write() so the registered
         # hook + default exception handler are visible to asm emission.
-        apply_rand_mem_breakpoint(self.featmgr, self.pool, self.rng)
+        icount_slot_claimed = apply_rand_mem_breakpoint(self.featmgr, self.pool, self.rng)
+
+        # --rand_mem_icount_park_pct is a separate gate: it only touches the icount trigger slot,
+        # needs no address pool and registers no handler, so it applies whether or not the watchpoint
+        # feature above rolled true. It stands down when that feature already claimed the slot.
+        # Same ordering requirement -- must precede writer.write().
+        apply_rand_mem_icount_park(self.featmgr, self.pool, self.rng, icount_slot_claimed=icount_slot_claimed)
 
         # The order of calling following functions is very important, please do not change
         # unless you know what you are doing
@@ -674,12 +694,12 @@ class Generator:
         self.generate_data()
         self.add_page_maps()
         self.generate_sections()
-        self.initialize_page_maps()
         self.handle_res_mem()
-        self.generate_addr()
-        self.handle_page_mappings()
+        self.allocate_via_riemap()
         self.generate_init_mem()
-        # After all test allocations are final but before writer.write() allocates page tables
+        # allocate_via_riemap already ran (RieMap owns page-table allocation, not
+        # writer.write()); carve-out masks are chosen against those already-placed PT
+        # intervals, read back into addrgen during allocate_via_riemap's read-back.
         self._apply_carveout_masks()
 
         self.writer.write(rasm=file_in, generated_files=generated_files)
@@ -722,366 +742,28 @@ class Generator:
     def add_page_maps(self):
         """
         Add all the required page maps here
+
+        These are RiescueD's lightweight ``PageMapInfo`` records: name,
+        paging mode, and an ``sptbr`` filled from RieMap's
+        ``AllocationResult``.
         """
         # Before generating any addresses, create default map_os paging_map
         # If paging is disabled, we still need to add dummy map_os (let's choose the paging mode to be SV39)
-        map_os = PageMap(
-            name="map_os",
-            pool=self.pool,
-            paging_mode=self.featmgr.paging_mode,
-            addrgen=self.addrgen,
-            featmgr=self.featmgr,
-        )
+        map_os = PageMapInfo(name="map_os", paging_mode=self.featmgr.paging_mode)
         self.pool.add_page_map(map_instance=map_os)
-        # map_os.initialize()
 
         # If virtualization is enabled and g_stage is not bare, setup map_hyp
         if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and (self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE or self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE):
-            map_hyp = PageMap(
-                name="map_hyp",
-                pool=self.pool,
-                paging_mode=self.featmgr.paging_g_mode,
-                addrgen=self.addrgen,
-                featmgr=self.featmgr,
-                g_map=True,
-            )
+            map_hyp = PageMapInfo(name="map_hyp", paging_mode=self.featmgr.paging_g_mode)
             self.pool.add_page_map(map_instance=map_hyp)
-            # map_hyp.initialize()
 
         # Handle user defined maps
         for map_name, parsed_map in self.pool.get_parsed_page_maps().items():
             mode = self.featmgr.paging_mode
             if parsed_map.mode != "testmode":
                 mode = RV.RiscvPagingModes[parsed_map.mode.upper()]
-            map_inst = PageMap(
-                name=map_name,
-                pool=self.pool,
-                paging_mode=mode,
-                addrgen=self.addrgen,
-                featmgr=self.featmgr,
-            )
+            map_inst = PageMapInfo(name=map_name, paging_mode=mode)
             self.pool.add_page_map(map_instance=map_inst)
-            # map_inst.initialize()
-
-    def initialize_page_maps(self):
-        """
-        Initialize all the page maps.
-        Need to separate out the initialization from the creation of page maps since
-        the initialization needs to be called after creating the sections. This is
-        because the sections have some fixed addresses and we do not want sptbr (which
-        is generated during the initialization of page maps) to overwrite those addresses.
-        """
-        # Initialize default map_os paging_map
-        map_os = self.pool.get_page_map("map_os")
-        map_os.initialize()
-
-        # Initialize hypervisor map
-        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-            map_hyp = self.pool.get_page_map("map_hyp")
-            map_hyp.initialize()
-
-        # Handle user defined maps
-        for map_name, parsed_map in self.pool.get_parsed_page_maps().items():
-            map_inst = self.pool.get_page_map(map_name)
-            map_inst.initialize()
-
-    def handle_fixed_page_mappings(self, page_mapping):
-        """
-        Handles syntax like:
-        ;#page_mapping(lin_addr=0x5000, phys_addr=0x5000, v=1, r=1, w=1)
-        ;#page_mapping(lin_addr=0x5000, phys_addr=&random, v=1, r=1, w=1)
-        """
-        lin_addr_name = None
-        phys_addr_name = None
-        lin_addr = None
-        phys_addr = None
-
-        # Handle maps
-        # Everything goes in map_os, map_hyp by default
-        page_maps = ["map_os"]
-        # Add hypervisor map if we are in virtualized mode
-        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-            page_maps += ["map_hyp"]
-        page_maps += page_mapping.page_maps
-
-        if self.featmgr.private_maps:
-            # The command line has --private_maps enabled. This means
-            # that the only non-private map is map_os and any of its
-            # mappings should be available in all private maps.
-            if not page_mapping.in_private_map:
-                for map in self.pool.get_page_maps().values():
-                    if map.name == "map_os":
-                        continue
-                    page_maps += [map.name]
-
-        self.randomize_pagesize(page_mapping)
-        address_size = page_mapping.address_size
-        address_mask = page_mapping.address_mask
-        phys_addr_size = page_mapping.phys_address_size
-        phys_addr_mask = page_mapping.phys_address_mask
-        if self.featmgr.reserve_partial_phys_memory:
-            phys_addr_size = 0x1000
-        # If g-stage s enabled, this physical address becomes GPA. It means that the alignment of
-        # this address should be at least the size of gstage_vs_leaf pagesize
-        if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-            phys_addr_mask = min(phys_addr_mask, page_mapping.gstage_vs_leaf_address_mask)
-            phys_addr_size = max(phys_addr_size, page_mapping.gstage_vs_leaf_address_size)
-            if self.featmgr.reserve_partial_phys_memory:
-                phys_addr_size = 0x1000
-
-        if page_mapping.lin_addr_specified:
-            lin_addr_name = page_mapping.lin_name
-            lin_addr = int(page_mapping.lin_addr, 0)
-        else:
-            lin_addr_name = page_mapping.lin_name
-
-        if page_mapping.phys_addr_specified:
-            phys_addr_name = page_mapping.phys_name
-            phys_addr = int(page_mapping.phys_addr, 0)
-            addr_inst = Address(name=phys_addr_name, type=RV.AddressType.PHYSICAL, address=phys_addr)
-            self.pool.add_random_addr(addr_name=phys_addr_name, addr=addr_inst, allow_duplicate=True)
-
-            # If lin_name was specified with with phys_addr in page_mapping, then we need to handle it here
-            if not page_mapping.lin_addr_specified:
-                lin_addr_name = page_mapping.lin_name
-                lin_addr = phys_addr
-
-                # FIXME: Make linear address size and mask same as physical address for now. Eventually, we will need
-                # to generate an address for linear address
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.LINEAR,
-                    start_address=lin_addr,
-                    size=address_size,
-                )
-
-                # Also add the random_addr for this linear address
-                addr_inst = Address(name=lin_addr_name, type=RV.AddressType.LINEAR, address=lin_addr)
-                self.pool.add_random_addr(addr_name=lin_addr_name, addr=addr_inst)
-
-        else:
-            # phys_name is specified to be either an actual name or special &random
-            # Here, we only handle &random along with a fixed linear address
-            if page_mapping.phys_name == "&random":
-                if not (self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE):
-                    phys_addr_size = RV.RiscvPageSizes.memory(page_mapping.final_pagesize)
-                    if self.featmgr.reserve_partial_phys_memory:
-                        phys_addr_size = 0x1000
-                    phys_addr_mask = RV.RiscvPageSizes.address_mask(page_mapping.final_pagesize)
-                    # If g-stage s enabled, this physical address becomes GPA. It means that the alignment of
-                    # this address should be at least the size of gstage_vs_leaf pagesize
-                    if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                        phys_addr_mask = min(phys_addr_mask, page_mapping.gstage_vs_leaf_address_mask)
-                        phys_addr_size = 0x1000
-                        if self.featmgr.reserve_partial_phys_memory:
-                            phys_addr_size = max(phys_addr_size, page_mapping.gstage_vs_leaf_address_size)
-                qualifiers = [RV.AddressQualifiers.ADDRESS_DRAM]
-                marked_secure = False
-                if self.featmgr.secure_mode:
-                    if page_mapping.secure or (self.featmgr.secure_mode and self.rng.with_probability_of(self.featmgr.secure_access_probability)):
-                        marked_secure = True
-                        qualifiers = [RV.AddressQualifiers.ADDRESS_SECURE]
-                        # If machine mode then we need to set the bit-55 of linear and physical address
-                        if self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
-                            lin_addr = lin_addr | (1 << 55)
-                phys_addr_name = "__auto_phys_" + lin_addr_name
-                phys_addr_c = addrgen.AddressConstraint(
-                    type=RV.AddressType.PHYSICAL,
-                    qualifiers=qualifiers,
-                    bits=min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps(page_maps)),
-                    size=phys_addr_size,
-                    mask=phys_addr_mask,
-                )
-                if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-                    phys_addr = lin_addr
-                    log.debug(f"Generator: reserving memory: {phys_addr_name}, {phys_addr:016x}, {phys_addr_size:x}")
-                    self.addrgen.reserve_memory(
-                        address_type=RV.AddressType.PHYSICAL,
-                        start_address=phys_addr,
-                        size=address_size,
-                    )
-                else:
-                    phys_addr = self.addrgen.generate_address(constraint=phys_addr_c)
-                    if marked_secure and self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE:
-                        phys_addr = phys_addr | (1 << 55)
-
-                addr_inst = Address(name=phys_addr_name, type=RV.AddressType.PHYSICAL, address=phys_addr)
-
-                self.pool.add_random_addr(addr_name=lin_addr_name, addr=addr_inst)
-
-            else:
-                # datum.phys_name is already specified
-                phys_addr_name = page_mapping.phys_name
-
-        # Also create an instance of Page for this page_mapping
-        # TODO: Handle specified page_maps
-        p = Page(
-            name=lin_addr_name,
-            phys_name=phys_addr_name,
-            pool=self.pool,
-            featmgr=self.featmgr,
-            addrgen=self.addrgen,
-            maps=page_maps,
-        )
-        p.lin_addr = lin_addr
-        p.size = page_mapping.address_size
-        p.pagesize = page_mapping.final_pagesize
-        if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-            self.update_page_attrs(page=p, parsed_page_mapping=page_mapping)
-            # p.gstage_vs_leaf_pagesize = page_mapping.gstage_vs_leaf_final_pagesize
-            # p.gstage_vs_nonleaf_pagesize = page_mapping.gstage_vs_nonleaf_final_pagesize
-            # p.gstage_vs_leaf_address_size = page_mapping.gstage_vs_leaf_address_size
-            # p.gstage_vs_nonleaf_address_size = page_mapping.gstage_vs_nonleaf_address_size
-            # p.gstage_vs_leaf_address_mask = page_mapping.gstage_vs_leaf_address_mask
-            # p.gstage_vs_nonleaf_address_mask = page_mapping.gstage_vs_nonleaf_address_mask
-        if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-            p.phys_addr = lin_addr
-            self.addrgen.reserve_memory(
-                address_type=RV.AddressType.PHYSICAL,
-                start_address=p.phys_addr,
-                size=p.size,
-            )
-        else:
-            p.phys_addr = phys_addr
-        self.pass_parsed_attrs(page=p, parsed_page_mapping=page_mapping)
-        if page_mapping.in_private_map:
-            p.in_private_map = True
-        self.pool.add_page(page=p, map_names=page_maps)
-
-        # return tuple([lin_addr_name, lin_addr]), tuple([phys_addr_name, phys_addr])
-
-    def handle_random_page_mappings(self, page_mapping):
-        """
-        Handle syntax like:
-        ;#page_mapping(lin_addr=lin1, phys_addr=&random, v=1, r=1, w=1)
-        """
-
-        lin_addr_name = page_mapping.lin_name
-
-        if self.pool.random_addr_exists(lin_addr_name):
-            return
-        phys_addr_name = "__auto_phys_" + lin_addr_name
-
-        # Handle maps
-        page_maps = ["map_os"]  # Everything goes in map_os, map_hyp by default
-        # Add hypervisor map if we are in virtualized mode
-        if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE and self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-            page_maps += ["map_hyp"]
-        page_maps += page_mapping.page_maps
-
-        lin_parsed_addr = self.pool.get_parsed_addr(lin_addr_name)
-        if lin_parsed_addr.addr_bits is None:
-            lin_parsed_addr.addr_bits = min(self.linear_addr_bits, self.pool.get_min_linear_addr_bits_for_page_maps(page_maps))
-
-        self.randomize_pagesize(page_mapping)
-
-        phys_addr_bits = min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps(page_maps))
-        address_size = max(page_mapping.address_size, lin_parsed_addr.size)
-        address_mask = min(page_mapping.address_mask, lin_parsed_addr.and_mask)
-        phys_addr_size = max(page_mapping.phys_address_size, lin_parsed_addr.size)
-        phys_addr_mask = min(page_mapping.phys_address_mask, lin_parsed_addr.and_mask)
-        if self.featmgr.reserve_partial_phys_memory:
-            phys_addr_size = 0x1000
-
-        if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-            phys_addr_bits = min(lin_parsed_addr.addr_bits, phys_addr_bits)
-        else:
-            phys_addr_size = RV.RiscvPageSizes.memory(page_mapping.final_pagesize)
-            if self.featmgr.reserve_partial_phys_memory:
-                phys_addr_size = 0x1000
-            phys_addr_mask = RV.RiscvPageSizes.address_mask(page_mapping.final_pagesize)
-            # If g-stage s enabled, this physical address becomes GPA. It means that the alignment of
-            # this address should be at least the size of gstage_vs_leaf pagesize
-            if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                phys_addr_mask = min(phys_addr_mask, page_mapping.gstage_vs_leaf_address_mask)
-                phys_addr_size = max(phys_addr_size, page_mapping.gstage_vs_leaf_address_size)
-                if self.featmgr.reserve_partial_phys_memory:
-                    phys_addr_size = 0x1000
-
-        # # Convert mask like 0x0000003ffffff000 to address_bits like 38 using top set bit
-        # # Find the top bit set in the mask
-        # addr_bits = address_mask.bit_length()
-
-        # Handle linear address
-        lin_addr_c = addrgen.AddressConstraint(
-            type=RV.AddressType.LINEAR,
-            # address_bits=int(re.findall(r'linear(\d+)',lin_parsed_addr.type)[0]),
-            bits=lin_parsed_addr.addr_bits,
-            # address_bits=addr_bits,
-            size=address_size,
-            mask=address_mask,
-        )
-        lin_addr_orig = self.addrgen.generate_address(constraint=lin_addr_c)
-        lin_addr = self.canonicalize_lin_addr(lin_addr_orig)
-        log.debug(f"Adding addr: {lin_addr_name}, constraint: {lin_addr_c}")
-        log.debug(f"Adding addr: {lin_addr_name}, addr: {lin_addr_orig:016x}")
-
-        # Handle physical address
-        qualifiers = [RV.AddressQualifiers.ADDRESS_DRAM]
-        marked_secure = False
-        if self.featmgr.secure_mode:
-            if page_mapping.secure or (self.featmgr.secure_mode and self.rng.with_probability_of(self.featmgr.secure_access_probability)):
-                marked_secure = True
-                qualifiers = [RV.AddressQualifiers.ADDRESS_SECURE]
-        phys_addr_c = addrgen.AddressConstraint(
-            type=RV.AddressType.PHYSICAL,
-            qualifiers=qualifiers,
-            bits=phys_addr_bits,
-            size=phys_addr_size,
-            mask=phys_addr_mask,
-        )
-        phys_addr = self.addrgen.generate_address(constraint=phys_addr_c)
-        if marked_secure and self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE:
-            phys_addr = phys_addr | (1 << 55)
-        log.debug(f"Adding addr: {phys_addr_name}, constraint: {phys_addr_c}")
-        log.debug(f"Adding addr: {phys_addr_name}, addr: {phys_addr:016x}")
-        if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-            self.addrgen.reserve_memory(
-                address_type=RV.AddressType.LINEAR,
-                start_address=phys_addr,
-                size=address_size,
-            )
-            # Clear bit-55 and canonicalize the linear address since we are using it as physical address
-            lin_addr = phys_addr
-            if not marked_secure:
-                lin_addr = phys_addr & ~(1 << 55)
-            lin_addr = self.canonicalize_lin_addr(lin_addr)
-        # else:
-        #     phys_addr = addrgen.generate_address(phys_addr_c)
-        # Add the linear address ince it's handled for the PAGING_DISABLE case
-        addr_inst = Address(name=lin_addr_name, type=RV.AddressType.LINEAR, address=lin_addr)
-        self.pool.add_random_addr(addr_name=lin_addr_name, addr=addr_inst)
-
-        addr_inst = Address(name=phys_addr_name, type=RV.AddressType.PHYSICAL, address=phys_addr)
-
-        self.pool.add_random_addr(addr_name=phys_addr_name, addr=addr_inst)
-
-        # Also create an instance of Page for this page_mapping
-        # TODO: Handle specified page_maps
-        p = Page(
-            name=lin_addr_name,
-            phys_name=phys_addr_name,
-            pool=self.pool,
-            featmgr=self.featmgr,
-            addrgen=self.addrgen,
-            maps=page_maps,
-        )
-        p.lin_addr = lin_addr
-        p.phys_addr = phys_addr
-        p.size = page_mapping.address_size
-        p.pagesize = page_mapping.final_pagesize
-        if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-            self.update_page_attrs(page=p, parsed_page_mapping=page_mapping)
-            # p.gstage_vs_leaf_pagesize = page_mapping.gstage_vs_leaf_final_pagesize
-            # p.gstage_vs_nonleaf_pagesize = page_mapping.gstage_vs_nonleaf_final_pagesize
-            # p.gstage_vs_leaf_address_size = page_mapping.gstage_vs_leaf_address_size
-            # p.gstage_vs_nonleaf_address_size = page_mapping.gstage_vs_nonleaf_address_size
-            # p.gstage_vs_leaf_address_mask = page_mapping.gstage_vs_leaf_address_mask
-            # p.gstage_vs_nonleaf_address_mask = page_mapping.gstage_vs_nonleaf_address_mask
-
-        self.pass_parsed_attrs(page=p, parsed_page_mapping=page_mapping)
-        self.pool.add_page(page=p, map_names=page_maps)
-
-        # return tuple([lin_addr_name, lin_addr]), tuple([phys_addr_name, phys_addr])
 
     def canonicalize_lin_addr(self, lin_addr):
         """
@@ -1098,315 +780,6 @@ class Generator:
                 return lin_addr | (canon_mask << self.linear_addr_bits)
 
         return lin_addr
-
-    def _is_pinned_buddy_shape(self, random_addr) -> bool:
-        """
-        True when a derived random_addr fully pins to source^not_mask AND the buddy is the block
-        directly above the source: not_mask is a single bit equal to the request size, and the
-        source's and_mask clears that bit. Such buddies are placed inside the source's
-        double-span allocation instead of being allocated separately (see generate_addr).
-        """
-        if random_addr.derive_from is None:
-            return False
-        not_mask = random_addr.derive_not_mask
-        if random_addr.derive_and_mask != 0xFFFFFFFFFFFFFFFF or random_addr.derive_or_mask != 0:
-            return False
-        if not_mask == 0 or (not_mask & (not_mask - 1)) != 0 or not_mask != random_addr.size:
-            return False
-        if not self.pool.parsed_random_addr_exists(addr_name=random_addr.derive_from):
-            return False
-        source = self.pool.get_parsed_addr(random_addr.derive_from)
-        return source.size == random_addr.size and (source.and_mask & not_mask) == 0
-
-    def handle_derived_random_addr(self, random_addr: ParsedRandomAddress):
-        """
-        Resolve a LINEAR random_addr whose address is derived from another, already-resolved
-        random_addr (``derive_from``). Bits selected by ``derive_and_mask`` are copied from the
-        source ``S``, flipped where ``derive_not_mask`` is set (XOR semantics); ``derive_or_mask``
-        bits are forced to 1; remaining (unselected) bits are randomized by addrgen to a free,
-        non-overlapping address. With the default all-ones ``derive_and_mask`` the result is
-        exactly ``S ^ derive_not_mask`` — e.g. not_mask=0x1000 on an 8KB-aligned source pins the
-        VA-adjacent buddy page above it. Buddy-shaped deriveds (``_is_pinned_buddy_shape``) are
-        placed directly inside their source's double-span reservation; any other pinned target
-        that overlaps an existing allocation fails loudly (AddrGenError) instead of silently
-        landing elsewhere.
-        """
-        addr_name = random_addr.name
-        src_name = random_addr.derive_from
-        if not self.pool.parsed_random_addr_exists(addr_name=src_name):
-            raise ValueError(f"derive_from source {src_name!r} for random_addr {addr_name!r} was never declared")
-        if src_name not in self.pool.get_random_addrs():
-            raise ValueError(f"derive_from source {src_name!r} is not resolved when resolving {addr_name!r}; deriving from another derived address is not supported")
-
-        source_addr = self.pool.get_random_addr(src_name).address
-
-        if random_addr.addr_bits is None:
-            random_addr.addr_bits = self.linear_addr_bits
-
-        if addr_name in self._span_placed_buddies:
-            # The source allocated [S, S+2*size); the buddy slot is already reserved.
-            width_mask = (1 << random_addr.addr_bits) - 1
-            address = self.canonicalize_lin_addr((source_addr & width_mask) ^ random_addr.derive_not_mask)
-            log.debug(f"Adding span-placed buddy addr: {addr_name}, addr: {address:016x}")
-            self.pool.add_random_addr(addr_name=addr_name, addr=Address(name=addr_name, type=RV.AddressType.LINEAR, address=address))
-            return
-
-        address_size = random_addr.size
-        address_mask = random_addr.and_mask
-        # Respect the alignment/mask of the page_mapping that references this linear name (mirrors
-        # handle_random_addr) so the derived address stays page-aligned.
-        if self.pool.parsed_page_mapping_with_lin_name_exists(addr_name):
-            for map_key in self.pool.get_parsed_page_mapping_with_lin_name(addr_name):
-                parsed_page_mapping = self.pool.get_parsed_page_mapping(addr_name, map_key)
-                address_mask = address_mask & parsed_page_mapping.address_mask
-
-        # Pin math runs on the raw addr_bits-wide value (the pool stores the canonicalized form);
-        # canonicalize_lin_addr() re-extends the result below.
-        addr_width_mask = (1 << random_addr.addr_bits) - 1
-        source_raw = source_addr & addr_width_mask
-        not_mask = random_addr.derive_not_mask
-        selected = random_addr.derive_and_mask
-        # pin-to-1: source's set bits (selected, unflipped) + or_mask + flip-to-1; pin-to-0: the rest
-        # of the selected/flipped bits. Unselected bits stay random within address_mask.
-        pin_one = (random_addr.derive_or_mask | (source_raw & selected & ~not_mask) | (not_mask & ~source_raw)) & addr_width_mask
-        pin_zero = (((~source_raw & selected & ~not_mask) | (not_mask & source_raw)) & ~pin_one) & 0xFFFFFFFFFFFFFFFF
-        effective_or = pin_one
-        effective_and = ((address_mask & ~pin_zero) | pin_one) & 0xFFFFFFFFFFFFFFFF
-        if effective_and == 0:
-            raise ValueError(f"derived random_addr {addr_name!r}: effective and-mask is 0 (and_mask/not_mask cleared every bit); cannot generate")
-
-        address_constraint = addrgen.AddressConstraint(
-            type=RV.AddressType.LINEAR,
-            bits=random_addr.addr_bits,
-            size=address_size,
-            mask=effective_and,
-            or_mask=effective_or,
-        )
-        log.debug(f"Deriving addr: {addr_name} from {src_name} (S=0x{source_addr:x}), constraint: {address_constraint}")
-        try:
-            address_orig = self.addrgen.generate_address(constraint=address_constraint)
-        except Exception as e:
-            raise Exception(f"Failed to generate derived linear address for {addr_name!r} (derived from {src_name!r})") from e
-        address = self.canonicalize_lin_addr(address_orig)
-        log.debug(f"Adding derived addr: {addr_name}, addr: {address:016x}")
-        self.pool.add_random_addr(addr_name=addr_name, addr=Address(name=addr_name, type=RV.AddressType.LINEAR, address=address))
-
-    def handle_random_addr(self, random_addr: ParsedRandomAddress, lin_span_override: Optional[int] = None):
-        """
-        Generate addresses for left over random_addrs
-
-        :param lin_span_override: when set (pinned-buddy sources, see generate_addr), the LINEAR
-            allocation reserves this many bytes at the source's alignment so the derived buddy
-            block above the source stays free.
-        """
-        addr_name = random_addr.name
-        addr_type = random_addr.type
-
-        phys_address_size = address_size = random_addr.size
-        phys_address_mask = address_mask = random_addr.and_mask
-        secure = False
-
-        # Fixed address: caller pinned an exact value (e.g. masked-relative fixed-phys mode).
-        # Reserve the literal address and skip random generation.
-        if random_addr.fixed_addr is not None:
-            is_linear = (addr_type == RV.AddressType.LINEAR) or bool(re.match(r"linear", str(random_addr.type)))
-            addr_type_enum = RV.AddressType.LINEAR if is_linear else RV.AddressType.PHYSICAL
-            self.addrgen.reserve_memory(address_type=addr_type_enum, start_address=random_addr.fixed_addr, size=address_size)
-            self.pool.add_random_addr(
-                addr_name=addr_name,
-                addr=Address(name=addr_name, type=addr_type_enum, address=random_addr.fixed_addr),
-                allow_duplicate=True,
-            )
-            return
-
-        log.debug(
-            "handle_random_addr: name=%s, type=%s, phys_address_size=0x%x, phys_address_mask=0x%x",
-            addr_name,
-            addr_type,
-            phys_address_size,
-            phys_address_mask,
-        )
-        lin_in_page_mapping = self.pool.parsed_page_mapping_with_lin_name_exists(addr_name)
-        paging_enabled = self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE
-        no_custom_region = random_addr.custom_region is None
-        if lin_in_page_mapping and paging_enabled and no_custom_region:
-            log.debug(f"Random Address {addr_name} already exists in a page mapping")
-            for map_key in self.pool.get_parsed_page_mapping_with_lin_name(addr_name):
-                parsed_page_mapping = self.pool.get_parsed_page_mapping(addr_name, map_key)
-                # AND-combine so a directive's stricter and_mask survives alongside the mapping's page alignment
-                address_mask = address_mask & parsed_page_mapping.address_mask
-                log.debug(f"parsed_page_mapping address_mask: 0x{address_mask:x}")
-                phys_address_size = RV.RiscvPageSizes.memory(parsed_page_mapping.final_pagesize)
-                phys_address_mask = RV.RiscvPageSizes.address_mask(parsed_page_mapping.final_pagesize)
-                # If g-stage s enabled, this physical address becomes GPA. It means that the alignment of
-                # this address should be at least the size of gstage_vs_leaf pagesize
-                if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                    phys_address_mask = min(phys_address_mask, parsed_page_mapping.gstage_vs_leaf_address_mask)
-                    phys_address_size = max(phys_address_size, parsed_page_mapping.gstage_vs_leaf_address_size)
-
-                # also update address_bits/mask for the physical address, if fixed address is not proivded in the page_mapping
-                if self.pool.parsed_random_addr_exists(addr_name=parsed_page_mapping.phys_name):
-                    log.debug(f"parsed_random_addr_exists: {parsed_page_mapping.phys_name}. Using it for {addr_name}")
-                    phys_random_addr = self.pool.get_parsed_addr(parsed_page_mapping.phys_name)
-                    # Linear random_addr can be 2MB while partner physical uses a small custom region;
-                    # do not overwrite custom phys size/align with the linear request.
-                    if phys_random_addr.custom_region is None:
-                        phys_random_addr.size = max(phys_address_size, phys_random_addr.size)
-                        phys_random_addr.and_mask = phys_address_mask & phys_random_addr.and_mask
-
-        # FIXME: The type should be cast to an enum already
-        if addr_type == RV.AddressType.NONE:
-            raise Exception(f"Address type is not specified for {addr_name}")
-        elif addr_type == RV.AddressType.LINEAR or re.match(r"linear", random_addr.type):
-            if random_addr.addr_bits is None:
-                random_addr.addr_bits = self.linear_addr_bits
-            address_contstaint = addrgen.AddressConstraint(
-                type=RV.AddressType.LINEAR,
-                # address_bits=int(re.findall(r'linear(\d+)', random_addr.type)[0]),
-                bits=random_addr.addr_bits,
-                size=lin_span_override or address_size,
-                mask=address_mask,
-                or_mask=random_addr.or_mask,
-            )
-            log.debug(f"Adding addr: {addr_name}, constraint: {address_contstaint}")
-            # Paging disabled + PMA-mapped page: VA==PA, so the LIN address decides the physical
-            # placement and must land inside the phys directive's PMA region.
-            pma_owner = owner_phys_name = None
-            if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE and no_custom_region:
-                owner = self._pma_mapped_region_for_lin(addr_name)
-                if owner is not None:
-                    pma_owner, owner_phys_name = owner
-            if pma_owner is not None:
-                if owner_phys_name in self.pool.get_random_addrs():
-                    # VA==PA and the phys partner already resolved (declared first): adopt its slot
-                    address_orig = self.pool.get_random_addr(owner_phys_name).address
-                else:
-                    if pma_owner.pma_address == 0:
-                        # Anchor in the space the phys directive asks for (io=1 means an MMIO window)
-                        phys_is_io = self.pool.parsed_random_addr_exists(addr_name=owner_phys_name) and self.pool.get_parsed_addr(owner_phys_name).io
-                        anchor_constraint = addrgen.AddressConstraint(
-                            type=RV.AddressType.PHYSICAL,
-                            qualifiers={RV.AddressQualifiers.ADDRESS_MMIO if phys_is_io else RV.AddressQualifiers.ADDRESS_DRAM},
-                            bits=min(random_addr.addr_bits, self.physical_addr_bits),
-                            size=address_size,
-                            mask=address_mask,
-                        )
-                        pma_owner.pma_size = max(pma_owner.pma_size, self._pma_region_demand(pma_owner))
-                        self._anchor_pma_region(pma_owner, anchor_constraint)
-                    address_orig = self._place_in_pma_region(pma_owner, address_contstaint)
-                    if address_orig is None:
-                        raise addrgen.AddrGenError(f"Could not place '{addr_name}' inside PMA region '{pma_owner.pma_name}' (paging disabled)")
-                self.addrgen.reserve_memory(address_type=RV.AddressType.LINEAR, start_address=address_orig, size=lin_span_override or address_size)
-            else:
-                try:
-                    address_orig = self.addrgen.generate_address(constraint=address_contstaint)
-                except Exception as e:
-                    raise Exception(f"Encountered exception generating linear address for {addr_name}") from e
-            address = self.canonicalize_lin_addr(address_orig)
-            log.debug(f"Adding addr: {addr_name}, addr: {address:016x}")
-
-            addr_inst = Address(name=addr_name, type=RV.AddressType.LINEAR, address=address)
-
-            self.pool.add_random_addr(addr_name=addr_name, addr=addr_inst)
-
-        elif addr_type == RV.AddressType.PHYSICAL or re.match(r"physical", random_addr.type):
-            if random_addr.addr_bits is None:
-                random_addr.addr_bits = self.physical_addr_bits
-            addr_q = [RV.AddressQualifiers.ADDRESS_DRAM]
-            # Handle secure addresses
-            marked_secure = False
-            if self.featmgr.secure_mode:
-                log.debug(f"Checking secure for {addr_name}")
-                if self.pool.parsed_random_addr_exists(addr_name=addr_name):
-                    log.debug(f"Checking secure for {addr_name}")
-                    phys_random_addr = self.pool.get_parsed_addr(addr_name)
-                    secure = phys_random_addr.secure
-                    if secure or (self.featmgr.secure_mode and self.rng.with_probability_of(self.featmgr.secure_access_probability)):
-                        log.debug(f"Marking secure for {addr_name}")
-                        marked_secure = True
-                        addr_q = [RV.AddressQualifiers.ADDRESS_SECURE]
-            if random_addr.io:
-                addr_q = [RV.AddressQualifiers.ADDRESS_MMIO]
-                marked_secure = False
-            if random_addr.custom_region:
-                marked_secure = False
-            address_contstaint = addrgen.AddressConstraint(
-                type=RV.AddressType.PHYSICAL,
-                qualifiers=addr_q,
-                # address_bits=int(re.findall(r'physical(\d+)', random_addr.type)[0]),
-                bits=random_addr.addr_bits,
-                size=phys_address_size,
-                mask=phys_address_mask,
-                or_mask=random_addr.or_mask,
-                custom_region=random_addr.custom_region,
-            )
-            log.debug(f"Adding addr: {addr_name}, addr_c: {address_contstaint}")
-
-            # Check if this address has a pre-allocated PMA region
-            use_pma_region = False
-            if addr_name in self._pre_allocated_pma_regions:
-                if random_addr.custom_region is not None:
-                    raise ValueError(f"random_addr {addr_name}: in_pma=1 cannot be combined with custom_region (region placement ignores the bound)")
-                # Anchor new regions wholesale (aligned + fully reserved), then collision-free placement
-                pre_allocated_region = self._pre_allocated_pma_regions[addr_name]
-                lin_address = self._resolved_lin_for_phys(addr_name) if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE else None
-                if lin_address is not None:
-                    # VA==PA: the page mapping forces phys=lin, so adopt lin and anchor the region on it
-                    if pre_allocated_region.pma_address == 0:
-                        pre_allocated_region.pma_size = 1 << max(12, (pre_allocated_region.pma_size - 1).bit_length())
-                        base = lin_address & ~(pre_allocated_region.pma_size - 1)
-                        if base != lin_address:
-                            log.warning(f"PMA region '{pre_allocated_region.pma_name}' NAPOT-aligns below its page " f"(0x{base:x} < 0x{lin_address:x}); attributes bleed onto the neighbor")
-                        pre_allocated_region.pma_address = base
-                        self._fully_reserved_region_ids.add(id(pre_allocated_region))
-                        self.pool.pma_regions.add_entry(pre_allocated_region)
-                        self.addrgen.reserve_memory(address_type=RV.AddressType.PHYSICAL, start_address=base, size=pre_allocated_region.pma_size)
-                    address = lin_address
-                    use_pma_region = True
-                else:
-                    if pre_allocated_region.pma_address == 0:
-                        # Mapping pagesizes resolve after pre-allocation; grow to what every sharer will place
-                        pre_allocated_region.pma_size = max(pre_allocated_region.pma_size, self._pma_region_demand(pre_allocated_region))
-                        self._anchor_pma_region(pre_allocated_region, address_contstaint)
-                    address = self._place_in_pma_region(pre_allocated_region, address_contstaint)
-                    if address is None:
-                        raise addrgen.AddrGenError(f"Could not place '{addr_name}' (size 0x{phys_address_size:x}) " f"inside PMA region '{pre_allocated_region.pma_name}'")
-                    use_pma_region = True
-
-            if not use_pma_region:
-                # Normal address generation
-                try:
-                    address = self.addrgen.generate_address(constraint=address_contstaint)
-                except Exception as e:
-                    raise Exception(f"Encountered exception generating physical address for {addr_name}") from e
-
-            if marked_secure and self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE:
-                address = address | (1 << 55)
-            if address is None:
-                raise ValueError(f"Could not generate address for {addr_name}")
-
-            addr_inst = Address(name=addr_name, type=RV.AddressType.PHYSICAL, address=address)
-
-            log.debug(f"Adding addr: {addr_name}, constraint: {address_contstaint}")
-            log.debug(f"Adding addr: {addr_name}, addr: {address:016x}")
-            self.pool.add_random_addr(addr_name=addr_name, addr=addr_inst)
-
-            # If paging is disabled, we assign physical addresses to linear, so reserve it in the linear
-            # address space now than later
-            if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.PHYSICAL,
-                    start_address=address,
-                    size=address_size,
-                )
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.LINEAR,
-                    start_address=address,
-                    size=address_size,
-                )
-
-        else:
-            raise ValueError(f"Generator does not support address type: {random_addr.type} {type(random_addr.type)} just yet")
 
     def randomize_pagesize(self, page_mapping):
         """
@@ -1518,10 +891,14 @@ class Generator:
                 )
             log.debug(f"lin_name_nonleaf: {lin_name}, specified_pagesizes: {specified_pagesizes}")
             specified_pagesizes = page_mapping.gstage_vs_nonleaf_pagesizes
+            # Only the chosen pagesize is used: the size/mask this returns described the
+            # (now removed) reservation bump, which pt_request_builder derives from the pagesize
+            # itself. ``exclude_after_bump`` still matters -- it keeps the span the builder will
+            # ask for one level up allocatable.
             (
                 gstage_vs_nonleaf_final_pagesize,
-                gstage_vs_nonleaf_addr_size,
-                gstage_vs_nonleaf_addr_mask,
+                _gstage_vs_nonleaf_addr_size,
+                _gstage_vs_nonleaf_addr_mask,
             ) = self.pick_pagesize(
                 specified_pagesizes=specified_pagesizes,
                 paging_mode=self.featmgr.paging_g_mode,
@@ -1544,18 +921,23 @@ class Generator:
             if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
                 paging_mode = self.featmgr.paging_g_mode
 
-        # Handle the non-leaf attributes forcing, i.e. v_level1=0 etc
+        # Handle the non-leaf attributes forcing, i.e. v_level1=0 etc. This materializes the
+        # concrete {base}_level{n} keys onto the mapping (the translator reads them back as
+        # Mapping.pt_nodes); the isolation growth the resolver also returns is DROPPED --
+        # attr-aware coloring (PageTableBuilder(color=True)) now separates conflicting siblings.
         for attr in ["v", "a", "d", "g", "u", "x", "w", "r", "n", "pbmt"]:
-            (addr_size, addr_mask) = self.randomize_pt_attrs(
+            self.randomize_pt_attrs(
                 attr=attr,
                 page_mapping=page_mapping,
                 paging_mode=paging_mode,
                 final_pagesize=final_pagesize,
-                address_size=addr_size,
-                address_mask=addr_mask,
             )
 
-        # Handle gstage atrribute randomization
+        # Handle gstage atrribute randomization. This materializes the concrete
+        # {base}_level{vs}_glevel{g} g-stage forcing keys onto the mapping (the translator
+        # reads them back as the G-frame mappings' pt_nodes); the isolation growth the
+        # resolver also returns (g-stage reservation widening + VS-stage VA isolation) is
+        # DROPPED -- attr-aware coloring separates conflicting siblings.
         if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
             attrs = [
                 "v_nonleaf_gnonleaf",
@@ -1611,12 +993,7 @@ class Generator:
                 )
 
             for attr in attrs:
-                (
-                    gstage_vs_leaf_addr_size,
-                    gstage_vs_leaf_addr_mask,
-                    gstage_vs_nonleaf_addr_size,
-                    gstage_vs_nonleaf_addr_mask,
-                ) = self.randomize_gstage_pt_attrs(
+                self.randomize_gstage_pt_attrs(
                     attr=attr,
                     page_mapping=page_mapping,
                     paging_mode_g=self.featmgr.paging_g_mode,
@@ -1624,48 +1001,16 @@ class Generator:
                     final_pagesize_vs=final_pagesize,
                     final_pagesize_gleaf=gstage_vs_leaf_final_pagesize,
                     final_pagesize_gnonleaf=gstage_vs_nonleaf_final_pagesize,
-                    address_size_nonleaf=gstage_vs_nonleaf_addr_size,
-                    address_mask_nonleaf=gstage_vs_nonleaf_addr_mask,
-                    address_size_leaf=gstage_vs_leaf_addr_size,
-                    address_mask_leaf=gstage_vs_leaf_addr_mask,
                 )
 
-                # If vs-stage paging is disabled, then we are overloading the gstage_vs_leaf_addr_* variables to hold the values
-                if paging_mode == RV.RiscvPagingModes.DISABLE:
-                    (addr_size, addr_mask) = (
-                        gstage_vs_leaf_addr_size,
-                        gstage_vs_leaf_addr_mask,
-                    )
-
-        if page_mapping.modify_pt == 1:
-            # We need to modify the pagetables for this page
-            # ;page_mapping(modify_pt=1)
-            #  => reserve a top level pagetable entry, since no other page can share any pagetables with this page anymore
-            #  => add storage for pt_pages on PageMap, which will hold pages needed for pagetables. This is because we cannot add
-            #       pages to self.pages which iterating over it
-            #  => at the time of creating pages for pagetables, add extra pagetable pages based on if the Page has modify_pt
-            #  => after calling the create_pagetables() on PageMap.pages, call create_pagetables() on PageMap.pt_pages
-            map_max_levels = RV.RiscvPagingModes.max_levels(paging_mode)
-            log.debug(f"max_levels: {map_max_levels}, index_bits: {RV.RiscvPagingModes.index_bits(paging_mode, map_max_levels-1)}")
-            addr_size = 2 ** ((RV.RiscvPagingModes.index_bits(paging_mode, map_max_levels - 1))[1])
-            addr_mask = 0xFFFFFFFFFFFFFFFF << (common.msb(addr_size)) & 0xFFFFFFFFFFFFFFFF
-            log.debug(f"modify_pt: name: {page_mapping.lin_name}, {addr_size:x}")
-
-            # Note about modify_pt with multiple page_maps for the same page:
-            #  It would be virtually impossible to have modify_pt to work with multiple page_maps for the same page
-            #  The reason is that modify_pt needs to reserve a top level pagetable entry and reserve the enought memory for that.
-            #  This means that if a page is part of page_maps in modes sv39 and sv48, it would need to reserve more memory than what's available in
-            #  in the sv39 mode and that would fail. So, we will not support this case for now.
-
-        if page_mapping.modify_nonleaf_pt == 1:
-            # Reserve VA covering the lowest-level non-leaf PTE slot to ensure exclusive ownership
-            leaf_level = RV.RiscvPageSizes.pt_leaf_level(final_pagesize)
-            nonleaf_level = leaf_level + 1
-            nonleaf_addr_size = 2 ** ((RV.RiscvPagingModes.index_bits(paging_mode, nonleaf_level))[1])
-            nonleaf_addr_mask = 0xFFFFFFFFFFFFFFFF << (common.msb(nonleaf_addr_size)) & 0xFFFFFFFFFFFFFFFF
-            addr_size = max(addr_size, nonleaf_addr_size)
-            addr_mask = addr_mask & nonleaf_addr_mask
-            log.debug(f"modify_nonleaf_pt: name: {page_mapping.lin_name}, addr_size: {addr_size:x}")
+        # modify_pt / modify_nonleaf_pt declare owned PT nodes as pinned
+        # Mapping.pt_nodes frames (see pt_request_builder._modify_pt_frames): modify_pt pins
+        # its top-level node, modify_nonleaf_pt pins every non-leaf node leaf+1..root, and
+        # attr-aware coloring keeps siblings out. The F1 slot read-back still fires (gated on
+        # the modify_pt PTE attr, carried in Mapping.attrs).
+        #
+        # Note: modify_pt with multiple page_maps for the same page remains unsupported -- a
+        # page in both sv39 and sv48 maps would need incompatible top-level reservations.
 
         # At the end, we need to only have the final pagesize set to True in the page mapping
         # log.debug(f'randomize pagesize for page: {page_mapping.lin_name}, {gstage_vs_leaf_final_pagesize}, {gstage_vs_nonleaf_final_pagesize}')
@@ -1678,34 +1023,17 @@ class Generator:
         else:
             page_mapping.phys_address_size = page_mapping.address_size
             page_mapping.phys_address_mask = page_mapping.address_mask
-        if page_mapping.modify_leaf_pt == 1:
-            # Reserve one G-stage pagesize larger than final_pagesize in physical address space
-            target_pagesize = RV.RiscvPagingModes.next_pt_level_pagesize(self.featmgr.paging_g_mode, final_pagesize)
-            log.debug(f"modify_leaf_pt: name: {page_mapping.lin_name}, phys_addr_size: {RV.RiscvPageSizes.memory(target_pagesize):x}")
-            page_mapping.phys_address_size = RV.RiscvPageSizes.memory(target_pagesize)
-            page_mapping.phys_address_mask = RV.RiscvPageSizes.address_mask(target_pagesize)
+        # The ownership span for a rewritten g-stage pointer travels with the
+        # page and is applied by pt_request_builder from
+        # resolve.gstage_pointer_span, shared with the declared-force path.
         if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
             log.debug(f"adding for {page_mapping.lin_name} gstage_vs_leaf_final_pagesize: {gstage_vs_leaf_final_pagesize}, gstage_vs_nonleaf_final_pagesize: {gstage_vs_nonleaf_final_pagesize}")
             page_mapping.gstage_vs_nonleaf_final_pagesize = gstage_vs_nonleaf_final_pagesize
             page_mapping.gstage_vs_leaf_final_pagesize = gstage_vs_leaf_final_pagesize
-            page_mapping.gstage_vs_nonleaf_address_size = gstage_vs_nonleaf_addr_size
+            # gstage_vs_leaf_address_size is read by the PMA pre-allocation capacity estimate
+            # (_resolved_request_size); the gstage_vs_nonleaf_* pair had no reader at all.
             page_mapping.gstage_vs_leaf_address_size = gstage_vs_leaf_addr_size
-            page_mapping.gstage_vs_nonleaf_address_mask = gstage_vs_nonleaf_addr_mask
             page_mapping.gstage_vs_leaf_address_mask = gstage_vs_leaf_addr_mask
-        if page_mapping.modify_nonleaf_pt == 1:
-            # Override gstage_vs_nonleaf constraints to use one G-stage pagesize larger than gstage_vs_nonleaf_final_pagesize
-            # This constrains generate_pt_constraints(leaf=False) in pagetables.py so the
-            # lowest-level non-leaf VS PT page gets a PA aligned to the next larger G-stage page size
-            gstage_vs_nonleaf_final_pagesize = page_mapping.gstage_vs_nonleaf_final_pagesize
-            target_pagesize = RV.RiscvPagingModes.next_pt_level_pagesize(self.featmgr.paging_g_mode, gstage_vs_nonleaf_final_pagesize)
-            log.debug(f"modify_nonleaf_pt: name: {page_mapping.lin_name}, gstage_vs_nonleaf phys_addr_size: {RV.RiscvPageSizes.memory(target_pagesize):x}")
-            page_mapping.gstage_vs_nonleaf_address_size = RV.RiscvPageSizes.memory(target_pagesize)
-            page_mapping.gstage_vs_nonleaf_address_mask = RV.RiscvPageSizes.address_mask(target_pagesize)
-        if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-            # If the vs-stage size is less than the gstage_vs_leaf_address_size then we need to make it match the bigger size
-            if page_mapping.address_size < page_mapping.gstage_vs_leaf_address_size:
-                page_mapping.address_size = page_mapping.gstage_vs_leaf_address_size
-                page_mapping.address_mask = page_mapping.gstage_vs_leaf_address_mask
 
         # For physical addresses, there's a case where we will not be looking at page_mapping.address_size while generating the address
         # So, make sure we update the address_size/mask in the random_address instance as well
@@ -1714,60 +1042,17 @@ class Generator:
             phys_random_addr.size = max(page_mapping.phys_address_size, phys_random_addr.size)
             phys_random_addr.and_mask = min(page_mapping.phys_address_mask, phys_random_addr.and_mask)
 
-    def setup_uwrx_bit(
-        self,
-        attr,
-        page_mapping,
-        final_pagesize,
-        gstage_vs_leaf_final_pagesize,
-        gstage_vs_nonleaf_final_pagesize,
-    ):
-        """
-        Setup initial state of U-bit for the page
-        """
-        map_vs_max_levels = RV.RiscvPagingModes.max_levels(self.featmgr.paging_mode)
-        map_max_levels = RV.RiscvPagingModes.max_levels(self.featmgr.paging_g_mode)
-        pt_vs_leaf_level = RV.RiscvPageSizes.pt_leaf_level(final_pagesize)
-        pt_leaf_level = RV.RiscvPageSizes.pt_leaf_level(gstage_vs_leaf_final_pagesize)
-
-        # For most bits, clearing it will generate a fault, e.g. v=0. But, for g-bit common case is to set it to 0
-        # If current mode is super mode, then significant bit is 1, else 0
-        if self.featmgr.priv_mode == RV.RiscvPrivileges.SUPER:
-            significant_bit_value = 1
-        # First mark the correct value for U-bit since we can't set it at the time-0 since we don't know the priv-mode
-        # By default risc-v requires U=1 at nonleaf and U=<if_usermode> at leaf
-        # Mark the U-bit for the nonleaf pagetable
-        log.debug(f"Handling {page_mapping.lin_name} {range(map_vs_max_levels, pt_vs_leaf_level)}, {range(map_max_levels, pt_leaf_level)}")
-        log.debug(f"{page_mapping.lin_name}, final_pagesize_vs: {final_pagesize}, final_pagesize_gleaf: {gstage_vs_leaf_final_pagesize}, final_pagesize_gnonleaf: {gstage_vs_nonleaf_final_pagesize}")
-        for vs_level in range(pt_vs_leaf_level, map_vs_max_levels):
-            # Need to change the pt_leaf level below based on the g_level leaf/nonleaf
-            if vs_level == pt_vs_leaf_level:
-                pt_leaf_level = RV.RiscvPageSizes.pt_leaf_level(gstage_vs_leaf_final_pagesize)
-            else:
-                pt_leaf_level = RV.RiscvPageSizes.pt_leaf_level(gstage_vs_nonleaf_final_pagesize)
-            for g_level in range(pt_leaf_level, map_max_levels):
-                if g_level == pt_leaf_level:
-                    # Leaf level U-bit needs to be 1 since all the G-stage translations are treated as user
-                    log.debug(f"Setup_u_bit: {page_mapping.lin_name} u_level{vs_level}_glevel{g_level} = 1")
-                    # All bits w/r/u need to be default to 1 for gstage leaf level
-                    bit_val = 1
-                    # if attr == 'x':
-                    #     bit_val = 0
-                    page_mapping.__setattr__(f"{attr}_level{vs_level}_glevel{g_level}", bit_val)
-                    # If vs-stage is disabled, we need to omit _level*_glevel* attributes
-                    if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-                        page_mapping.__setattr__(f"{attr}_level{g_level}", bit_val)
-                else:
-                    # For all the non-leaf levels, all of these bits need to 0 by default
-                    page_mapping.__setattr__(f"{attr}_level{vs_level}_glevel{g_level}", 0)
-                    if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-                        page_mapping.__setattr__(f"{attr}_level{g_level}", 0)
-        if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-            bit_val = 1
-            # if attr == 'x':
-            #     bit_val = 0
-            pt_leaf_level = RV.RiscvPageSizes.pt_leaf_level(final_pagesize)
-            page_mapping.__setattr__(f"{attr}_level{pt_leaf_level}", bit_val)
+    def setup_uwrx_bit(self, attr, page_mapping, final_pagesize, gstage_vs_leaf_final_pagesize, gstage_vs_nonleaf_final_pagesize):
+        """Set up the initial G-stage U/R/W/X/A/D level bits (delegates to riemap)."""
+        resolve.setup_uwrx_bit(
+            attr,
+            attrs=page_mapping.__dict__,
+            paging_mode=self.featmgr.paging_mode,
+            paging_g_mode=self.featmgr.paging_g_mode,
+            final_pagesize=final_pagesize,
+            gstage_vs_leaf_final_pagesize=gstage_vs_leaf_final_pagesize,
+            gstage_vs_nonleaf_final_pagesize=gstage_vs_nonleaf_final_pagesize,
+        )
 
     def randomize_gstage_pt_attrs(
         self,
@@ -1778,200 +1063,25 @@ class Generator:
         final_pagesize_vs,
         final_pagesize_gleaf,
         final_pagesize_gnonleaf,
-        address_size_leaf,
-        address_mask_leaf,
-        address_size_nonleaf,
-        address_mask_nonleaf,
     ):
-        (addr_size_leaf, addr_mask_leaf) = (address_size_leaf, address_mask_leaf)
-        (addr_size_nonleaf, addr_mask_nonleaf) = (
-            address_size_nonleaf,
-            address_mask_nonleaf,
+        """Force a G-stage leaf/non-leaf attribute onto the page mapping (delegates to riemap).
+
+        Called purely for its side effect: it materializes the concrete
+        ``{base}_level{vs}_glevel{g}`` forcing key onto the mapping (the translator reads
+        it back as the G-frame mappings' pt_nodes). The resolver returns nothing: g-stage
+        geometry is declared per node (``PTGPage.pagesize`` / the destination ``Page``'s
+        pagesize), and sibling isolation is the builder's attr-aware coloring.
+        """
+        resolve.randomize_gstage_pt_attrs(
+            attr=attr,
+            attrs=page_mapping.__dict__,
+            paging_mode_g=paging_mode_g,
+            paging_mode_vs=paging_mode_vs,
+            priv_mode=self.featmgr.priv_mode,
+            final_pagesize_vs=final_pagesize_vs,
+            final_pagesize_gleaf=final_pagesize_gleaf,
+            final_pagesize_gnonleaf=final_pagesize_gnonleaf,
         )
-        # if page_mapping.v_nonleaf == 0:
-        map_max_levels = RV.RiscvPagingModes.max_levels(paging_mode_g)
-        base_attr = attr.split("_")[0]
-        # For most bits, clearing it will generate a fault, e.g. v=0, w=0, r=0, x=0. But, for g-bit common case is to set it to 0
-        insignificant_value = 1
-        # if base_attr in ['g', 'x']:
-        if base_attr in ["g", "n", "pbmt"]:
-            insignificant_value = 0
-        if base_attr in ["u"]:
-            # If current mode is super mode, then significant bit is 1, else 0
-            if self.featmgr.priv_mode == RV.RiscvPrivileges.SUPER:
-                insignificant_value = 0
-
-        attr_value = page_mapping.__getattribute__(attr)
-        if attr_value is None or attr_value == insignificant_value:
-            return (
-                addr_size_leaf,
-                addr_mask_leaf,
-                addr_size_nonleaf,
-                addr_mask_nonleaf,
-            )
-
-        # If _nonleaf_ specified then we need to find which vs-level to randomize the attribute for
-        if "_nonleaf_" in attr:
-            # If vs-stage is disabled, then randomization should be taken care at the g-stage map itself
-            if paging_mode_vs == RV.RiscvPagingModes.DISABLE:
-                page_mapping.__setattr__(f"{base_attr}_nonleaf", attr_value)
-                (addr_size_leaf, addr_mask_leaf) = self.randomize_pt_attrs(
-                    attr=base_attr,
-                    page_mapping=page_mapping,
-                    paging_mode=paging_mode_g,
-                    final_pagesize=final_pagesize_gleaf,
-                    address_size=addr_size_leaf,
-                    address_mask=addr_mask_leaf,
-                )
-
-                return (
-                    addr_size_leaf,
-                    addr_mask_leaf,
-                    addr_size_nonleaf,
-                    addr_mask_nonleaf,
-                )
-
-            map_max_levels = RV.RiscvPagingModes.max_levels(paging_mode_vs)
-            levels_this_page = RV.RiscvPageSizes.pt_leaf_level(final_pagesize_vs)
-            available_pt_levels = map_max_levels - levels_this_page
-            log.debug(f"{page_mapping.lin_name} {map_max_levels}, {available_pt_levels}, {final_pagesize_vs}")
-            if available_pt_levels == 1:
-                # If we only have one option, just take that. This happens when you're at the largest pagesize
-                # e.g. SV57 and 256TB combo, you would only have one nonleaf pagetable. See the example in above comment
-                possible_pt_levels = map_max_levels - 1
-                possible_pt_levels = RV.RiscvPageSizes.pt_leaf_level(final_pagesize_vs)
-                levels_range = list(range(possible_pt_levels, possible_pt_levels + 1))
-            else:
-                possible_pt_levels = map_max_levels - available_pt_levels
-                levels_range = list(range(levels_this_page + 1, map_max_levels))
-
-            # Now pick the lowest number with the higest probability between range [possible_pt_levels, map_max_levels]
-            # Pick the lowest level possible by default
-            rnd_pt_level = levels_range[0]
-            # 5% of times pick other levels
-            if self.rng.with_probability_of(0):
-                rnd_pt_level = self.rng.random_entry_in(levels_range)
-            # rnd_pt_level = self.rng.random_entry_in(list(range(possible_pt_levels, map_max_levels)))
-            log.debug(f"{page_mapping.lin_name} final_pagesize_vs: {final_pagesize_vs}, {rnd_pt_level}")
-            vslevel_to_randomize = rnd_pt_level
-            log.debug(f"{page_mapping.lin_name} levels_range: {levels_range}, vslevel_to_randomize: {vslevel_to_randomize}")
-            vs_addr_size = 2 ** ((RV.RiscvPagingModes.index_bits(paging_mode_vs, rnd_pt_level))[1])
-            if vs_addr_size > address_size_leaf:
-                addr_size_leaf = vs_addr_size
-                addr_mask_leaf = 0xFFFFFFFFFFFFFFFF << (common.msb(vs_addr_size)) & 0xFFFFFFFFFFFFFFFF
-
-        elif "_leaf_" in attr:
-            # If vs-stage is disabled, then randomization should be taken care at the g-stage map itself
-            if paging_mode_vs == RV.RiscvPagingModes.DISABLE:
-                g_leaf_level = RV.RiscvPageSizes.pt_leaf_level(final_pagesize_gleaf)
-                page_mapping.__setattr__(f"{base_attr}_level{g_leaf_level}", attr_value)
-                log.debug(f"Setting {base_attr}: {attr_value} for {page_mapping.lin_name}")
-                # (addr_size_leaf, addr_mask_leaf) = self.randomize_pt_attrs(attr=attr[0],
-                #                                                  page_mapping=page_mapping,
-                #                                                  paging_mode=paging_mode_g,
-                #                                                  final_pagesize=final_pagesize_gleaf,
-                #                                                  address_size=addr_size_leaf,
-                #                                                  address_mask=addr_mask_leaf)
-
-                return (
-                    addr_size_leaf,
-                    addr_mask_leaf,
-                    addr_size_nonleaf,
-                    addr_mask_nonleaf,
-                )
-
-            vslevel_to_randomize = RV.RiscvPageSizes.pt_leaf_level(final_pagesize_vs)
-            log.debug(f"{page_mapping.lin_name}, vs_level: {vslevel_to_randomize}, attr: {attr}")
-
-        # Let's handle gleaf and gnonleaf, i.e. final decision on the g-stage level
-        if "_gnonleaf" in attr:
-            # if paging_mode_vs == RV.RiscvPagingModes.DISABLE:
-            #     return (addr_size_leaf, addr_mask_leaf, addr_size_nonleaf, addr_mask_nonleaf)
-            map_max_levels = RV.RiscvPagingModes.max_levels(paging_mode_g)
-            # Use the g-stage pagesize matching the VS page type: gnonleaf for VS non-leaf, gleaf for VS leaf
-            gnonleaf_pagesize = final_pagesize_gnonleaf if "_nonleaf_" in attr else final_pagesize_gleaf
-            levels_this_page = RV.RiscvPageSizes.pt_leaf_level(gnonleaf_pagesize)
-            log.debug(f"{page_mapping.lin_name}, map_max_levels: {map_max_levels}, gnonleaf_pagesize: {gnonleaf_pagesize}, {levels_this_page}")
-            available_pt_levels = map_max_levels - levels_this_page
-            log.debug(f"{map_max_levels}, {available_pt_levels}, {final_pagesize_gnonleaf}")
-            if available_pt_levels == 1:
-                # If we only have one option, just take that. This happens when you're at the largest pagesize
-                # e.g. SV57 and 256TB combo, you would only have one nonleaf pagetable. See the example in above comment
-                possible_pt_levels = map_max_levels - 1
-                levels_range = list(range(possible_pt_levels - 1, possible_pt_levels))
-            else:
-                possible_pt_levels = map_max_levels - available_pt_levels
-                levels_range = list(range(levels_this_page + 1, map_max_levels))
-            # Now pick the lowest number with the higest probability between range [possible_pt_levels, map_max_levels]
-            # Pick the lowest level possible by default
-            log.debug(f"{page_mapping.lin_name} levels_range: {levels_range}")
-            rnd_pt_level = levels_range[0]
-            # Now there's a case when rbd_pt_level is more than available levels for vs-stage. This matters because currently
-            # we have gpa=gva, so we need to make sure that the g-stage level is not more than the vs-stage level
-            if rnd_pt_level > vslevel_to_randomize:
-                # In this case, pick the lowest non-leaf level available in g-stage
-                rnd_pt_level = levels_range[0]
-            # 5% of times pick other levels
-            if self.rng.with_probability_of(0):
-                rnd_pt_level = self.rng.random_entry_in(levels_range)
-
-            glevel_to_randomize = rnd_pt_level
-            g_addr_size = 2 ** ((RV.RiscvPagingModes.index_bits(paging_mode_g, rnd_pt_level))[1])
-            page_info = " ".join(
-                [
-                    f"{page_mapping.lin_name} levels_range: {levels_range}",
-                    f"vs_level_to_randomize: {vslevel_to_randomize}",
-                    f"glevel_to_randomize: {glevel_to_randomize}",
-                    f"{final_pagesize_gnonleaf}",
-                    f"{final_pagesize_gleaf}",
-                    f"{g_addr_size:x}",
-                ]
-            )
-            log.debug(page_info)
-            # We need to update addr_size and addr_mask for leaf or nonleaf based on the vslevel_to_randomize
-            if "_nonleaf_" in attr:
-                if g_addr_size > address_size_nonleaf:
-                    addr_size_nonleaf = g_addr_size
-                    addr_mask_nonleaf = 0xFFFFFFFFFFFFFFFF << (common.msb(g_addr_size)) & 0xFFFFFFFFFFFFFFFF
-            else:  # _leaf_
-                if g_addr_size > address_size_leaf:
-                    addr_size_leaf = g_addr_size
-                    addr_mask_leaf = 0xFFFFFFFFFFFFFFFF << (common.msb(g_addr_size)) & 0xFFFFFFFFFFFFFFFF
-            log.debug(
-                " ".join(
-                    [
-                        f"{page_mapping.lin_name}, pagesize:{final_pagesize_gnonleaf},",
-                        f"levels: {levels_range} level: {glevel_to_randomize}",
-                        f"addr_size_nonleaf: {addr_size_nonleaf:x}, addr_mask_nonleaf: {addr_mask_nonleaf:x}",
-                    ]
-                ),
-            )
-
-        elif "_gleaf" in attr:
-            # pagesize = final_pagesize_gleaf if '_leaf_' in attr else final_pagesize_gnonleaf
-            pagesize = final_pagesize_gnonleaf
-            if vslevel_to_randomize == RV.RiscvPageSizes.pt_leaf_level(final_pagesize_vs):
-                pagesize = final_pagesize_gleaf
-            # pagesize = final_pagesize_gleaf
-            glevel_to_randomize = RV.RiscvPageSizes.pt_leaf_level(pagesize)
-            log.debug(f"{page_mapping.lin_name}, pagesize: {pagesize}, {attr}, {glevel_to_randomize}, {final_pagesize_gleaf}, {final_pagesize_gnonleaf}")
-            # We don't need to update addr_size or addr_mask since this is the last level and pagesize logic would have
-            # taken care of it
-
-        # Now construct the final attribute name for page_mapping, so it can be used in pagetables, e.g. v_level2_glevel1
-        pt_attr = f"{base_attr}_level{vslevel_to_randomize}_glevel{glevel_to_randomize}"
-        log.debug(
-            " ".join(
-                [
-                    f"setting {pt_attr} for {page_mapping.lin_name} with {attr_value},",
-                    f"reserving: {addr_size_leaf:x}, {addr_mask_leaf:x}, {addr_size_nonleaf:x}, {addr_mask_nonleaf:x},",
-                    f"pt_attr: {pt_attr}",
-                ]
-            ),
-        )
-        page_mapping.__setattr__(f"{pt_attr}", attr_value)
-
-        return (addr_size_leaf, addr_mask_leaf, addr_size_nonleaf, addr_mask_nonleaf)
 
     def randomize_pt_attrs(
         self,
@@ -1979,135 +1089,26 @@ class Generator:
         page_mapping,
         paging_mode,
         final_pagesize,
-        address_size,
-        address_mask,
     ):
+        """Handle single-stage pagetable attribute randomization for one attr.
+
+        Called purely for its side effect: it materializes the concrete
+        ``{base}_level{n}`` key onto the mapping (the translator reads it back as
+        Mapping.pt_nodes). Sibling isolation is now the builder's attr-aware coloring, so
+        no address reservation is computed or returned here.
         """
-        Handle all the randomization of the pagetable attributes including g-stage randomization.
-        We need to handle the g-stage randomization here since we fork off g-stage pagetable pages from the vs-stage
-        """
-        (addr_size, addr_mask) = (address_size, address_mask)
+        self.pt_attrs_helper(attr, page_mapping, paging_mode, final_pagesize)
 
-        # # Handle g-stage randomization
-        # gstage_attr = False
-        # # if attr matches with 'gleaf' or 'gnonleaf' appears then it's a g-stage attribute
-        # patterns = [r'gleaf', r'gnonleaf']
-        # if any(re.search(pattern, attr) for pattern in patterns):
-        #     gstage_attr = True
-
-        return self.pt_attrs_helper(attr, page_mapping, paging_mode, final_pagesize, addr_size, addr_mask)
-
-    def pt_attrs_helper(
-        self,
-        attr,
-        page_mapping,
-        paging_mode,
-        final_pagesize,
-        address_size,
-        address_mask,
-    ):
-        (addr_size, addr_mask) = (address_size, address_mask)
-        # if page_mapping.v_nonleaf == 0:
-        map_max_levels = RV.RiscvPagingModes.max_levels(paging_mode)
-        pt_leaf_level = RV.RiscvPageSizes.pt_leaf_level(final_pagesize)
-        # For most bits, clearing it will generate a fault, e.g. v=0. But, for g-bit common case is to set it to 0
-        insignificant_value = 1
-        leaf_bit_val = 1
-        # if attr in ['g', 'x']:
-        if attr in ["g", "n", "pbmt"]:
-            insignificant_value = 0
-        if attr[0] in ["u"]:
-            # If current mode is super mode, then significant bit is 1, else 0
-            if self.featmgr.priv_mode == RV.RiscvPrivileges.SUPER:
-                insignificant_value = 0
-                leaf_bit_val = 0
-            # If vs-paging is disabled, then we need to set the U-bit to 1
-            if paging_mode == RV.RiscvPagingModes.DISABLE:
-                leaf_bit_val = 1
-        # if attr[0] in ['x']:
-        #     leaf_bit_val = 0
-        # First mark the correct value for U-bit since we can't set it at the time-0 since we don't know the priv-mode
-        # By default risc-v requires U=0 at nonleaf and U=<if_usermode> at leaf
-        # Mark the U-bit for the nonleaf pagetable
-        if attr[0] in ["u", "r", "w", "x", "a", "d"]:
-            for level in range(pt_leaf_level, map_max_levels):
-                if level == pt_leaf_level:
-                    # Leaf level U-bit needs to be 1 since all the G-stage translations are treated as user
-                    page_mapping.__setattr__(f"{attr}_level{level}", leaf_bit_val)
-                else:
-                    page_mapping.__setattr__(f"{attr}_level{level}", 0)
-
-        # Need to handle v=0, x=0, r=0 etc cases where we need to transfer thainformation to actual level
-        # based on the current pagesize, e.g. v=0 will translate to v_level0=0 for a 4kb page
-        attr_value = page_mapping.__getattribute__(attr)
-        if attr_value is not None and attr_value != insignificant_value:
-            # Make sure we update the correct level based on the pagesize
-            page_mapping.__setattr__(f"{attr}_level{pt_leaf_level}", attr_value)
-            return (addr_size, addr_mask)
-
-        nonleaf_value = page_mapping.__getattribute__(f"{attr}_nonleaf")
-        if nonleaf_value is not None and nonleaf_value != insignificant_value:
-            # Based on the current pagesize, select a level to clear the v-bit
-            # 4KB and SV57
-            # map_max_levels (based on current paging map) = 5
-            # available_pt_levels (based on current pagesize) = 5 - 0 = 5 [0,1,2,3,4] => 1:5
-            #
-            # 2MB and SV57
-            # map_max_levels = 5
-            # available_pt_levels = 5 - 1 = 4 [1,2,3,4] => 2:5
-            #
-            # 1GB and SV57
-            # map_max_levels = 5
-            # available_pt_levels = 5 - 2 = 3 [2,3,4] => 3:5 [page_max_levels-available_pt_levels+1:page_max_levels]
-            #
-            # 512GB and SV57
-            # map_max_levels = 5
-            # available_pt_levels = 5 - 3 = 2 [3,4] => 4:5 [page_max_levels-available_pt_levels+1:page_max_levels]
-            #
-            # 256GB and SV57
-            # map_max_levels = 5
-            # available_pt_levels = 5 - 4 = 1 [4] => 4:5 [page_max_levels-available_pt_levels+1:page_max_levels] will not work
-            # This combo needs a special handling since we only have one non-leaf
-
-            available_pt_levels = map_max_levels - RV.RiscvPageSizes.pt_leaf_level(final_pagesize)
-            if available_pt_levels == 1:
-                # If we only have one option, just take that. This happens when you're at the largest pagesize
-                # e.g. SV57 and 256TB combo, you would only have one nonleaf pagetable. See the example in above comment
-                possible_pt_levels = map_max_levels - 1
-                levels_range = list(range(possible_pt_levels - 1, map_max_levels))
-            else:
-                possible_pt_levels = map_max_levels - available_pt_levels
-                levels_range = list(range(possible_pt_levels + 1, map_max_levels))
-            # rnd_pt_level = self.rng.random_entry_in(list(range(possible_pt_levels, map_max_levels)))
-            log.debug(
-                " ".join(
-                    [
-                        f"{page_mapping.lin_name}, {paging_mode}",
-                        f"levels_range: {levels_range}",
-                        f"{map_max_levels}, {RV.RiscvPageSizes.pt_leaf_level(final_pagesize)},",
-                        f"{available_pt_levels}, {possible_pt_levels}",
-                        f"{final_pagesize}",
-                    ]
-                ),
-            )
-            # Pick the lowest level possible by default
-            rnd_pt_level = levels_range[0]
-            # 5% of times pick other levels
-            if self.rng.with_probability_of(0):
-                rnd_pt_level = self.rng.random_entry_in(levels_range)
-
-            addr_size = 2 ** ((RV.RiscvPagingModes.index_bits(paging_mode, rnd_pt_level))[1])
-            addr_mask = 0xFFFFFFFFFFFFFFFF << (common.msb(addr_size)) & 0xFFFFFFFFFFFFFFFF
-
-            # Make sure we only update the address size/mask if it's bigger than the current one, otherwise it's already covered by
-            # the current address size/mask
-            if addr_size < address_size:
-                addr_size = address_size
-                addr_mask = address_mask
-            log.debug(f"rnd_pt for {page_mapping.lin_name}, {attr}: {rnd_pt_level}, {addr_size:x}, {0xffffffffffffffff << (common.msb(addr_size)):x}")
-            page_mapping.__setattr__(f"{attr}_level{rnd_pt_level}", nonleaf_value)
-
-        return (addr_size, addr_mask)
+    def pt_attrs_helper(self, attr, page_mapping, paging_mode, final_pagesize):
+        """Force a single-stage attribute onto the page mapping (delegates to riemap)."""
+        updated = resolve.pt_attrs(
+            attr,
+            page_mapping.__dict__,
+            paging_mode,
+            final_pagesize,
+            self.featmgr.priv_mode,
+        )
+        page_mapping.__dict__.update(updated)
 
     # Insignificant (default) values for VS-stage nonleaf attributes.
     # Mirrors the logic in randomize_pt_attrs / pt_attrs_helper.
@@ -2169,6 +1170,34 @@ class Generator:
     def _has_gstage_nonleaf_constraints(self, page_mapping) -> bool:
         return self._has_significant_constraints(page_mapping, self._GSTAGE_NONLEAF_CHECKS)
 
+    @staticmethod
+    def _page_mapping_exact_addrs(page_mapping) -> list:
+        """Exact addresses this page mapping pins (declared ``lin_addr``/``phys_addr``),
+        as ints. The chosen pagesize must not exceed the alignment either address
+        already satisfies -- otherwise :meth:`pt_request_builder.PageTableRequestBuilder._va_spec`
+        / ``_pa_spec`` would align_down the exact address to the pagesize and silently
+        move it away from what was declared."""
+        addrs = []
+        if getattr(page_mapping, "lin_addr_specified", False) and page_mapping.lin_addr:
+            addrs.append(int(page_mapping.lin_addr, 0))
+        if getattr(page_mapping, "phys_addr_specified", False) and page_mapping.phys_addr:
+            addrs.append(int(page_mapping.phys_addr, 0))
+        return addrs
+
+    @staticmethod
+    def _pagesizes_satisfying_addrs(pagesizes, addrs):
+        """``pagesizes`` filtered to those every exact address in ``addrs`` is already
+        aligned to. Returns the unfiltered input unchanged if no exact addresses were
+        pinned, or if filtering would empty the set (the caller's align_down step fixes
+        the address up afterwards rather than being left with no candidate at all)."""
+        if not addrs:
+            return pagesizes
+        if isinstance(pagesizes, dict):
+            filtered = {ps: w for ps, w in pagesizes.items() if all(addr & (RV.RiscvPageSizes.memory(ps) - 1) == 0 for addr in addrs)}
+        else:
+            filtered = [ps for ps in pagesizes if all(addr & (RV.RiscvPageSizes.memory(ps) - 1) == 0 for addr in addrs)]
+        return filtered if filtered else pagesizes
+
     def pick_pagesize(self, specified_pagesizes, paging_mode, page_mapping, exclude_largest=False, exclude_after_bump=False, bump_mode=None):
         # Check what pagesizes are specified and pick one and set the address size
         # Generally, we want to use main paging mode, but in virtualization if vs-stage is BARE then use g-mode paging
@@ -2201,6 +1230,11 @@ class Generator:
             bump_paging_mode = bump_mode if bump_mode is not None else paging_mode
             bump_max_levels = RV.RiscvPagingModes.max_levels(bump_paging_mode)
             valid_pagesizes = [ps for ps in valid_pagesizes if RV.RiscvPageSizes.pt_leaf_level(RV.RiscvPagingModes.next_pt_level_pagesize(bump_paging_mode, ps)) != bump_max_levels - 1]
+        # A declared lin_addr/phys_addr pins the address; prefer a pagesize that address
+        # already satisfies over a larger one align_down would later move it out from
+        # under (see _va_spec/_pa_spec).
+        exact_addrs = self._page_mapping_exact_addrs(page_mapping)
+        valid_pagesizes = self._pagesizes_satisfying_addrs(valid_pagesizes, exact_addrs)
         allowed_pagesizes = dict()
         # Find out if any of the _<pagesize>page specified
         for pagesize in specified_pagesizes:
@@ -2208,6 +1242,7 @@ class Generator:
             if matching:
                 selected_pagesize = RV.RiscvPageSizes["S" + matching[0][:-4].upper()]
                 allowed_pagesizes[selected_pagesize] = RV.RiscvPageSizes.weights(selected_pagesize)
+        allowed_pagesizes = self._pagesizes_satisfying_addrs(allowed_pagesizes, exact_addrs)
 
         # If we found any pagesizes then pick one
         log.debug(f"allowed_ps: {allowed_pagesizes}")
@@ -2223,83 +1258,13 @@ class Generator:
 
         log.debug(f"final_pagesize: {final_pagesize}, addr_size: {addr_size:016x}, addr_mask: {addr_mask:016x}\n")
         # Force final pagesize to 4kb if switch says so
-        has_linked_pages = False
-        map_key = "map_os"
-        if page_mapping.in_private_map:
-            map_key = page_mapping.page_maps[0]
-        if self.pool.parsed_page_mapping_exists(page_mapping.lin_name, map_key) and self.pool.get_parsed_page_mapping(page_mapping.lin_name, map_key):
-            ppm = self.pool.get_parsed_page_mapping(page_mapping.lin_name, map_key)
-            if ppm.has_linked_ppms:
-                log.debug(f"Has linked pages: {page_mapping.lin_name}")
-                has_linked_pages = True
-        if self.featmgr.all_4kb_pages and not has_linked_pages:
+        if self.featmgr.all_4kb_pages:
             log.debug(f"Forcing 4KB pagesize for {page_mapping.lin_name}")
             final_pagesize = RV.RiscvPageSizes.S4KB
             addr_size = RV.RiscvPageSizes.memory(final_pagesize)
             addr_mask = RV.RiscvPageSizes.address_mask(final_pagesize)
 
         return (final_pagesize, addr_size, addr_mask)
-
-    def handle_normal_page_mappings(self, page_mapping):
-        """
-        Randomize the pagesize for the given page mapping. Also calculate memory needed for linear and physical
-        addresses associated with the page mapping
-        """
-        phys_rand_addr = self.pool.get_parsed_addr(key=page_mapping.phys_name)
-
-        # Randomize the pagesize for the given page mapping
-        self.randomize_pagesize(page_mapping=page_mapping)
-
-        # If the physical address is bound to a custom region, verify the chosen page size fits.
-        # We do not silently clamp — the user must specify a compatible pagesize= explicitly.
-        if phys_rand_addr.custom_region is not None:
-            region_start, region_end = self.addrgen._custom_regions[phys_rand_addr.custom_region]
-            region_size = region_end - region_start + 1
-            if page_mapping.address_size > region_size:
-                raise ValueError(
-                    f"Page size {page_mapping.address_size:#x} chosen for page mapping "
-                    f"{page_mapping.lin_name!r}/{page_mapping.phys_name!r} exceeds custom region "
-                    f"{phys_rand_addr.custom_region!r} size {region_size:#x}. "
-                    f"Add pagesize= to the page_mapping() call with a size that fits the region "
-                    f"(e.g. pagesize=['2mb'] for a 16 MB region, pagesize=['4kb'] for smaller ones)."
-                )
-
-        # The above function also updates the page_mapping.address_size, so update the size of the linear and physical
-        lin_rand_addr = self.pool.get_parsed_addr(key=page_mapping.lin_name)
-        lin_rand_addr.size = max(page_mapping.address_size, lin_rand_addr.size)
-        phys_rand_addr.size = max(page_mapping.phys_address_size, phys_rand_addr.size)
-        phys_rand_addr.and_mask = page_mapping.phys_address_mask & phys_rand_addr.and_mask
-        has_linked_pages = False
-        map_key = "map_os"
-        if page_mapping.in_private_map:
-            map_key = page_mapping.page_maps[0]
-        if self.pool.parsed_page_mapping_exists(page_mapping.lin_name, map_key) and self.pool.get_parsed_page_mapping(page_mapping.lin_name, map_key):
-            ppm = self.pool.get_parsed_page_mapping(page_mapping.lin_name, map_key)
-            if ppm.has_linked_ppms:
-                log.debug(f"Has linked pages: {page_mapping.lin_name}")
-                has_linked_pages = True
-        if self.featmgr.all_4kb_pages and not has_linked_pages:
-            log.debug(f"Forcing 4KB pagesize for {page_mapping.lin_name}")
-            page_mapping.final_pagesize = RV.RiscvPageSizes.S4KB
-            page_mapping.address_size = 0x1000
-            page_mapping.address_mask = 0xFFFFFFFFFFFFF000
-            lin_rand_addr.size = 0x1000
-            phys_rand_addr.size = 0x1000
-
-        # lin_addr_name   = page_mapping.lin_name
-        # phys_addr_name  = page_mapping.phys_name
-        # phys_addr_attr = self.pool.get_parsed_addr(phys_addr_name)
-        # lin_addr_attr  = self.pool.get_parsed_addr(lin_addr_name)
-        # phys_addr_c    = addrgen.AddressConstraint(
-        #                         address_type=RV.AddressType.PHYSICAL,
-        #                         address_qualifiers=[RV.AddressQualifiers.ADDRESS_DRAM],
-        #                         address_bits=int(re.findall(r'physical(\d+)',phys_addr_attr.type)[0])
-        #                     )
-        # lin_addr_c     = addrgen.AddressConstraint(
-        #                         address_type=RV.AddressType.LINEAR,
-        #                         address_bits=int(re.findall(r'linear(\d+)',lin_addr_attr.type)[0])
-        #                     )
-        # return tuple([lin_addr_name, addrgen.generate_address(lin_addr_c)]), tuple([phys_addr_name, addrgen.generate_address(phys_addr_c)])
 
     def process_raw_parsed_page_mappings(self):
         for ppm_inst in self.pool.get_raw_parsed_page_mappings():
@@ -2312,21 +1277,18 @@ class Generator:
                 val = var_val[1]
                 if re.match(r"lin_name", var):
                     if re.match(r"lin_name", var):
-                        # Do additional check if we have linked page_mappings
+                        # ``lin_name=base+offset`` always OffsetFrom the bare
+                        # ``;#random_addr(name=base)`` window (never nests under a
+                        # parent page_mapping). The random_addr owns the window;
+                        # a base page_mapping(lin_name=base), if any, SameAs that
+                        # same recipe.
                         match = re.search(r"(\w+)\+(\w+)", val)
                         if match:
-                            # Find the parent parsedpagemap instance
                             parent = match.group(1)
-                            map_key = "map_os"
-                            if self.featmgr.private_maps:
-                                if len(ppm_inst.page_maps) != 0:
-                                    map_key = ppm_inst.page_maps[0]
-                            parent_ppm_inst = self.pool.get_parsed_page_mapping(parent, map_key)
-                            parent_ppm_inst.linked_page_mappings.append(ppm_inst)
-                            parent_ppm_inst.has_linked_ppms = True
-                            ppm_inst.is_linked = True
-                            # The text after + in lin_name has the starting offset for the linked ppm
-                            ppm_inst.linked_ppm_offset = int(match.group(2), 16)
+                            offset = int(match.group(2), 16)
+                            if not self.pool.parsed_random_addr_exists(addr_name=parent):
+                                raise ValueError(f"lin_name={val}: parent {parent!r} must be a " f"random_addr for entry:\n \t{line}")
+                            ppm_inst.lin_addr_link = (parent, offset)
 
                 if re.match(r"lin_addr|phys_addr", var):
                     if re.match(r"lin_addr|phys_addr", var):
@@ -2349,11 +1311,24 @@ class Generator:
                 if var == "phys_name":
                     if val == "&random":
                         ppm_inst.resolve_priority = 20
-                    # Check if phys_name exists in any value instance in ppm
-                    exists = any(ppm.phys_name == val for ppm in self.pool.get_parsed_page_mappings().values())
-                    if exists:
-                        log.debug(f"phys_name {val} already exists in another page mapping, marking as alias case")
-                        ppm_inst.alias = True
+                    # A shared phys_name means this mapping aliases another's physical
+                    # page. "&random" is not a shared name -- it is a placeholder for
+                    # "allocate a fresh random page" -- so it never marks an alias.
+                    # Offset forms (name+0xN) name a byte in a random_addr window.
+                    if val != "&random" and "+" not in val:
+                        exists = any(ppm.phys_name == val for ppm in self.pool.get_parsed_page_mappings().values())
+                        if exists:
+                            log.debug(f"phys_name {val} already exists in another page mapping, marking as alias case")
+                            ppm_inst.alias = True
+
+            # phys_name=random_addr+offset → OffsetFrom that bare physical recipe.
+            phys_match = re.search(r"^(\w+)\+(\w+)$", ppm_inst.phys_name)
+            if phys_match:
+                phys_parent = phys_match.group(1)
+                phys_offset = int(phys_match.group(2), 16)
+                if not self.pool.parsed_random_addr_exists(addr_name=phys_parent):
+                    raise ValueError(f"phys_name={ppm_inst.phys_name}: parent {phys_parent!r} must be a " f"random_addr for entry:\n \t{line}")
+                ppm_inst.phys_addr_link = (phys_parent, phys_offset)
 
             if fixed_addr_specified:
                 ppm_inst.resolve_priority = 15
@@ -2365,197 +1340,275 @@ class Generator:
                 if len(ppm_inst.page_maps) != 0:
                     for pm in ppm_inst.page_maps[1:]:
                         ppm_copy = copy.deepcopy(ppm_inst)
-                        if ppm_copy.is_linked:
-                            parent_ppm_inst.linked_page_mappings.append(ppm_copy)
                         ppm_copy.page_maps = [pm]
-                        if not ppm_copy.is_linked:
-                            ppm_copy.lin_name += f"_{pm}"
-                            ppm_copy.phys_name += f"_{pm}"
-                            self.pool.add_parsed_page_mapping(ppm_copy)
+                        ppm_copy.lin_name += f"_{pm}"
+                        ppm_copy.phys_name += f"_{pm}"
+                        self.pool.add_parsed_page_mapping(ppm_copy)
                     ppm_inst.page_maps = [ppm_inst.page_maps[0]]
                     ppm_inst.lin_name += f"_{ppm_inst.page_maps[0]}"
 
-            if not ppm_inst.is_linked:
-                self.pool.add_parsed_page_mapping(ppm_inst)
+            self.pool.add_parsed_page_mapping(ppm_inst)
 
-    def handle_page_mappings(self, parsed_page_mappings=None):
+    def allocate_via_riemap(self):
+        """Allocate every address and page through the riemap builder.
+
+        RiescueD translates its parsed directives into neutral riemap constraints, hands
+        them to a :class:`PageTableBuilder` that owns its own registry and allocates in
+        any order, then reads the :class:`AllocationResult` back into the pool -- equates
+        (``pool.random_addrs``), page objects (``pool.page_maps`` for write-time tree
+        building), and PMA region bases. The page-table roots, tree emission and CSR
+        programming downstream stay as they were.
         """
-        All the addresses should have been generated before this. So, we just need to create a Page instance for
-        each of the page_mappings and create pagetables here
+        # Pagesize policy stays in RiescueD; resolve it up front so the translator
+        # reads the resolved final_pagesize / address_mask off each mapping.
+        for ppm in self.pool.get_parsed_page_mappings().values():
+            self.randomize_pagesize(ppm)
+
+        # Grow each pre-allocated in_pma region to the demand of its members now that
+        # page sizes are resolved (pre-allocation ran in __init__ before sizes were
+        # known). Mirrors the eager anchor path so the translator's NAPOT-rounded
+        # region is big enough for a member mapped with a large page size.
+        for region in {id(r): r for r in self._pre_allocated_pma_regions.values()}.values():
+            if region.pma_address == 0:
+                region.pma_size = max(region.pma_size, self._pma_region_demand(region))
+
+        # Truncate decoys (and their aligned exclusion list) to the budget loader.setup_pma
+        # will actually emit, BEFORE RieMap draws a single address: a decoy that will not
+        # survive emission-time truncation must not still veto a page-table placement here
+        # (see _project_decoy_budget).
+        budget = self._project_decoy_budget()
+        if budget < len(self.pool.pma_random_regions):
+            log.warning(f"PMA randomization: projecting decoys {len(self.pool.pma_random_regions)} -> {budget} to fit before RieMap allocation")
+            self.pool.truncate_pma_random_regions(budget)
+
+        # The builder owns a separate address generator, so it must avoid everything
+        # RiescueD has already reserved in its own -- both physical (page-map roots,
+        # section LMAs, ;#reserve_memory) and linear (fixed section/code VAs), so no
+        # solver-drawn page (esp. a large page) overlaps the code/runtime region in
+        # either space.
+        extra_reserved = [(RV.AddressType.PHYSICAL, start, end - start) for start, end in self.addrgen.allocated_physical_intervals()]
+        extra_reserved += [(RV.AddressType.LINEAR, start, end - start) for start, end in self.addrgen.allocated_linear_intervals()]
+        result, translation = build_page_tables(
+            self.pool,
+            self.featmgr,
+            self.rng,
+            extra_reserved_spans=extra_reserved,
+            pma_region_bindings=self._pma_region_bindings,
+        )
+        self._readback_allocation(result, translation)
+
+    def _readback_allocation(self, result, translation):
+        """Read a built :class:`AllocationResult` back into the pool.
+
+        RieMap allocated everything (roots, page-table nodes, page frames) and built
+        every tree; RiescueD consumes the result. It (1) records the intervals RieMap
+        reports as occupied in its own space so its remaining passes (init memory,
+        carveouts) never land on a page table, (2) publishes each space's root
+        for satp/vsatp/hgatp and the ``{map}_sptbr``
+        equates, and (3) re-attaches its symbol names to the allocated addresses. The
+        page-table trees are emitted later straight from ``result`` (see
+        ``AssemblyWriter._generate_pagetable_assembly``); RiescueD never rebuilds them.
         """
-        if parsed_page_mappings is None:
-            parsed_page_mappings = self.pool.get_parsed_page_mappings()
+        self.pool.allocation_result = result
+        self.pool.page_translation = translation
 
-        for lin_map_name, parsed_page_mapping in parsed_page_mappings.items():
-            if parsed_page_mapping.resolve_priority == 0:
-                # Handle maps
-                # Everything goes in map_os, map_hyp by default
-                page_maps = ["map_os"]
-                # Add hypervisor map if we are in virtualized mode
-                if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE and self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                    page_maps += ["map_hyp"]
-                page_maps += parsed_page_mapping.page_maps
+        # Mark every span RieMap placed as occupied in RiescueD's own space. This is
+        # the whole reservation -- roots, PT nodes and page frames -- so nothing
+        # RiescueD allocates afterwards collides with a page table.
+        for start, end in result.physical_intervals():
+            self.addrgen.reserve_memory(address_type=RV.AddressType.PHYSICAL, start_address=start, size=end - start)
+        for start, end in result.linear_intervals():
+            self.addrgen.reserve_memory(address_type=RV.AddressType.LINEAR, start_address=start, size=end - start)
 
-                log.debug(f"Page: {lin_map_name}, alias={parsed_page_mapping.alias}")
-                # Create the Page instance for this type of page_mapping entry
-                p = Page(
-                    name=lin_map_name[0],
-                    phys_name=parsed_page_mapping.phys_name,
-                    pool=self.pool,
-                    featmgr=self.featmgr,
-                    addrgen=self.addrgen,
-                    maps=page_maps,
-                    alias=parsed_page_mapping.alias,
-                )
-                p.lin_addr = self.pool.get_random_addr(p.name).address
-                p.size = parsed_page_mapping.address_size
-                p.pagesize = parsed_page_mapping.final_pagesize
-                if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                    self.update_page_attrs(page=p, parsed_page_mapping=parsed_page_mapping)
-                    # p.gstage_vs_leaf_pagesize = parsed_page_mapping.gstage_vs_leaf_final_pagesize
-                    # p.gstage_vs_nonleaf_pagesize = parsed_page_mapping.gstage_vs_nonleaf_final_pagesize
-                    # p.gstage_vs_leaf_address_size = parsed_page_mapping.gstage_vs_leaf_address_size
-                    # p.gstage_vs_nonleaf_address_size = parsed_page_mapping.gstage_vs_nonleaf_address_size
-                    # p.gstage_vs_leaf_address_mask = parsed_page_mapping.gstage_vs_leaf_address_mask
-                    # p.gstage_vs_nonleaf_address_mask = parsed_page_mapping.gstage_vs_nonleaf_address_mask
-                    log.debug(f"set for {p.name} gstage_vs_leaf_final_pagesize: {p.gstage_vs_leaf_pagesize}, gstage_vs_nonleaf_final_pagesize: {p.gstage_vs_nonleaf_pagesize}")
-                p.phys_addr = None
-                p.phys_addr = self.pool.get_random_addr(p.phys_name).address
-                if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-                    # p.phys_addr = p.lin_addr
-                    p.lin_addr = self.canonicalize_lin_addr(p.phys_addr)
-                    self.addrgen.reserve_memory(
-                        address_type=RV.AddressType.PHYSICAL,
-                        start_address=p.phys_addr,
-                        size=p.size,
-                    )
-                    self.addrgen.reserve_memory(
-                        address_type=RV.AddressType.LINEAR,
-                        start_address=p.phys_addr,
-                        size=p.size,
-                    )
+        # Roots: RieMap owns root allocation. Publish each space's root into its pool
+        # page map (satp/vsatp/hgatp read it) and as a {map}_sptbr equate. The Space
+        # object carries no name of its own -- look up RiescueD's own map name from
+        # the translation's object -> name map.
+        for space in result.spaces():
+            if space.paging_mode == RV.RiscvPagingModes.DISABLE:
+                continue
+            map_name = translation.space_names.get(space.space)
+            if map_name is None:
+                continue  # a space RiescueD didn't declare a name for (shouldn't happen)
+            page_maps = self.pool.get_page_maps()
+            if map_name in page_maps:
+                page_maps[map_name].sptbr = space.root_addr
+            sptbr_name = f"{map_name}_sptbr"
+            self.pool.add_random_addr(addr_name=sptbr_name, addr=Address(name=sptbr_name, address=space.root_addr, type=RV.AddressType.PHYSICAL), allow_duplicate=True)
 
-                    # Also update the random instance address which is used for printing addresses into the various files
-                    rand_addr_inst = self.pool.get_random_addr(p.name)
-                    rand_addr_inst.address = p.lin_addr
-                # else:
-                #     p.phys_addr = self.pool.get_random_addr(p.phys_name).address
-                #     log.debug(f'_Handle_page_mappings: {p.phys_name}')
-                #     log.debug(f'_Handle_page_mappings: {p.name}, {p.phys_addr:016x}')
-                self.pass_parsed_attrs(page=p, parsed_page_mapping=parsed_page_mapping)
-                self.pool.add_page(page=p, map_names=page_maps)
-                log.debug(f"Handle_page_mappings: {p.name}, {p.phys_addr:016x}")
-                log.debug(f"{p}")
+        # modify_pt PT-node symbols ({lin}__pt_level{N}): a modify_pt test writes its own
+        # live page-table entries at runtime through these. RieMap has no knowledge of the
+        # read-back -- RiescueD declared, per modify_pt mapping, a pinned PT-node frame at
+        # every walk level plus an ordinary leaf window mapping onto that frame
+        # (translation.pt_windows). Here we resolve the symbols from the built result: walk
+        # the source VA to get each level's live PTE slot address (never hand-computed
+        # index*8 -- NAPOT leaves make that wrong), then express the writable VA as
+        # ``window_va + (pte_addr - frame_base)`` and the physical slot as ``pte_addr``.
+        for src_page, windows in translation.pt_windows.items():
+            names = translation.page_names.get(src_page)
+            if names is None:
+                continue
+            lin_name = names[0]
+            space_result = result.space(src_page.space)
+            src_va, _src_pa = result.address_of(src_page)
+            steps, _translated = space_result.walk(src_va)
+            step_by_level = {step.level: step for step in steps}
+            for level, window_page, frame_page in windows:
+                step = step_by_level.get(level)
+                if step is None:
+                    continue
+                window_va, _ = result.address_of(window_page)
+                _, frame_base = result.address_of(frame_page)
+                lin_addr = window_va + (step.pte_addr - frame_base)
+                clean = f"{lin_name}__pt_level{level}"
+                self.pool.add_random_addr(addr_name=clean, addr=Address(name=clean, address=lin_addr, type=RV.AddressType.LINEAR), allow_duplicate=True)
+                phys_sym = f"{clean}__phys"
+                self.pool.add_random_addr(addr_name=phys_sym, addr=Address(name=phys_sym, address=step.pte_addr, type=RV.AddressType.PHYSICAL), allow_duplicate=True)
 
-                # Handle linked consecutive pages
-                if parsed_page_mapping.has_linked_ppms:
-                    for linked_ppm in parsed_page_mapping.linked_page_mappings:
-                        # Handle maps
-                        # Everything goes in map_os, map_hyp by default
-                        page_maps = ["map_os"]
-                        # Add hypervisor map if we are in virtualized mode
-                        if (
-                            self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED
-                            and self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE
-                            and self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE
-                        ):
-                            page_maps += ["map_hyp"]
-                        page_maps += linked_ppm.page_maps
+        # PMA regions the builder placed: record base/size for equates + pmacfg. A
+        # custom_region carries no PmaInfo -- its base is fixed and its PMA setup is the
+        # consumer's own responsibility -- so it is absent from region_pma entirely.
+        # Whether to (re-)register into pool.pma_regions is exactly the provenance decided
+        # at pre-allocation time (see PmaRegionBinding): a brand-new region is registered
+        # here for the first time; a reused hint, an adopted decoy, or a region shared with
+        # an earlier in_pma address is already tracked in the pool and must not be added
+        # again, or it would double-count a PMA entry at emission.
+        for region, binding in translation.region_pma.items():
+            binding.info.pma_address = result.region_base(region)
+            binding.info.pma_size = region.size
+            if binding.register_on_readback:
+                self.pool.pma_regions.add_entry(binding.info)
 
-                        self.randomize_pagesize(linked_ppm)
-                        # Get the start offset for this page
-                        offset = linked_ppm.linked_ppm_offset
+        # Bare address requests (no page table). Section skip_page_map addresses are
+        # also bare pages but are read back in the sections loop below (they carry
+        # section metadata), so translation.addr_names only carries a genuine
+        # random-addr's Page.
+        for page, name in translation.addr_names.items():
+            addr_type = translation.addr_types[page]
+            addr = result.address(page)
+            # A bare linear address is a guest/OS VA: sign-extend it into canonical form
+            # (canonicalize_lin_addr is a no-op when paging is disabled). Physical / GPA
+            # addresses are left raw -- their high bits zero-extend, not sign-extend.
+            if addr_type == RV.AddressType.LINEAR:
+                addr = self.canonicalize_lin_addr(addr)
+            self.pool.add_random_addr(addr_name=name, addr=Address(name=name, address=addr, type=addr_type), allow_duplicate=True)
 
-                        # Check if we have reserved enough memory for the original page
-                        if p.size + offset <= parsed_page_mapping.address_size:
-                            message = f"Enough memory was not reserved for {parsed_page_mapping.lin_name}. "
-                            message += f"This is because {linked_ppm.lin_name} is continuous page to {parsed_page_mapping.lin_name}, which "
-                            message += f"needs 0x{offset:x} memory on top of 0x{parsed_page_mapping.address_size:x} specified int the {parsed_page_mapping.lin_name}"
-                            raise ValueError(message)
-                        p_linked = Page(
-                            name=linked_ppm.lin_name,
-                            phys_name=linked_ppm.phys_name,
-                            pool=self.pool,
-                            featmgr=self.featmgr,
-                            addrgen=self.addrgen,
-                            maps=page_maps,
-                        )
-                        p_linked.lin_addr = p.lin_addr + offset
-                        p_linked.size = offset
-                        p_linked.pagesize = linked_ppm.final_pagesize
-                        if self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                            self.update_page_attrs(page=p_linked, parsed_page_mapping=linked_ppm)
-                            # p_linked.gstage_vs_leaf_pagesize = linked_ppm.gstage_vs_leaf_final_pagesize
-                            # p_linked.gstage_vs_nonleaf_pagesize = linked_ppm.gstage_vs_nonleaf_final_pagesize
-                            # p_linked.gstage_vs_nonleaf_address_size = linked_ppm.gstage_vs_nonleaf_address_size
-                            # p_linked.gstage_vs_leaf_address_size = linked_ppm.gstage_vs_leaf_address_size
-                            # p_linked.gstage_vs_nonleaf_address_mask = linked_ppm.gstage_vs_nonleaf_address_mask
-                            # p_linked.gstage_vs_leaf_address_mask = linked_ppm.gstage_vs_leaf_address_mask
+        # Pages: one per (map, request). The solver already resolved shared (SameAs),
+        # linked (OffsetFrom) and alias addresses, so each page's VA/PA is read
+        # straight from the result -- no per-feature handling needed here.
+        for va_page, (map_name, ppm) in translation.page_source.items():
+            lin_name, phys_name = translation.page_names[va_page]
+            va, pa = result.address_of(va_page)
+            # A ``name+offset`` page is addressed via its bare random_addr equate --
+            # never emitted as an equate of its own (an invalid assembler symbol).
+            if "+" not in lin_name:
+                self.pool.add_random_addr(addr_name=lin_name, addr=Address(name=lin_name, address=va, type=RV.AddressType.LINEAR), allow_duplicate=True)
+                if "+" not in phys_name:
+                    self.pool.add_random_addr(addr_name=phys_name, addr=Address(name=phys_name, address=pa, type=RV.AddressType.PHYSICAL), allow_duplicate=True)
 
-                        p_linked.phys_addr = p.phys_addr + offset
-                        self.pass_parsed_attrs(page=p_linked, parsed_page_mapping=linked_ppm)
-                        self.pool.add_page(page=p_linked, map_names=page_maps)
+            p = PageInfo(name=lin_name, phys_name=phys_name, lin_addr=va, phys_addr=pa, alias=ppm.alias, in_private_map=ppm.in_private_map)
+            self.pool.add_page(page=p, map_names=[map_name])
 
-        # Print the pages in the map
-        # map_os = self.pool.get_page_map(map_name="map_os")
-        # for _, page in map_os.pages.items():
-        #     print(f'name: {page.name}, lin_addr: {page.lin_addr:016x}, phys_addr: {page.phys_addr:016x}')
+            self._register_gstage_pt_equates(result, va_page, lin_name, pa)
 
-    def update_page_attrs(self, page, parsed_page_mapping):
-        # Copy select attributes from parsed_page_mapping to page
-        # Group related attributes together for better maintainability
-        gstage_vs_attrs = [
-            "gstage_vs_leaf_pagesize",
-            "gstage_vs_nonleaf_pagesize",
-            "gstage_vs_leaf_address_size",
-            "gstage_vs_nonleaf_address_size",
-            "gstage_vs_leaf_address_mask",
-            "gstage_vs_nonleaf_address_mask",
-        ]
+        # Section pages: RieMap allocated + mapped them. Publish each section's VMA
+        # into random_addrs (the plain-name equate) and its PA under phys_name, plus
+        # a SectionInfo (linker VMA/LMA). Walk in layout order so an anchor's address
+        # is resolved before a section that sits OffsetFrom it, and so pool.sections
+        # keeps the insertion order the linker's segment grouping relies on.
+        resolved: dict = {}
+        for spec, page, is_page in translation.sections:
+            if is_page:
+                vma, pa = result.address_of(page)
+            else:
+                pa = result.address(page)
+                vma = self._section_vma(spec, pa, resolved)
+            resolved[spec.name] = (vma, pa)
+            name_type = RV.AddressType.PHYSICAL if spec.skip_page_map else RV.AddressType.LINEAR
+            self.pool.add_random_addr(addr_name=spec.name, addr=Address(name=spec.name, address=vma, type=name_type), allow_duplicate=True)
+            self.pool.add_random_addr(addr_name=spec.phys_name, addr=Address(name=spec.phys_name, address=pa, type=RV.AddressType.PHYSICAL), allow_duplicate=True)
+            if not spec.skip_linker:
+                self.pool.set_section(spec.name, vma=vma, lma=pa)
 
-        # Generate all level combinations
-        levels = range(5)  # 0 to 4
-        level_types = ["v", "u", "a", "d", "r", "w", "x", "pbmt", "n"]
+    def _register_gstage_pt_equates(self, result, va_page, lin_name, gpa):
+        """Register the ``{lin}__vsleaf{N}`` / ``{lin}__vslevel{N}`` equate families for one
+        two-stage page.
 
-        # Generate all level combinations
-        level_attrs = []
-        for level_type in level_types:
-            # Generate single level attributes
-            level_attrs.extend([f"{level_type}_level{i}" for i in levels])
+        A test running under a g-stage needs to name the *guest physical* addresses its own
+        VS-stage walk touches: the GPA of its data page (``__vsleaf{leaf}``) and the GPA of
+        every VS-stage page-table frame below the root (``__vslevel{L}`` -- the frame the
+        level-``L`` pointer PTE targets). Those are the addresses a hypervisor test compares
+        ``htval`` against, and the addresses whose g-stage identity leaves it invalidates to
+        provoke an implicit-page-table-walk fault. Each is published twice: ``__gpa`` as a
+        linear address (it is a GPA -- never sign-extended; guest physical addresses
+        zero-extend) and ``__phys`` as the same value physically, because RieMap
+        identity-maps every VS-stage frame into the g-stage domain.
 
-            # Generate level-glevel combinations
-            level_attrs.extend([f"{level_type}_level{v}_glevel{g}" for v in levels for g in levels])
+        No read-back field is needed for the frames: a table's base is its PTE's address with
+        the table's own span masked off, and ``WalkStep.pte_addr`` already carries that. The
+        span is derived (index-field width + PTE stride) rather than hardcoded at 4 KiB, so an
+        sv32 table (1024 x 4 B) and a future x4 g-stage root (2048 x 8 B = 16 KiB) both work.
 
-        # Combine all attributes
-        all_attrs = gstage_vs_attrs + level_attrs
+        The pair is skipped when either name already exists, so under ``--private_maps`` --
+        where the same ``lin_name`` is mapped in several maps -- the first map's frames win
+        rather than the last one's. ``allow_duplicate`` would instead make the published value
+        depend on dict iteration order.
+        """
+        # Every early-out is decided from the DECLARATION (the page's own Space) before
+        # ``result.space()`` is called: a space with no page table -- a paging-disabled map, and
+        # the physical leaf domain a disabled single-stage page lives in -- has no SpaceResult
+        # at all, and asking for one raises KeyError.
+        if self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE:
+            return
+        if va_page.space.paging_mode == RV.RiscvPagingModes.DISABLE:
+            return
+        space_result = result.space(va_page.space)
+        if space_result.is_gstage:
+            return
 
-        # Copy attributes from parsed_page_mapping to page
-        for attr in all_attrs:
-            ppm_attr = attr
-            if ppm_attr in ["gstage_vs_leaf_pagesize", "gstage_vs_nonleaf_pagesize"]:
-                # Replace pagesize with final_pagesize
-                ppm_attr = ppm_attr.replace("pagesize", "final_pagesize")
+        # A linked child's name is an offset expression ("lin7+0x1000"); '+' is not legal in an
+        # assembler identifier, so sanitize it the way the pre-refactor generator did.
+        base = lin_name.replace("+", "_")
+        meta = result.page_meta(va_page)
+        leaf_ps = meta.gstage_vs_leaf_pagesize or RV.RiscvPageSizes.S4KB
+        nonleaf_ps = meta.gstage_vs_nonleaf_pagesize or RV.RiscvPageSizes.S4KB
 
-            # Only update page if the parsed_page_mapping has the attribute
-            if hasattr(parsed_page_mapping, ppm_attr):
-                log.debug(f"{page.name}, attr: {attr}, ppm_attr: {parsed_page_mapping.__getattribute__(ppm_attr)}")
-                page.__setattr__(attr, parsed_page_mapping.__getattribute__(ppm_attr))
+        leaf_level = RV.RiscvPageSizes.pt_leaf_level(meta.pagesize)
+        self._add_gstage_pt_equate(f"{base}__vsleaf{leaf_level}", gpa & RV.RiscvPageSizes.address_mask(leaf_ps))
 
-    def pass_parsed_attrs(self, page, parsed_page_mapping):
-        # This method will copy values of page attributes from parsed_page_mapping instance into page instance
-        log.debug(f"attrs: {page.attrs}")
-        for attr_name in page.attrs.keys():
-            # copy each attr
-            if hasattr(parsed_page_mapping, attr_name):
-                ppm_attr_val = parsed_page_mapping.__getattribute__(attr_name)
-                if ppm_attr_val is None:
-                    if attr_name == "u":
-                        if self.featmgr.priv_mode == RV.RiscvPrivileges.USER:
-                            ppm_attr_val = 1
-                        else:
-                            ppm_attr_val = 0
-                page.attrs[attr_name] = ppm_attr_val
-                log.debug(f"Setting {attr_name} = {ppm_attr_val} for {page.name}")
+        mode = space_result.paging_mode
+        va, _pa = result.address_of(va_page)
+        steps, _translated = space_result.walk(va)
+        stride = RV.RiscvPagingModes.pt_entry_size(mode=mode)
+        for step, child in zip(steps, steps[1:]):
+            # ``child`` is a PTE inside the frame the level-``step.level`` pointer targets, so
+            # that frame's base is the child PTE's address with the frame's own span masked
+            # off: (1 << index-field width) slots of ``stride`` bytes -- 4 KiB for every table
+            # RieMap builds today, in every mode. Every level here came out of a completed walk,
+            # so it is in range; ``index_bits`` raises rather than returning None anyway.
+            hi, lo = RV.RiscvPagingModes.index_bits(mode, child.level)
+            span = (1 << (hi - lo + 1)) * stride
+            frame = child.pte_addr & ~(span - 1)
+            self._add_gstage_pt_equate(f"{base}__vslevel{step.level}", frame & RV.RiscvPageSizes.address_mask(nonleaf_ps))
+
+    def _add_gstage_pt_equate(self, name, addr):
+        """Publish one ``__gpa`` / ``__phys`` equate pair for an identity-mapped GPA."""
+        gpa_name = f"{name}__gpa"
+        phys_name = f"{name}__phys"
+        if self.pool.random_addr_exists(gpa_name) or self.pool.random_addr_exists(phys_name):
+            return
+        self.pool.add_random_addr(addr_name=gpa_name, addr=Address(name=gpa_name, address=addr, type=RV.AddressType.LINEAR))
+        self.pool.add_random_addr(addr_name=phys_name, addr=Address(name=phys_name, address=addr, type=RV.AddressType.PHYSICAL))
+
+    def _section_vma(self, spec, pa, resolved):
+        """The linker VMA of a skip_page_map section: a pinned value, an anchor's
+        VMA plus offset, or -- when neither -- the PA (VMA == LMA)."""
+        pl = spec.lin
+        if pl.exact is not None:
+            return pl.exact
+        if pl.anchor is not None:
+            return resolved[pl.anchor][0] + pl.offset
+        return pa
 
     def handle_sections(self, section):
         sections_to_process = ["data", "runtime", "code"] + self.os_data_sections + self.io_sections
@@ -2927,27 +1980,12 @@ class Generator:
                     page_count = 1
                 return page_count
 
-            # C sections: contiguous VA, independent PA per section.
-            #
-            # Reserve the entire contiguous VA region up front (on the first C section) so the
-            # randomly-chosen base is guaranteed to fit ALL C sections. The sections below are then
-            # placed at forced, contiguous VAs inside this reserved block. Without reserving the
-            # whole block first, only each section's own block is validated against existing
-            # reservations; the forced march for later sections can then run past the base block
-            # and silently overlap an already-placed section (e.g. hart_context), corrupting its
-            # mapping. This mirrors how other multi-page regions (hart_context, runtime, data)
-            # reserve the full block in their first allocation and then fill it with forced pages.
-            if self.next_c_section_lin_addr is None:
-                region_size = 0x1000 * sum(get_page_count(s) for s in self.c_used_sections)
-                lin_addr_bits = min(self.linear_addr_bits, self.pool.get_min_linear_addr_bits_for_page_maps())
-                region_constraint = addrgen.AddressConstraint(
-                    type=RV.AddressType.LINEAR,
-                    bits=lin_addr_bits,
-                    mask=common.address_mask_from_size(region_size),
-                    size=region_size,
-                )
-                self.next_c_section_lin_addr = self.canonicalize_lin_addr(self.addrgen.generate_address(constraint=region_constraint))
-
+            # C sections share one contiguous VA region: the first C section is a free
+            # anchor RieMap places, and every following C section (here and in later
+            # handle_sections calls, threaded through self.next_c_section_lin_addr) sits
+            # OffsetFrom it. The relation-first solver places the whole chain before any
+            # unrelated free draw, so nothing lands inside the block -- no explicit
+            # up-front region reservation needed.
             num_total_pages = get_page_count(section)
             page_name = section
             is_code = True if "runtime" in section else False
@@ -3076,7 +2114,13 @@ class Generator:
             n_pages = int((self.featmgr.io_maplic_size + (page_size - 1)) / page_size)
             start_addr = self.featmgr.io_maplic_addr
             for i in range(n_pages):
-                (lin_addr, phys_addr) = self.add_section_handler(name=f"maplic_{i}", size=self.featmgr.io_maplic_size, iscode=False, identity_map=True, start_addr=start_addr)
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name=f"maplic_{i}",
+                    size=page_size,
+                    iscode=False,
+                    identity_map=True,
+                    start_addr=start_addr,
+                )
                 start_addr += page_size
 
         elif section == "saplic":
@@ -3084,7 +2128,13 @@ class Generator:
             n_pages = int((self.featmgr.io_saplic_size + (page_size - 1)) / page_size)
             start_addr = self.featmgr.io_saplic_addr
             for i in range(n_pages):
-                (lin_addr, phys_addr) = self.add_section_handler(name=f"saplic_{i}", size=self.featmgr.io_saplic_size, iscode=False, identity_map=True, start_addr=start_addr)
+                (lin_addr, phys_addr) = self.add_section_handler(
+                    name=f"saplic_{i}",
+                    size=page_size,
+                    iscode=False,
+                    identity_map=True,
+                    start_addr=start_addr,
+                )
                 start_addr += page_size
 
         elif section == "imsic_mfile":
@@ -3172,318 +2222,74 @@ class Generator:
         skip_linker=False,
         skip_page_map=False,
     ):
-        """
-        Add a section with name, size and number of pages information
-        Inputs:
-          - name
-          - size
-          - iscode
-          - start_addr: Physical address start (when specified, reserves PA)
-          - start_lin_addr: Virtual address start (when specified with start_addr, allows VA != PA;
-                            when specified alone, fixes VA and generates PA randomly;
-                            when paging is disabled/skip_page_map=True, used as PA directly)
-          - identity_map: When True, forces VA == PA
-          - skip_page_map: When True, don't add to page tables (e.g. M-mode code sections)
+        """Declare one section page to RieMap -- allocation + mapping happen there.
+
+        This records a :class:`SectionSpec` describing how RieMap places and
+        maps the page, and returns a *symbolic* ``(lin, phys)`` pair. Because a returned
+        :class:`SectionAddr` supports ``+``, the existing contiguity threading in
+        :meth:`handle_sections` (``addr + size``) is preserved: a fixed ``int`` start
+        stays a pinned address, a ``SectionAddr`` becomes an ``OffsetFrom`` an anchor
+        section, and ``None`` is a free draw RieMap chooses.
+
+        ``start_addr`` / ``start_lin_addr`` accept an ``int`` (pinned), a
+        :class:`SectionAddr` (relative to another section), or ``None`` (free).
         """
         if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE and self.featmgr.paging_g_mode == RV.RiscvPagingModes.DISABLE:
             skip_page_map = True
         if self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
             identity_map = True
-
-        # When identity_map is requested, normalize so that the start_addr-only path handles it
         if identity_map:
             if start_addr is None and start_lin_addr is not None:
                 start_addr = start_lin_addr
             start_lin_addr = None
 
-        # Generate address or reserve memory
-        lin_addr = None
-        phys_addr = None
+        def placement(val):
+            if val is None:
+                return _Placement()
+            if isinstance(val, SectionAddr):
+                return _Placement(anchor=val.anchor, offset=val.offset)
+            return _Placement(exact=val)
+
+        phys_name_final = phys_name if phys_name else f"{name}_phys"
 
         if skip_page_map:
-            # No page tables: allocate only PA, use it for both linker LMA and VMA
-            if start_addr is not None and start_lin_addr is not None:
-                # Both PA and VA explicitly specified
-                phys_addr = start_addr
-                lin_addr = start_lin_addr
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.PHYSICAL,
-                    start_address=start_addr,
-                    size=size,
-                )
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.LINEAR,
-                    start_address=start_lin_addr,
-                    size=size,
-                )
-            elif start_addr is not None:
-                phys_addr = start_addr
-                lin_addr = phys_addr
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.PHYSICAL,
-                    start_address=start_addr,
-                    size=size,
-                )
-                # VMA == PA for skip_page_map sections; reserve linear space too to avoid
-                # linker errors from data sections being assigned VMAs that overlap this region.
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.LINEAR,
-                    start_address=start_addr,
-                    size=size,
-                )
-            elif start_lin_addr is not None:
-                # Paging disabled: use the provided VA as PA (VA == PA)
-                phys_addr = start_lin_addr
-                lin_addr = phys_addr
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.PHYSICAL,
-                    start_address=start_lin_addr,
-                    size=size,
-                )
-                # Reserve linear space too to avoid linker errors from VMAs overlapping this region.
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.LINEAR,
-                    start_address=start_lin_addr,
-                    size=size,
-                )
-            else:
-                phys_addr_bits = min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps())
-                if identity_map:
-                    lin_addr_bits = min(self.linear_addr_bits, self.pool.get_min_linear_addr_bits_for_page_maps())
-                    phys_addr_bits = min(phys_addr_bits, lin_addr_bits - 1)
-                address_mask = common.address_mask_from_size(size)
-                phys_addr_c = addrgen.AddressConstraint(
-                    type=RV.AddressType.PHYSICAL,
-                    qualifiers={RV.AddressQualifiers.ADDRESS_DRAM},
-                    bits=phys_addr_bits,
-                    mask=address_mask,
-                    size=size,
-                )
-                phys_addr = self.addrgen.generate_address(constraint=phys_addr_c)
-                if phys_addr is None:
-                    raise ValueError(f"Failed to generate address for {name}")
-                log.debug(f"phys_addr_constraints, {phys_name}: {phys_addr_c}, phys_addr: {phys_addr:016x}")
-                lin_addr = phys_addr
-                if identity_map:
-                    self.addrgen.reserve_memory(
-                        address_type=RV.AddressType.LINEAR,
-                        start_address=phys_addr,
-                        size=size,
-                    )
+            # No translation: a bare physical address (+ linker section). VMA equals
+            # the PA unless both a VA and PA were pinned (then VMA is the given lin).
+            both = start_addr is not None and start_lin_addr is not None
+            phys = placement(start_addr if start_addr is not None else start_lin_addr)
+            lin = placement(start_lin_addr) if both else _Placement()
+            identity = not both
         elif start_addr is not None and start_lin_addr is not None:
-            # Both PA and VA explicitly specified (contiguous non-identity-mapped sections)
-            phys_addr = start_addr
-            lin_addr = start_lin_addr
-            self.addrgen.reserve_memory(
-                address_type=RV.AddressType.PHYSICAL,
-                start_address=start_addr,
-                size=size,
-            )
-            self.addrgen.reserve_memory(
-                address_type=RV.AddressType.LINEAR,
-                start_address=start_lin_addr,
-                size=size,
-            )
+            phys, lin, identity = placement(start_addr), placement(start_lin_addr), False
         elif start_addr is not None:
-            # Only PA specified
-            phys_addr = start_addr
-            self.addrgen.reserve_memory(
-                address_type=RV.AddressType.PHYSICAL,
-                start_address=start_addr,
-                size=size,
-            )
-            if identity_map:
-                # Identity map: VA = PA (paging off, or caller explicitly requests it)
-                lin_addr = phys_addr
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.LINEAR,
-                    start_address=phys_addr,
-                    size=size,
-                )
-            else:
-                # Generate VA independently (non-identity mapping)
-                lin_addr_bits = min(self.linear_addr_bits, self.pool.get_min_linear_addr_bits_for_page_maps())
-                address_mask = common.address_mask_from_size(size)
-                lin_addr_c = addrgen.AddressConstraint(
-                    type=RV.AddressType.LINEAR,
-                    bits=lin_addr_bits,
-                    mask=address_mask,
-                    size=size,
-                )
-                lin_addr_orig = self.addrgen.generate_address(constraint=lin_addr_c)
-                lin_addr = self.canonicalize_lin_addr(lin_addr_orig)
+            phys = placement(start_addr)
+            lin, identity = (placement(start_addr), True) if identity_map else (_Placement(), False)
         elif start_lin_addr is not None:
-            # Only VA specified — fix VA, generate PA randomly (or PA == VA if identity_map)
-            lin_addr = start_lin_addr
-            self.addrgen.reserve_memory(
-                address_type=RV.AddressType.LINEAR,
-                start_address=start_lin_addr,
-                size=size,
-            )
             if identity_map:
-                phys_addr = start_lin_addr
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.PHYSICAL,
-                    start_address=start_lin_addr,
-                    size=size,
-                )
+                phys, lin, identity = placement(start_lin_addr), placement(start_lin_addr), True
             else:
-                phys_addr_bits = min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps())
-                address_mask = common.address_mask_from_size(size)
-                phys_addr_c = addrgen.AddressConstraint(
-                    type=RV.AddressType.PHYSICAL,
-                    qualifiers={RV.AddressQualifiers.ADDRESS_DRAM},
-                    bits=phys_addr_bits,
-                    mask=address_mask,
-                    size=size,
-                )
-                phys_addr = self.addrgen.generate_address(constraint=phys_addr_c)
+                phys, lin, identity = _Placement(), placement(start_lin_addr), False
         else:
-            # Calculate mask, addr_bits from size
-            # Sections are mapped across all page_maps. So we need the min address bits of all page maps for address selection.
-            lin_addr_bits = min(self.linear_addr_bits, self.pool.get_min_linear_addr_bits_for_page_maps())
-            phys_addr_bits = min(self.physical_addr_bits, self.pool.get_min_physical_addr_bits_for_page_maps())
+            phys, lin, identity = _Placement(), _Placement(), bool(identity_map)
 
-            # If we are paging_disabled or identity_mapped, we generate physical address and assign it to linear address
-            # So, we need to constraint the physical address to the same size as linear address. In addition we cannot use all bits of
-            # linear address as then we need to canonicalize it. So we restrict to min of physical and linear address bits-1
-            if identity_map:
-                phys_addr_bits = min(phys_addr_bits, lin_addr_bits - 1)
-
-            # address_mask = 0xfffffffffffff000
-            address_size = size
-            address_mask = common.address_mask_from_size(size)
-
-            phys_addr_c = addrgen.AddressConstraint(
-                type=RV.AddressType.PHYSICAL,
-                qualifiers={RV.AddressQualifiers.ADDRESS_DRAM},
-                bits=phys_addr_bits,
-                mask=address_mask,
-                size=address_size,
+        self.pool.section_specs.append(
+            SectionSpec(
+                name=name,
+                phys_name=phys_name_final,
+                size=size,
+                phys=phys,
+                lin=lin,
+                iscode=iscode,
+                always_super=always_super,
+                always_user=always_user,
+                skip_page_map=skip_page_map,
+                skip_linker=skip_linker,
+                identity=identity,
             )
-            phys_addr = self.addrgen.generate_address(constraint=phys_addr_c)
-            if phys_addr is None:
-                raise ValueError(f"Failed to generate address for {name}")
-            log.debug(f"phys_addr_constraints, {phys_name}: {phys_addr_c}, phys_addr: {phys_addr:016x}")
-
-            if identity_map:
-                lin_addr = phys_addr
-                self.addrgen.reserve_memory(
-                    address_type=RV.AddressType.LINEAR,
-                    start_address=phys_addr,
-                    size=address_size,
-                )
-            else:
-                lin_addr_c = addrgen.AddressConstraint(
-                    type=RV.AddressType.LINEAR,
-                    bits=lin_addr_bits,
-                    mask=address_mask,
-                    size=address_size,
-                )
-                lin_addr_orig = self.addrgen.generate_address(constraint=lin_addr_c)
-                lin_addr = self.canonicalize_lin_addr(lin_addr_orig)
-                log.debug(f"lin_addr_constraints: {name}: {lin_addr_c}, lin_addr: {lin_addr:016x}")
-
-        phys_addr_name = phys_name if phys_name else f"{name}_phys"
-
-        # Create Address and Page instances
-        addr_type = RV.AddressType.PHYSICAL if skip_page_map else RV.AddressType.LINEAR
-        addr_inst = Address(name=name, type=addr_type, address=lin_addr)
-        self.pool.add_random_addr(addr_name=name, addr=addr_inst)
-
-        addr_inst = Address(name=phys_addr_name, type=RV.AddressType.PHYSICAL, address=phys_addr)
-        self.pool.add_random_addr(addr_name=phys_addr_name, addr=addr_inst)
-
-        # Add the page in all the available maps
-        maps_to_add = list(self.pool.get_page_maps().keys())
-
-        p = Page(
-            name=name,
-            phys_name=phys_addr_name,
-            pool=self.pool,
-            featmgr=self.featmgr,
-            addrgen=self.addrgen,
-            maps=maps_to_add,
-            no_pbmt_ncio=1,
         )
-        p.lin_addr = lin_addr
-        p.phys_addr = phys_addr
-
-        if iscode:
-            # Mark it executable
-            p.attrs["x_level0"] = 1
-            # If hypervisor is enabled, then we need to mark it executable in hyp-map
-            if self.featmgr.env == RV.RiscvTestEnv.TEST_ENV_VIRTUALIZED and self.featmgr.paging_g_mode != RV.RiscvPagingModes.DISABLE:
-                p.attrs["x_level0_glevel0"] = 1
-                p.attrs["x_level1_glevel0"] = 1
-                p.attrs["x_level2_glevel0"] = 1
-                p.attrs["x_level3_glevel0"] = 1
-                p.attrs["x_level4_glevel0"] = 1
-        # Always supervisor, except when vs-stage is disabled in 2-stage translation, in that case
-        # the u_level0 will go to hyp-map
-        if not self.featmgr.paging_mode == RV.RiscvPagingModes.DISABLE:
-            p.attrs["u_level0"] = 0
-
-        if not always_super and self.featmgr.priv_mode == RV.RiscvPrivileges.USER:
-            # Always user for data pages or in user mode
-            p.attrs["u_level0"] = 1
-
-        if always_user:
-            p.attrs["u_level0"] = 1
-
-        if not skip_page_map:
-            self.pool.add_page(page=p, map_names=maps_to_add)
-
-        # Add address as a section so they can be used in the linker script
-        log.debug(f"Adding section {name} with lin_addr: {lin_addr:016x}, phys_addr: {phys_addr:016x}")
-        if not skip_linker:
-            self.pool.add_section(section_name=name)
-
-        return (lin_addr, phys_addr)
-
-    def generate_addr(self):
-        """
-        Generate all the addresses here
-        """
-        # page_mappings = {k: v for k,v in sorted(self.pool.get_parsed_page_mapings().items(),key=lambda item : item[1].resolve_priority, reverse=True)}
-        for lin_name_map, page_mapping in self.pool.get_parsed_page_mappings().items():
-            if page_mapping.resolve_priority == 15:
-                self.handle_fixed_page_mappings(page_mapping)
-
-            elif page_mapping.resolve_priority == 20:
-                self.handle_random_page_mappings(page_mapping)
-
-            else:
-                # We don't need to generate any address for normal page_mappings since addresses are already generated for them
-                # We directly create a Page instance after generating all addresses for these types
-                self.handle_normal_page_mappings(page_mapping)
-
-        # Now handle random_address entries.
-        # Sources with exactly one pinned-buddy derived (buddy VA = source VA + size, see
-        # _is_pinned_buddy_shape) allocate a double span so the buddy slot can never be stolen:
-        # the allocator's NEAR heuristic packs later allocations directly adjacent to earlier
-        # ones, which otherwise lands something on the buddy page between Pass A and Pass B.
-        buddy_deriveds_by_source: dict[str, list[str]] = {}
-        for addr_name, rand_addr in self.pool.get_parsed_addrs().items():
-            if self._is_pinned_buddy_shape(rand_addr):
-                buddy_deriveds_by_source.setdefault(rand_addr.derive_from, []).append(addr_name)
-        span_sources = {name for name, deriveds in buddy_deriveds_by_source.items() if len(deriveds) == 1}
-        self._span_placed_buddies = {buddy_deriveds_by_source[name][0] for name in span_sources}
-        # Pass A: non-derived addresses (sources resolve here). This preserves the original RNG
-        # draw order for all existing (non-derived) random_addrs => fully backwards compatible.
-        for addr_name, rand_addr in self.pool.get_parsed_addrs().items():
-            if addr_name not in self.pool.get_random_addrs() and rand_addr.derive_from is None:
-                log.debug(f"random_addr {addr_name}")
-                span = rand_addr.size * 2 if addr_name in span_sources else None
-                self.handle_random_addr(random_addr=rand_addr, lin_span_override=span)
-        # Pass B: derived addresses, whose source address is guaranteed resolved by Pass A.
-        for addr_name, rand_addr in self.pool.get_parsed_addrs().items():
-            if addr_name not in self.pool.get_random_addrs() and rand_addr.derive_from is not None:
-                log.debug(f"derived random_addr {addr_name}")
-                self.handle_derived_random_addr(random_addr=rand_addr)
+        return (SectionAddr(name, 0), SectionAddr(name, 0))
 
     def generate_init_mem(self):
-        # page_mappings = self.pool.get_page_mappings()
         for init_mem_name in self.pool.get_parsed_init_mem_addrs():
             log.debug(f"Adding init_mem section {init_mem_name}")
             section_name = self.pool.resolve_canonical_lin_name(init_mem_name, "map_os")

@@ -107,8 +107,8 @@
 ;#reserve_memory(start_addr=0x600000000, addr_type=linear, size=0x1000)
 ;#reserve_memory(start_addr=0x500000000, addr_type=physical, size=0x1000)
 #
-;#page_mapping(lin_addr=0x500000000, phys_addr=0x500000000, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'], modify_pt=1)
-;#page_mapping(lin_addr=0x600000000, phys_name=&random, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'], modify_pt=1)
+;#page_mapping(lin_addr=0x500000000, phys_addr=0x500000000, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
+;#page_mapping(lin_addr=0x600000000, phys_name=&random, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 ;#random_addr(name=lin21,  type=linear,   size=0x1000, and_mask=0xfffffffffffff000)
 ;#reserve_memory(start_addr=0x2000000, addr_type=physical, size=0x1000)

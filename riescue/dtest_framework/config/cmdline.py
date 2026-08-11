@@ -479,6 +479,17 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "often = [1,100], moderate = [1,1000] (default), sparse = [1,10000]. "
         "Only meaningful when --rand_mem_inject_icount_pct > 0.",
     )
+    rand_mem_bp_args.add_argument(
+        "--rand_mem_icount_park_pct",
+        default=None,
+        type=int,
+        help="Probability (0-100) of parking a non-firing icount trigger on slot 8 and leaving it "
+        "selected in tselect for the whole test. Independent of --rand_mem_breakpoint_pct: needs no "
+        "address pool and registers no handler. The action is drawn from the trace actions only "
+        "(trace_on/trace_off/trace_notify) so a fire raises no exception; count/hit/pending/priv_mode "
+        "are randomized. Exists so architectural coverage of icount-gated state is sampled by ordinary "
+        "random tests instead of only by directed sdtrig tests. 0 = off (default).",
+    )
 
     pma_pmp_args = parser.add_argument_group("PMA/PMP", "Arguments for PMA/PMP tests")
     pma_pmp_args.add_argument(
@@ -527,6 +538,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--pma_carveout_mask_pct",
         default=None,
         help="Percent [0-100] of named pma_* carve-out regions that get a random pmamask (requires --enable_pma_randomization)",
+        type=int,
+    )
+    pma_pmp_args.add_argument(
+        "--pma_indirect_access_pct",
+        default=None,
+        help="Percent [0-100] of direct pmacfg entries (0-15) programmed via miselect/mireg/mireg2 instead. " "Default: 50 when --enable_pma_randomization is set, 0 otherwise",
         type=int,
     )
 

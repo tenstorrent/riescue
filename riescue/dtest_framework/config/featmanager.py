@@ -11,7 +11,7 @@ from typing import TypeVar, Optional, Union, Callable, Any, List
 import riescue.lib.enums as RV
 from riescue.lib.feature_discovery import FeatureDiscovery
 from .cpu_config import CpuConfig
-from .memory import Memory
+from riescue.riemap.memory import Memory
 from riescue.dtest_framework.trap_context import TrapContext, TrapHookable
 
 log = logging.getLogger(__name__)
@@ -195,6 +195,10 @@ class FeatMgr:
     # Shares the ``rand_mem_max_fires`` budget with the mcontrol6 watchpoints.
     rand_mem_inject_icount_pct: int = 0
     rand_mem_icount_density: RV.RandMemIcountDensity = RV.RandMemIcountDensity.MODERATE
+    # Independent top-level gate: park a non-firing icount trigger on slot 8 and leave it selected in
+    # tselect for the whole test, so icount-gated architectural coverage is sampled by ordinary tests.
+    # Needs no address pool and registers no handler, so it does not interact with the watchpoint path.
+    rand_mem_icount_park_pct: int = 0
     medeleg_forced: bool = False
 
     # CSR R/W handling
@@ -210,7 +214,9 @@ class FeatMgr:
     pma_random_regions: int = 8  # Decoy region count when randomization is on (Voyager2 overrides via CLI)
     pma_random_mask_pct: int = 25  # Percent of decoy regions that get a nonzero pmamask
     pma_carveout_mask_pct: int = 0  # Percent of named pma_* carve-outs that get a random pmamask
+    pma_indirect_access_pct: int = -1  # Percent of entries 0-15 programmed indirectly; -1 = auto (50 if randomization on, else 0)
     user_programmable_pmacfg: int = 0  # Reserve pmacfg entries [0..N) for user runtime programming
+    user_programmable_pmacfg_required: int = 0  # Floor from ;#test.user_programmable_pmacfg; resolved as a max() in build()
 
     # Debug mode (RISC-V Debug Spec Ch.4): ;#discrete_debug_test() and/or config
     debug_mode: bool = False
@@ -246,7 +252,8 @@ class FeatMgr:
 
     # Feature randomization?
     a_d_bit_randomization: int = 0  # unused?
-    pbmt_ncio_randomization: int = 0  # unused?
+    # Probability that pbmt_ncio is enabled; rolled in FeatMgrBuilder.build().
+    pbmt_ncio_randomization: int = 0
     fs_randomization: int = 0
     fs_randomization_values: List[int] = field(default_factory=lambda: [2])  # 0=Off, 1=Initial, 2=Clean, 3=Dirty
     vs_randomization: int = 0
@@ -378,6 +385,24 @@ class FeatMgr:
                     misa |= 1 << z_bits[feature]
 
         return misa
+
+    # Base-extension misa bits only. The Z-extension map in get_misa_bits aliases several Z features
+    # onto F/A/V's bits, so a disabled Z feature must never be used to clear a base extension. "i" is
+    # excluded outright -- clearing the base ISA bit would be nonsense.
+    _MISA_CLEARABLE_BITS = {"m": 12, "a": 0, "f": 5, "d": 3, "c": 2, "v": 21, "h": 7}
+
+    def get_misa_clear_bits(self) -> int:
+        """Return the misa bits to clear: base extensions the config knows about but has disabled.
+
+        Needed because the loader can only OR bits into misa, so a feature marked
+        ``enabled: false`` still reads as present if the reset value has its bit set. Coverage of the
+        "extension absent" direction (e.g. misa.H=0) is unreachable without clearing.
+        """
+        clear = 0
+        for ext, bit in self._MISA_CLEARABLE_BITS.items():
+            if ext in self.cpu_config.features.features and not self.cpu_config.features.is_feature_enabled(ext):
+                clear |= 1 << bit
+        return clear
 
     def get_compiler_march_string(self) -> str:
         """Generate a compiler march string from enabled features"""

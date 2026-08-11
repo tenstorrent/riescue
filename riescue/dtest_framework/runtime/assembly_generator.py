@@ -413,6 +413,13 @@ class AssemblyGenerator(ABC):
         """
         Generates code to get the hart context pointer into the tp register.
 
+        In M-mode this is a plain CSR read (``csrr tp, mscratch``) and clobbers nothing
+        else. In S/U mode it issues an ecall to ``os_get_hart_context``, which returns
+        through ``ret_from_os_fn`` -- per the ``SysCalls`` ABI (see ``syscalls.py``),
+        every syscall handler must load t0 with its return address, and
+        ``ret_from_os_fn`` itself uses t1 as scratch to stash the pre-call epc. So in
+        S/U mode this call additionally clobbers t0 and t1, on top of a0/tp.
+
         :return: Assembly string to get the hart context pointer into the tp register
         """
         if not self.mp_active:
@@ -421,7 +428,8 @@ class AssemblyGenerator(ABC):
             if self.test_priv == RV.RiscvPrivileges.MACHINE:
                 get_tp = "csrr tp, mscratch"
             else:
-                # Syscall always returns the hart-local storage pointer in a0
+                # Syscall always returns the hart-local storage pointer in a0.
+                # Clobbers t0/t1 (see ret_from_os_fn / SysCalls ABI) in addition to a0.
                 get_tp = """
                     li x31, 0xf0002001 # retrieve hard-local storage pointer in a0 register.
                     ecall

@@ -11,4 +11,5 @@ Complete reference material for RiESCUE tools, organized by type of information.
    riescue_test_file/index
    riescue_runtime/index
    config/index
+   riemap/index
 

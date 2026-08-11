@@ -19,6 +19,7 @@ from .hstore import HStoreAction
 from .modify_pte import ModifyPteAction
 from .branch import CallAction
 from .csr import CsrReadAction, CsrWriteAction, CsrDirectAccessAction
+from .envcfg import EnableEnvCfgAction
 from .pte_actions import (
     ReadPteAction,
     WritePteAction,
@@ -90,6 +91,7 @@ __all__ = [
     "CsrReadAction",
     "CsrWriteAction",
     "CsrDirectAccessAction",
+    "EnableEnvCfgAction",
     "PteAction",
     "ReadPteAction",
     "WritePteAction",

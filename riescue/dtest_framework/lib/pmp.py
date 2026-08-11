@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 
 from riescue.lib.enums import Xlen, RiscvPmpAddressMatchingModes, PmpAttributes
-from riescue.dtest_framework.config.memory import BaseMem, DramRange
+from riescue.riemap.memory import BaseMem, DramRange
 
 """
 Package containing PMP related classes. Used to generate ``pmpcfg`` and ``pmpaddr`` CSRs.

@@ -243,7 +243,9 @@ class Page(AssemblyBase):
         page_flags_str = ", ".join(page_flags)
 
         # Generate multiple page mappings based on num_pages
-        pages_to_generate = self.num_pages or 1
+        pages_to_generate = 1 if self.num_pages is None else self.num_pages
+        if pages_to_generate <= 0:
+            raise ValueError(f"num_pages must be positive, got {pages_to_generate}")
 
         # Normalize page_size to a tuple so single and multi-size cases are handled uniformly
         # Use SIZE_4K as the default if page_size is None
@@ -253,30 +255,23 @@ class Page(AssemblyBase):
             page_sizes = self.page_size
         else:
             page_sizes = (self.page_size,)
+        if pages_to_generate > 1 and len(set(page_sizes)) > 1:
+            raise ValueError("num_pages greater than one requires one unambiguous page_size")
         page_size_bytes = min(ps.value for ps in page_sizes)
 
         # Calculate total memory requirements; if size is unspecified, derive it
         total_memory_needed = page_size_bytes * pages_to_generate
         size = self.size if self.size is not None else total_memory_needed
 
-        # Determine appropriate first page size based on total memory requirements
-        if pages_to_generate > 1:
-            if total_memory_needed > PageSize.SIZE_1G.value:  # > 1GB
-                first_page_size_str = "'1gb'"
-                first_page_size_bytes = PageSize.SIZE_1G.value
-            elif total_memory_needed > PageSize.SIZE_2M.value:  # > 2MB
-                first_page_size_str = "'1gb'"  # Use 1GB to cover more than 2MB
-                first_page_size_bytes = PageSize.SIZE_1G.value
-            elif total_memory_needed > PageSize.SIZE_4K.value:  # > 4KB
-                first_page_size_str = "'2mb'"  # Use 2MB to cover multiple 4KB pages
-                first_page_size_bytes = PageSize.SIZE_2M.value
-            else:
-                first_page_size_str = "'4kb'"
-                first_page_size_bytes = PageSize.SIZE_4K.value
-        else:
-            # Single page - format all sizes as pre-quoted, comma-joined list elements
-            first_page_size_str = self._fmt_page_sizes(page_sizes)
-            first_page_size_bytes = page_size_bytes
+        # Every page -- including the first -- uses the requested page size. For
+        # num_pages > 1 the loop below lays out ``pages_to_generate`` pages spaced one
+        # page apart, so a ``page_size=4KB, num_pages=2`` request yields two ADJACENT
+        # 4KB pages (e.g. a page-crossing region). Promoting the first page to a
+        # superpage "covering" the others is wrong: the subsequent 4KB pages are placed
+        # at +0x1000 -- INSIDE that superpage -- producing an impossible overlap (a
+        # superpage leaf and a 4KB walk sharing the same upper-level slots).
+        first_page_size_str = self._fmt_page_sizes(page_sizes)
+        first_page_size_bytes = page_size_bytes
 
         # Alignment mask: all 1s except the low bits of first_page_size_bytes,
         # so the base VA/PA are aligned correctly for superpages across the full 64-bit space.
@@ -357,15 +352,15 @@ class Page(AssemblyBase):
                 if nonleaf_gnonleaf_flags:
                     page_mapping_str += f", {nonleaf_gnonleaf_flags}"
             else:
-                # Subsequent pages use offset names and 4kb page size
-                # Start subsequent pages after the first page size + 0x1000 for each page
-                offset = i * 0x1000  # i=1 gives 0x200000 + 0x1000 = 0x201000
+                # Subsequent pages are placed one page-size above the previous, so the
+                # num_pages pages form a contiguous run of same-size pages (e.g. two
+                # adjacent 4KB pages that straddle a page boundary for a page-crossing test).
+                offset = i * first_page_size_bytes
                 lin_name = f"{self.name}+0x{offset:x}"
                 phys_name = f"{self.phys_name}+0x{offset:x}"
                 page_mapping_str = f"lin_name={lin_name}, phys_name={phys_name}"
 
-                # Use 4kb page size for subsequent mappings
-                page_mapping_str += ", pagesize=['4kb']"
+                page_mapping_str += f", pagesize=[{first_page_size_str}]"
 
                 if page_flags_str:
                     page_mapping_str += f", {page_flags_str}"

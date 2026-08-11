@@ -119,17 +119,111 @@ _ICOUNT_TABLE_FLOOR = 2
 _ICOUNT_TABLE_CAP = 64
 
 
-def apply(featmgr: FeatMgr, pool: Pool, rng: RandNum) -> None:
-    """Roll the pct gate; if it fires, arm N triggers + register the BP handler."""
-    pct = featmgr.rand_mem_breakpoint_pct
+# --- icount park mode ---------------------------------------------------------------------------
+#
+# Every icount coverpoint in the architectural coverage model is gated on
+# ``tdata1.type == 3 && tselect == 8``, so none of them sample unless an icount trigger is the
+# selected trigger while instructions retire. Directed sdtrig tests establish that state only inside
+# a scenario body (each discrete test saves/restores the trigger CSRs around itself), so parking has
+# to happen in the M-mode loader to survive for the whole test.
+#
+# Actions are drawn from the trace actions only. A trace action fire starts/stops/emits trace and
+# raises no exception, so the parked trigger is safe with no handler registered -- whereas
+# action=breakpoint would raise a BREAKPOINT with nothing to service it, and action=debug_mode needs
+# debug-module entry that the framework cannot drive.
+_ICOUNT_PARK_ACTIONS = [TriggerAction.TRACE_ON, TriggerAction.TRACE_OFF, TriggerAction.TRACE_NOTIFY]
+
+# Counts near the top of the 14-bit field. The countdown only advances in the enabled privilege
+# modes, so a large count keeps fires rare while still exercising the count field's high bins.
+_ICOUNT_PARK_COUNT_RANGE = (0x3000, 0x3FFF)
+
+_ICOUNT_PARK_MODES = ("m", "s", "u", "vs", "vu")
+
+
+def apply_icount_park(featmgr: FeatMgr, pool: Pool, rng: RandNum, icount_slot_claimed: bool = False) -> None:
+    """Roll the park gate; if it fires, arm a non-firing icount trigger on slot 8 and leave it selected.
+
+    Independent of ``--rand_mem_breakpoint_pct``: needs no address pool, registers no handler, and
+    touches only the icount slot, so it composes with the mcontrol6 watchpoints rather than
+    replacing them.
+
+    :param icount_slot_claimed: True when ``apply()`` already armed an injected icount trigger on
+        slot 8. That trigger has a live re-arm handler behind it, so it wins and the park stands
+        down -- otherwise the park's later loader write would silently overwrite it.
+    """
+    pct = featmgr.rand_mem_icount_park_pct
     if pct <= 0:
         return
+    if not featmgr.feature.is_feature_enabled("sdtrig"):
+        log.warning("rand_mem_icount_park_pct is set but sdtrig feature is not enabled in cpuconfig; skipping")
+        return
+    if icount_slot_claimed:
+        log.warning(
+            f"rand_mem_icount_park_pct is set but --rand_mem_inject_icount_pct already armed slot {_ICOUNT_SLOT} "
+            "with a firing icount trigger and its re-arm handler; skipping the park so the injected "
+            "trigger is not overwritten."
+        )
+        return
+
+    # Only slot 8 matters here, so unlike the watchpoint path this does not have to stand down for
+    # every ;#trigger_config -- just for one that already owns slot 8.
+    conflicting = [cfg for cfg in pool.get_parsed_trigger_configs() if cfg.index == _ICOUNT_SLOT]
+    if conflicting:
+        log.warning(f"rand_mem_icount_park_pct is set but the test already programs trigger slot {_ICOUNT_SLOT} " "via ;#trigger_config; skipping the park to avoid a conflict.")
+        return
+
+    if not rng.with_probability_of(pct):
+        log.info(f"rand_mem_icount_park: pct roll missed ({pct}%); park disabled this run")
+        return
+
+    action = rng.choice(_ICOUNT_PARK_ACTIONS)
+    count = rng.randint(*_ICOUNT_PARK_COUNT_RANGE)
+    hit = rng.randint(0, 1)
+    pending = rng.randint(0, 1)
+    # Random non-empty subset of the five modes, so the per-mode enable bits and the multi-mode
+    # crosses see more than the all-modes case that ("any",) would always produce.
+    n_modes = rng.randint(1, len(_ICOUNT_PARK_MODES))
+    priv_mode = tuple(rng.sample(list(_ICOUNT_PARK_MODES), n_modes))
+
+    tdata1 = build_tdata1_icount(count=count, action=action, priv_mode=priv_mode, pending=pending, hit=hit)
+    log.info(f"rand_mem_icount_park: parking slot {_ICOUNT_SLOT} tdata1=0x{tdata1:x} " f"(count={count}, action={action.name}, hit={hit}, pending={pending}, priv={priv_mode})")
+    featmgr.register_hook(RV.HookPoint.M_LOADER, _build_icount_park_hook(tdata1))
+
+
+def _build_icount_park_hook(tdata1: int):
+    """Return a Hookable that arms slot 8 and leaves tselect pointing at it."""
+
+    def hook(featmgr: FeatMgr) -> str:
+        # tselect is written last so the icount trigger stays the selected trigger for the whole
+        # test -- that selection is what the icount coverpoints are gated on.
+        return (
+            "    # rand_mem_icount_park: park a non-firing icount trigger and leave it selected\n"
+            f"    csrwi tselect, {_ICOUNT_SLOT}\n"
+            "    csrw  tdata2, x0\n"
+            f"    li    t0, 0x{tdata1:x}\n"
+            "    csrw  tdata1, t0\n"
+            f"    csrwi tselect, {_ICOUNT_SLOT}\n"
+        )
+
+    return hook
+
+
+def apply(featmgr: FeatMgr, pool: Pool, rng: RandNum) -> bool:
+    """Roll the pct gate; if it fires, arm N triggers + register the BP handler.
+
+    :returns: True if an injected icount trigger was armed on slot 8. The caller passes this to
+        ``apply_icount_park`` so the park does not overwrite it -- both write slot 8 in the same
+        M_LOADER hook chain, and the later write would win silently.
+    """
+    pct = featmgr.rand_mem_breakpoint_pct
+    if pct <= 0:
+        return False
     if featmgr.num_cpus > 1:
         log.warning("rand_mem_breakpoint_pct is single-hart only; skipping for MP run")
-        return
+        return False
     if not featmgr.feature.is_feature_enabled("sdtrig"):
         log.warning("rand_mem_breakpoint_pct is set but sdtrig feature is not enabled in cpuconfig; skipping")
-        return
+        return False
 
     # Auto-disable if any other source already programs sdtrig triggers via
     # ``;#trigger_config(...)``. This catches coretp's --test_plan sdtrig
@@ -147,16 +241,16 @@ def apply(featmgr: FeatMgr, pool: Pool, rng: RandNum) -> None:
             "hand-written test). Disabling rand_mem_breakpoint to avoid "
             "trigger CSR conflicts."
         )
-        return
+        return False
 
     addresses = list(dict.fromkeys(pool.get_parsed_rand_mem_bp_pool()))  # dedupe, preserve order
     if not addresses:
         log.warning("rand_mem_breakpoint_pct is set but no ;#rand_mem_breakpoint_pool directive supplied addresses; skipping")
-        return
+        return False
 
     if not rng.with_probability_of(pct):
         log.info(f"rand_mem_breakpoint: pct roll missed ({pct}%); feature disabled this run")
-        return
+        return False
 
     n_req = max(1, featmgr.rand_mem_n_triggers)
     n_eff = min(n_req, _N_CAP, len(addresses))
@@ -197,7 +291,7 @@ def apply(featmgr: FeatMgr, pool: Pool, rng: RandNum) -> None:
                 "The handler requires M-mode-only CSRs; respecting your medeleg "
                 "and disabling the feature for this run. Clear bit 3 to enable."
             )
-            return
+            return False
         log.info("rand_mem_breakpoint: clearing medeleg bit 3 so BREAKPOINT (cause=3) " f"is handled in M-mode (was 0x{featmgr.medeleg:x}).")
         featmgr.medeleg &= ~(1 << 3)
 
@@ -234,6 +328,9 @@ def apply(featmgr: FeatMgr, pool: Pool, rng: RandNum) -> None:
         label="rand_mem_bp_handler",
         assembly=_build_handler(n_eff, max_fires, pool_addrs, k, tdata1_vals, icount_tdata1_vals),
     )
+
+    # Report whether slot 8 now holds an injected icount trigger so the park does not clobber it.
+    return bool(icount_tdata1_vals)
 
 
 def _build_m_loader_hook(pool_addrs: list, tdata1_vals: list, icount_tdata1_vals: list):
