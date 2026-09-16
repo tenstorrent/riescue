@@ -431,7 +431,7 @@ You can define custom page maps for specialized testing scenarios:
 When debugging page map issues, RiescueD generates detailed page table information in the output files:
 
 - ``.ld`` file contains memory layout for all maps
-- ``.dis`` file shows the final page table entries
+- ``.dis`` file (generated with ``--disassemble_test``) shows the final page table entries
 - Log files detail which pages belong to which maps
 
 Environment Randomization
@@ -488,7 +488,7 @@ RiescueD generates several helpful files:
 
 - ``.S`` file: Final assembly with all substitutions
 - ``.ld`` file: Linker script with memory layout
-- ``.dis`` file: Disassembly for verification
+- ``.dis`` file: Disassembly for verification, only generated with ``--disassemble_test``
 - Log files: Detailed generation information
 
 Performance Considerations

@@ -285,6 +285,11 @@
             "enabled": false,
             "randomize": 0
         },
+        "sscofpmf": {
+            "supported": true,
+            "enabled": true,
+            "randomize": 0
+        },
         "zicsr": {
             "supported": true,
             "enabled": true,

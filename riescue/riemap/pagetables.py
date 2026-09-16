@@ -15,6 +15,7 @@ from riescue.riemap.config import PagingParams
 from riescue.riemap.attributes import PTE_BASES, pt_attrs_schema
 from riescue.riemap.addrgen import AddrGen
 from riescue.riemap import resolve
+from riescue.riemap.errors import ConstraintConflict, FailureKind, FailureParticipant, FailurePhase, FailureSite
 from riescue.riemap.request import Choice
 
 if TYPE_CHECKING:
@@ -100,7 +101,16 @@ class PTTable:
         Insert an entry at given index
         """
         if index not in self.table and len(self.table) >= self.capacity:
-            raise ValueError(f"page-table frame at 0x{self.base_addr:x} over-packed: >{self.capacity} distinct slots")
+            raise ConstraintConflict(
+                f"page-table frame at 0x{self.base_addr:x} over-packed: >{self.capacity} distinct slots",
+                kind=FailureKind.FRAME_OVERPACKED,
+                phase=FailurePhase.EMISSION,
+                summary="More distinct PTE slots were assigned to one page-table frame than it can hold.",
+                reason=f"The frame capacity is {self.capacity} entries, and index 0x{index:x} would exceed it.",
+                site=FailureSite(frame=self.base_addr, slot=index),
+                context={"frame_capacity": self.capacity, "occupied_slots": len(self.table)},
+                hints=("Use a separate page-table frame or reduce aliases pinned into this frame.",),
+            )
         self.table[index] = entry
 
     def entry_exists(self, index: int) -> bool:
@@ -285,6 +295,43 @@ class Pagetables:
         if basetable is not None:
             self._create_pt_leaf(rng, base_table=basetable, pt_level=current_level)
 
+    def _pte_conflict(
+        self,
+        message: str,
+        *,
+        kind: FailureKind,
+        summary: str,
+        reason: str,
+        table: PTTable,
+        level: int,
+        index: int,
+        context: "Optional[dict[str, object]]" = None,
+        hints: "Iterable[str]" = (),
+    ) -> ConstraintConflict:
+        return ConstraintConflict(
+            message,
+            kind=kind,
+            phase=FailurePhase.EMISSION,
+            summary=summary,
+            reason=reason,
+            participants=(
+                FailureParticipant(
+                    self.page,
+                    "mapping",
+                    f"0x{self.page.lin_addr:x} -> 0x{self.page.phys_addr:x}",
+                ),
+            ),
+            site=FailureSite(
+                space=self.page_map,
+                level=level,
+                slot=index,
+                frame=table.base_addr,
+                address=self.page.lin_addr,
+            ),
+            context=context,
+            hints=hints,
+        )
+
     def _create_pt_non_leaf(self, rng: RandNum, pt_level: int, base_table: PTTable) -> Optional[PTTable]:
         """
         Create the non-leaf pt_entry
@@ -322,28 +369,52 @@ class Pagetables:
                 # Coarse leaf already covers this slot. Same target is a restatement;
                 # a different target or different leaf bits is a hard conflict.
                 if not self._coarse_leaf_covers(pt_entry, pt_level):
-                    raise ValueError(
+                    raise self._pte_conflict(
                         f"page-table leaf/deeper conflict at index 0x{index:x} in frame 0x{base_table.base_addr:x} "
                         f"(level {pt_level}, page 0x{self.page.lin_addr:x}->0x{self.page.phys_addr:x}): "
                         f"an existing level-{pt_level} leaf (base 0x{pt_entry.get_base_addr():x}) already maps this "
-                        "span to a different target, so the deeper mapping cannot be installed"
+                        "span to a different target, so the deeper mapping cannot be installed",
+                        kind=FailureKind.LEAF_DEEPER,
+                        summary="An existing coarse leaf blocks a finer translation in the same PTE slot.",
+                        reason="The existing leaf maps this span to a different target, so it cannot also point to the child table required by the finer mapping.",
+                        table=base_table,
+                        level=pt_level,
+                        index=index,
+                        context={"existing_target": pt_entry.get_base_addr(), "new_target": self.page.phys_addr},
+                        hints=("Split or remove the coarse leaf, or move the finer mapping outside its span.",),
                     )
                 intended_leaf = PTAttrs(rng=rng, featmgr=self.featmgr, level=pt_level, page=self.page, leaf=True)
                 if pt_entry.pt_attr.get_value() != intended_leaf.get_value():
-                    raise ValueError(
+                    raise self._pte_conflict(
                         f"page-table leaf/deeper conflict at index 0x{index:x} in frame 0x{base_table.base_addr:x} "
                         f"(level {pt_level}, page 0x{self.page.lin_addr:x}->0x{self.page.phys_addr:x}): "
                         f"an existing level-{pt_level} leaf maps the same target with attrs 0x{pt_entry.pt_attr.get_value():x} "
-                        f"but this mapping requires 0x{intended_leaf.get_value():x}"
+                        f"but this mapping requires 0x{intended_leaf.get_value():x}",
+                        kind=FailureKind.LEAF_DEEPER,
+                        summary="A coarse leaf and finer mapping disagree on the effective PTE attributes.",
+                        reason="Even though the target address matches, one shared leaf cannot carry both attribute values.",
+                        table=base_table,
+                        level=pt_level,
+                        index=index,
+                        context={"existing_attributes": pt_entry.pt_attr.get_value(), "required_attributes": intended_leaf.get_value()},
+                        hints=("Make the mappings use identical effective PTE attributes, or place them in separate leaf spans.",),
                     )
                 return None
             intended_child = pinned_base if pinned_base is not None else pt_entry.get_base_addr()
             if pt_entry.get_base_addr() != intended_child:
-                raise ValueError(
+                raise self._pte_conflict(
                     f"page-table non-leaf slot conflict at index 0x{index:x} in frame 0x{base_table.base_addr:x} "
                     f"(level {pt_level}, page 0x{self.page.lin_addr:x}->0x{self.page.phys_addr:x}): "
                     f"existing (base 0x{pt_entry.get_base_addr():x}, attr 0x{pt_entry.pt_attr.get_value():x}) "
-                    f"vs new (base 0x{intended_child:x}, attr 0x{pt_attr.get_value():x})"
+                    f"vs new (base 0x{intended_child:x}, attr 0x{pt_attr.get_value():x})",
+                    kind=FailureKind.PTE_SLOT,
+                    summary="One non-leaf PTE is pinned to two different child-table frames.",
+                    reason="Mappings sharing this slot must follow the same child table, but their required frame bases differ.",
+                    table=base_table,
+                    level=pt_level,
+                    index=index,
+                    context={"existing_child_frame": pt_entry.get_base_addr(), "required_child_frame": intended_child},
+                    hints=("Use the same pinned frame for both mappings, or move one mapping to a different parent slot.",),
                 )
             existing_attr = pt_entry.pt_attr.get_value()
             new_attr = pt_attr.get_value()
@@ -352,11 +423,19 @@ class Pagetables:
                 if existing_attr == default_attr:
                     pt_entry.pt_attr = pt_attr
                 elif new_attr != default_attr:
-                    raise ValueError(
+                    raise self._pte_conflict(
                         f"page-table non-leaf slot conflict at index 0x{index:x} in frame 0x{base_table.base_addr:x} "
                         f"(level {pt_level}, page 0x{self.page.lin_addr:x}->0x{self.page.phys_addr:x}): "
                         f"existing (base 0x{pt_entry.basetable.base_addr:x}, attr 0x{existing_attr:x}) "
-                        f"vs new (base 0x{intended_child:x}, attr 0x{new_attr:x})"
+                        f"vs new (base 0x{intended_child:x}, attr 0x{new_attr:x})",
+                        kind=FailureKind.PTE_SLOT,
+                        summary="Mappings sharing a non-leaf PTE require incompatible pointer attributes.",
+                        reason="Neither attribute value is the natural default that can be safely upgraded, so one pointer PTE cannot satisfy both.",
+                        table=base_table,
+                        level=pt_level,
+                        index=index,
+                        context={"existing_attributes": existing_attr, "required_attributes": new_attr},
+                        hints=("Use matching non-leaf attributes, or separate the mappings through coloring or distinct parent slots.",),
                     )
             base_table = pt_entry.basetable
             # This pointer can be shared by several mappings. Preserve declaration-object
@@ -513,11 +592,24 @@ class Pagetables:
         existing = base_table.get_entry(index)
         if existing.leaf and existing.get_base_addr() == phys_addr and existing.pt_attr.get_value() == candidate.pt_attr.get_value():
             return existing
-        raise ValueError(
+        raise self._pte_conflict(
             f"leaf PTE slot conflict at index 0x{index:x} in frame 0x{base_table.base_addr:x} "
             f"(level {pt_level}, page 0x{self.page.lin_addr:x}->0x{self.page.phys_addr:x}): "
             f"existing (base 0x{existing.get_base_addr():x}, attr 0x{existing.pt_attr.get_value():x}) "
-            f"vs new (base 0x{phys_addr:x}, attr 0x{candidate.pt_attr.get_value():x})"
+            f"vs new (base 0x{phys_addr:x}, attr 0x{candidate.pt_attr.get_value():x})",
+            kind=FailureKind.PTE_SLOT,
+            summary="Two leaf mappings require different PTE values in the same frame slot.",
+            reason="A frame slot contains exactly one PTE, but the target address or effective attributes differ.",
+            table=base_table,
+            level=pt_level,
+            index=index,
+            context={
+                "existing_target": existing.get_base_addr(),
+                "required_target": phys_addr,
+                "existing_attributes": existing.pt_attr.get_value(),
+                "required_attributes": candidate.pt_attr.get_value(),
+            },
+            hints=("Make both mappings identical, or place them at different virtual addresses or in different page-table frames.",),
         )
 
     def _emit_gstage_identity(

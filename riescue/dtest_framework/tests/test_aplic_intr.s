@@ -21,6 +21,10 @@
 intr_seen:
     .int 0
 
+.balign 16, 0
+__c__stack_addr:
+    .dword __c__stack
+
 .section .code, "ax"
 
 test_setup:
@@ -75,3 +79,9 @@ test_interrupt_handler:
     li t1, 1
     sw t1, 0(t0)
     j trap_handler_m__trap_exit
+
+.section .bss
+.size __c__stack_low__, 4096
+__c__stack_low__:
+.zero 4096
+__c__stack:

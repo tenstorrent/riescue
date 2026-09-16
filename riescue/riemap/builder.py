@@ -65,6 +65,13 @@ from riescue.riemap.allocator import (
     SpanClaim,
 )
 from riescue.riemap.config import PagingParams
+from riescue.riemap.errors import (
+    AddressSpaceExhausted,
+    FailureKind,
+    FailurePhase,
+    FailureSite,
+    PlanningExhausted,
+)
 from riescue.riemap.memory import Memory
 from riescue.riemap.layout import (
     IntentProvenance,
@@ -159,7 +166,9 @@ def _validate_mapping_pt_nodes(mapping: Mapping) -> None:
             # A paging-DISABLE source has no page-table levels to validate, so it has no level range
             # to validate against.
             if mode != RV.RiscvPagingModes.DISABLE and not 0 <= key < max_levels:
-                raise ValueError(f"Mapping.pt_nodes level {key} does not exist in the source space's " f"{resolve.PAGING_MODE_STR_MAP[mode].upper()} mode, whose levels are " f"0..{max_levels - 1}")
+                raise ValueError(
+                    f"Mapping.pt_nodes level {key} does not exist in the source space's " f"{RV.RiscvPagingModes.enum_to_str(mode).upper()} mode, whose levels are " f"0..{max_levels - 1}"
+                )
             # LEAF and its numeric level may describe disjoint aspects of one node, but
             # declarations targeting the same channel are ambiguous.
             if key == leaf_level and LEAF in mapping.pt_nodes:
@@ -417,6 +426,11 @@ class _PageState:
     alloc_size: Optional[int] = None
     alloc_align: Optional[int] = None
     alloc_bits: Optional[int] = None
+    # Raw (pre-canonicalization) form of ``page.addr.exact``, when the two differ -- a
+    # canonical VA in the upper half sign-extends past the space's draw width, and
+    # allocation runs in the raw domain. Set by :meth:`_normalize_exact_pins`; None
+    # whenever the declared pin is already its own raw form.
+    alloc_exact: Optional[int] = None
     # Overrides ``page.addr.qualifiers`` when a mapping forces the secure qualifier
     # onto a free-draw destination. AddrSpec remains immutable.
     qualifiers: Optional[set] = None
@@ -648,7 +662,7 @@ class PageTableBuilder:
         # GPA -> HPA forced per-level PTE bits become pt_nodes so attribute-based
         # coloring can isolate conflicting g-stage siblings; secure comes from
         # ``hpa_page``'s ADDRESS_SECURE qualifier. Level keys stay as ints (leaf need
-        # not fold onto LEAF: _color_node_at reads it directly).
+        # not fold onto LEAF: _declared_node_at reads it directly).
         g_levels = resolve.gstage_leaf_pt_node_levels(
             attrs,
             vs_paging_mode=va_page.space.paging_mode,
@@ -1074,7 +1088,7 @@ class PageTableBuilder:
             # One line per tree built, naming the stage a reader would recognize it by:
             # a g-stage domain's root is an hgatp, everything else's an satp/vsatp.
             stage = "G" if self._is_gstage_domain(space) else "VS"
-            log.info("Generating %s-stage page tables (mode=%s)", stage, resolve.PAGING_MODE_STR_MAP[space.paging_mode].upper())
+            log.info("Generating %s-stage page tables (mode=%s)", stage, RV.RiscvPagingModes.enum_to_str(space.paging_mode).upper())
             self._place_pt_node_frames(space)
             self._page_maps[space].create_pagetables(rng=self.rng)
 
@@ -1138,7 +1152,7 @@ class PageTableBuilder:
                     continue
                 demand_ptgs = []
                 for mapping in demand.mappings:
-                    node = self._color_node_at(mapping, demand.key.level)
+                    node = self._declared_node_at(mapping, demand.key.level)
                     if node is not None and isinstance(node.page, PTGPage):
                         demand_ptgs.append(node.page)
                 declarations = [ptg.pagesize for ptg in demand_ptgs]
@@ -1239,6 +1253,11 @@ class PageTableBuilder:
                         mappings=demand.mappings,
                         node_keys=(demand.key,),
                         retriable=False,
+                        kind=FailureKind.MISSING_GSTAGE_TRANSLATION,
+                        summary="A VS-stage page-table frame has no G-stage translation.",
+                        reason="The hardware must translate every VS page-table frame GPA while walking vsatp, but no PTGPage or explicit mapping describes this frame.",
+                        site=FailureSite(space=demand.key.space, level=demand.key.level, table_prefix=demand.key.prefix),
+                        hints=("Attach a PTGPage declaration to the VS node, or explicitly map the frame GPA into the target G-stage space.",),
                     )
                 identities = {ptg.identity for ptg in ptgs}
                 if len(identities) > 1:
@@ -1433,7 +1452,15 @@ class PageTableBuilder:
                         for info in (request_metadata[request.page],)
                     }
                 )
-                raise AddrGenError(f"structural frame placement failed for " f"geometries {geometries!r}") from exc
+                raise PlanningExhausted(
+                    f"structural frame placement failed for geometries {geometries!r}: {exc}",
+                    kind=FailureKind.JOINT_PLANNING,
+                    phase=FailurePhase.PLANNING,
+                    summary="RieMap could not place the intermediate page-table frames required by the resolved leaves.",
+                    reason=str(exc),
+                    context={"frame_geometries": geometries},
+                    hints=("Relax the frame page-size/alignment choices or free capacity in the G-stage input and physical address pools.",),
+                ) from exc
             for frame, (key, secure, gspace, pagesize, ptg_template) in request_info.items():
                 input_base = solved.address(frame)
                 backing_base = solved.address(request_backings[frame])
@@ -1857,7 +1884,9 @@ class PageTableBuilder:
         The static (pre-allocation) form of :meth:`_root_pin_binding`, which needs solved
         addresses. A mapping pins the root by declaring a ``PTNode(page=frame)`` at the top
         arch level; normally there is at most one such page (two disagreeing pins are reported
-        as a conflict once their addresses are known)."""
+        as a conflict once their addresses are known). A root-level LEAF counts: a mapping whose
+        leaf sits at the top level (a 1 GiB Sv39 page, say) keys that node ``LEAF``, and the
+        table holding its leaf PTE IS the root table."""
         root_level = RV.RiscvPagingModes.max_levels(space.paging_mode) - 1
         frames: List[Page] = []
         declared = self._declared_roots.get(space)
@@ -1866,7 +1895,7 @@ class PageTableBuilder:
         for m in self.mappings:
             if m.src.space is not space:
                 continue
-            node = m.pt_nodes.get(root_level)
+            node = self._declared_node_at(m, root_level)
             if node is not None and isinstance(node.page, Page) and node.page not in frames:
                 frames.append(node.page)
         return frames
@@ -2059,7 +2088,7 @@ class PageTableBuilder:
         """The mapping's leaf level in its source's own stage."""
         return RV.RiscvPageSizes.pt_leaf_level(mapping.src.pagesize)
 
-    def _color_node_at(self, mapping: Mapping, level: int) -> Optional[PTNode]:
+    def _declared_node_at(self, mapping: Mapping, level: int) -> Optional[PTNode]:
         """The declared :class:`PTNode` for ``mapping`` at ``level`` (the ``LEAF`` sentinel
         resolved to the mapping's own leaf level), or ``None`` if undeclared."""
         node = mapping.pt_nodes.get(level)
@@ -2080,7 +2109,7 @@ class PageTableBuilder:
         conversion so ``PTNode.page`` has one meaning regardless of its type.
         """
 
-        node = self._color_node_at(mapping, parent_level - 1)
+        node = self._declared_node_at(mapping, parent_level - 1)
         return node.page if node is not None and isinstance(node.page, Page) else None
 
     def _generated_frame_policy_for_demand(
@@ -2090,7 +2119,7 @@ class PageTableBuilder:
     ) -> Optional[PTGPage]:
         """Return the RieMap-owned frame policy for a pointer demand."""
 
-        node = self._color_node_at(mapping, parent_level - 1)
+        node = self._declared_node_at(mapping, parent_level - 1)
         return node.page if node is not None and isinstance(node.page, PTGPage) else None
 
     def _color_sig(self, mapping: Mapping, level: int):
@@ -2102,7 +2131,7 @@ class PageTableBuilder:
         different nodes."""
         is_leaf = self._leaf_level(mapping) == level
         parts: List[tuple] = [("is_leaf", is_leaf)]
-        node = self._color_node_at(mapping, level)
+        node = self._declared_node_at(mapping, level)
         if node is not None:
             if node.choice is not None:
                 parts.append(("node_choice", _choice_sig(node.choice)))
@@ -2117,7 +2146,7 @@ class PageTableBuilder:
                 if not is_leaf and not isinstance(raw, Choice) and val == (1 if base == "v" else 0):
                     continue
                 parts.append((base, _choice_sig(raw)))
-        child = self._color_node_at(mapping, level - 1) if level > self._leaf_level(mapping) else None
+        child = self._declared_node_at(mapping, level - 1) if level > self._leaf_level(mapping) else None
         if child is not None:
             # A PTGPage has the same node-level meaning as a concrete Page:
             # it describes the child table reached by this pointer. Its
@@ -2342,7 +2371,19 @@ class PageTableBuilder:
         except _Spill as sp:
             # Escaped the recursion unabsorbed -> no single-bucket layer had room, so the
             # top level itself is full. Hard-fail with a precise error (never silent).
-            raise ValueError(f"coloring exhausted for space {space!r}: level-{sp.level} split needs more index buckets than the {va_bits}-bit VA field can hold") from None
+            raise AddressSpaceExhausted(
+                f"coloring exhausted for space {space!r}: level-{sp.level} split needs more index buckets than the {va_bits}-bit VA field can hold",
+                kind=FailureKind.COLORING_EXHAUSTED,
+                phase=FailurePhase.COLORING,
+                summary="The virtual-address space has too few page-table slots for all incompatible mapping signatures.",
+                reason="Mappings with conflicting PTE attributes or pinned child frames must occupy distinct index buckets, and every bucket at this level is already required.",
+                site=FailureSite(space=space, level=sp.level),
+                context={"virtual_address_bits": va_bits},
+                hints=(
+                    "Reduce the number of distinct forced PTE or pinned-frame signatures.",
+                    "Use a wider paging mode or relax fixed virtual-address constraints.",
+                ),
+            ) from None
 
     @staticmethod
     def _pins_frames(mapping: Mapping) -> bool:
@@ -3274,6 +3315,52 @@ class PageTableBuilder:
                 size = page.reserve_size if page.reserve_size is not None else self._page_size_bytes(page)
                 self._set_geom(page, size, self._pagesize_align_mask(page), self.physical_addr_bits)
 
+        self._normalize_exact_pins()
+
+    def _normalize_exact_pins(self) -> None:
+        """Fold a canonical exact VA back into the raw domain allocation draws in.
+
+        A consumer pins the address it will actually execute against -- the architectural
+        VA, which every result riemap reports is stated in (:func:`canonical_va`). But a
+        paging space's pool is only ``linear_addr_bits`` wide and sign extension happens on
+        the way OUT, so an upper-half pin like sv39's ``0xfffffffffffff000`` names an
+        address 25 bits past the top of the domain it has to be placed in. Its raw form
+        (``0x7fffffff000``) is the same page: raw values and canonical VAs are in
+        bijection, the upper half of the raw domain being exactly the upper canonical half.
+
+        Without this a consumer cannot name an upper-half page at all -- and cannot feed
+        back an address riemap itself reported.
+
+        Only sign-extending domains are folded. A physical page, a g-stage GPA (zero-
+        extended -- an out-of-width GPA is a genuine domain error) and an identity VA == PA
+        source (whose value is a PA) all keep the pin exactly as declared.
+        """
+        for page in self.pages:
+            exact = page.addr.exact
+            if exact is None or page.space is self.phys or page in self._identity_pages:
+                continue
+            mode = page.space.paging_mode
+            if mode is RV.RiscvPagingModes.DISABLE or self._is_gstage_domain(page.space):
+                continue
+            va_bits = RV.RiscvPagingModes.linear_addr_bits(mode)
+            if exact < (1 << va_bits):
+                continue  # already its own raw form (a lower-half VA canonicalizes to itself)
+            raw = exact & ((1 << va_bits) - 1)
+            if resolve.make_canonical_va(raw, mode) != exact:
+                raise ValueError(
+                    f"exact linear address 0x{exact:x} is not a canonical {mode.name} address; "
+                    f"bits 63:{va_bits - 1} must all equal bit {va_bits - 1} (nearest canonical form is "
+                    f"0x{resolve.make_canonical_va(raw, mode):x})"
+                )
+            st = self._page_state[page]
+            bits = st.alloc_bits if st.alloc_bits is not None else va_bits
+            if bits < va_bits:
+                # A narrowed draw width (a cross-mode ``SameAs`` group, or a consumer-pinned
+                # ``addr.bits``) cannot hold an upper-half pin: its raw form has the space's
+                # top bit set by construction.
+                raise ValueError(f"exact linear address 0x{exact:x} needs the full {va_bits}-bit {mode.name} domain, " f"but this page's draw is narrowed to {bits} bits")
+            st.alloc_exact = raw
+
     def _va_root(self, page: Page, src_bits: Dict[Page, int]) -> Page:
         seen: set = set()
         while isinstance(page.addr.relation, SameAs) and page.addr.relation.target in src_bits and page not in seen:
@@ -3309,6 +3396,10 @@ class PageTableBuilder:
         st = self._page_state[page]
         if spec.exact is not None or spec.relation is not None:
             qualifiers = st.qualifiers if st.qualifiers is not None else spec.qualifiers
+            if st.alloc_exact is not None:
+                # A canonical upper-half VA is placed in its raw form; canonicalization on
+                # the way out restores the declared address (see _normalize_exact_pins).
+                return dataclasses.replace(spec, exact=st.alloc_exact, bits=st.alloc_bits, qualifiers=qualifiers)
             return dataclasses.replace(spec, bits=st.alloc_bits, qualifiers=qualifiers)
         user = spec.and_mask if spec.and_mask is not None else 0xFFFFFFFFFFFFFFFF
         align = st.alloc_align if st.alloc_align is not None else self._pagesize_align_mask(page)
@@ -3647,7 +3738,7 @@ class PageTableBuilder:
         for m in self.mappings:
             if m.src.space is not space:
                 continue
-            node = m.pt_nodes.get(root_level)
+            node = self._declared_node_at(m, root_level)
             if node is None or not isinstance(node.page, Page):
                 continue  # a PTGPage declares g-stage attrs, never a pinned root frame
             resolved = self._resolved_frame_binding(

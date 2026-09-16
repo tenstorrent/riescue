@@ -292,6 +292,14 @@ class AddrSpec:
     window is the consumer's placement domain. A default-constructed spec means "draw
     any suitable address".
 
+    An ``exact`` linear address is stated the way results are reported: the CANONICAL
+    (sign-extended) VA of a paging-enabled space, so an address riemap hands back can be
+    pinned back verbatim. A pin above the space's ``linear_addr_bits`` must be a proper
+    sign extension -- ``0xfffffffffffff000`` names sv39's top page, while an upper-half
+    value that is not canonical for the mode is rejected rather than truncated. Domains
+    that do not sign-extend (physical, g-stage GPA, identity VA == PA) take the value as
+    written.
+
     ``exclude`` overrides the builder-level exclusion set for AddrGen draws only.
     ``None`` (the default) keeps that set; an explicit tuple replaces it, so ``()``
     means nothing excludes that draw. Exact, relation, and region modes never consult

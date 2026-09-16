@@ -20,7 +20,7 @@ from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.generator import Generator
 from riescue.dtest_framework.lib.discrete_test import DiscreteTest
 from riescue.lib.cli_base import CliBase
-from riescue.lib.toolchain import Toolchain, Compiler, Spike, Whisper
+from riescue.lib.toolchain import Toolchain, Compiler, Spike, Whisper, elf_symbols
 from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
 
 
@@ -137,6 +137,13 @@ class RiescueD(CliBase):
             default=None,
             help="Run ISS with the test. Default ISS is Whisper, but can be run with any other ISS using --iss <iss>",
         )
+        run_args.add_argument(
+            "--disassemble_test",
+            "-disassemble_test",
+            action="store_true",
+            default=False,
+            help="Disassemble the compiled ELF into a .dis file. Off by default; disassembly costs CPU time and disk space and is only needed when inspecting the test",
+        )
 
         FeatMgrBuilder.add_arguments(parser)
         RiescueLogger.add_arguments(parser)
@@ -231,7 +238,8 @@ class RiescueD(CliBase):
             log.info("Elaboration complete. Exiting...")
             return self.generated_files
 
-        self.build(featmgr)
+        disassemble = getattr(cl_args, "disassemble_test", False)
+        self.build(featmgr, disassemble=disassemble)
         run_selfcheck = featmgr.selfcheck
         if run_selfcheck:
             if self.toolchain.whisper is None:
@@ -243,7 +251,7 @@ class RiescueD(CliBase):
                 dump_selfcheck=True,
             )
 
-            self.build(featmgr, relink_selfcheck=True)
+            self.build(featmgr, relink_selfcheck=True, disassemble=disassemble)
 
         if run_iss:
             if self.toolchain.simulator is None:
@@ -317,13 +325,14 @@ class RiescueD(CliBase):
         test_gen.generate(file_in=self.testfile, generated_files=self.generated_files)
         return self.generated_files
 
-    def build(self, featmgr: FeatMgr, relink_selfcheck: bool = False, generator: Optional[Generator] = None) -> GeneratedFiles:
+    def build(self, featmgr: FeatMgr, relink_selfcheck: bool = False, generator: Optional[Generator] = None, disassemble: bool = False) -> GeneratedFiles:
         """
-        Compile and disassemble the test code.
+        Compile the test code. Optionally disassemble the resulting ELF.
 
         :param featmgr: ``FeatMgr`` object
         :param relink_selfcheck: If true, don't compile test and relink test with selfcheck data from previous ISS run
         :param generator: [Deprecated] ``Generator`` object, currently ignored
+        :param disassemble: If true, disassemble the ELF into ``generated_files.dis``
         :returns: The internal :attr:`generated_files` instance, a :class:`GeneratedFiles` object containing paths to generated files.
         """
 
@@ -407,15 +416,17 @@ class RiescueD(CliBase):
 
         compiler.run(cwd=self.run_dir, args=linker_args)
 
-        # Generate Disassembly
-        disassembler = self.toolchain.disassembler
-        disassembler_args = ["-D", str(self.generated_files.elf), "-M", "numeric"]
-        disassembler.run(
-            output_file=self.generated_files.dis,
-            cwd=self.run_dir,
-            args=disassembler_args,
-            timeout=300,
-        )
+        # Generate Disassembly. Opt-in: objdump on a large test is slow and produces a large
+        # file nobody reads.
+        if disassemble:
+            disassembler = self.toolchain.disassembler
+            disassembler_args = ["-D", str(self.generated_files.elf), "-M", "numeric"]
+            disassembler.run(
+                output_file=self.generated_files.dis,
+                cwd=self.run_dir,
+                args=disassembler_args,
+                timeout=300,
+            )
 
         return self.generated_files
 
@@ -441,22 +452,18 @@ class RiescueD(CliBase):
 
         # In wysiwyg mode, we use a different end-of-test mechanism where we look for x31=0xc001c0de to be written
         # This is not supported by whisper, so we are using --endpc to the end of the test in whisper
-        # To do this, we need to find the pc of label "fail" in disassembly and send it to --endpc
+        # To do this, we need to find the pc of label "failed" in the ELF symbol table and send it to --endpc
         # Later we parse whisper log to find out what was the last value written to the x31 to indicate pass|fail
         failed_pc = None
         if featmgr.wysiwyg:
-            # Read file <testname>.dis and find <failed>
-            with open(self.generated_files.dis, "r") as f:
-                disasm_lines = f.readlines()
-            for line in disasm_lines:
-                if "<failed>:" in line:
-                    print(f"WYSIWYG mode failed to find the <failed> label in disassembly, {line}")
-                    # split line by spaces and get the first element
-                    # FIXME: need to document this a bit better
-                    # why is it +4 instructions from failed? Why is eot there and not just <end>: ?
-                    failed_pc = line.split()[0]
-                    failed_pc = int(failed_pc, 16) + 0x10
-                    print(f"Setting end-of-sim pc to: {failed_pc:016x}")
+            failed_sym = elf_symbols(self.generated_files.elf).get("failed")
+            if failed_sym is None:
+                log.warning("WYSIWYG mode failed to find the `failed` symbol in the ELF")
+            else:
+                # FIXME: need to document this a bit better
+                # why is it +4 instructions from failed? Why is eot there and not just <end>: ?
+                failed_pc = failed_sym + 0x10
+                log.info(f"Setting end-of-sim pc to: {failed_pc:016x}")
 
         # Spike ISS path and args
         iss_args = []

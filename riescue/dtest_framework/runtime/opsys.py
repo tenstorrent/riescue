@@ -225,7 +225,7 @@ class OpSys(AssemblyGenerator):
         current_test_index = self.variable_manager.get_variable("current_test_index")
         return f"""
 .section .runtime, "ax"
-.balign 4, 0
+.balign 4
 rvcp_print_test_result:
     # Entry: a0 = 0 for PASS, 1 for FAIL
     # Format: "RVCP: Test File {{testname}} {{discrete_test}} PASSED/FAILED\\n"
@@ -406,7 +406,10 @@ rvcp_passed_str_data: .asciz "PASSED"
 rvcp_failed_str_data: .asciz "FAILED"
 rvcp_space_str_data: .asciz " "
 rvcp_newline_str_data: .asciz "\\n"
-.balign 8, 0
+# zero fill: the strings above are arbitrary lengths, so this can land on an odd
+# offset, which no nop can fill
+.balign 4, 0
+.balign 8
 """
 
         os_data_section += self.variable_manager.allocate()

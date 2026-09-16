@@ -69,10 +69,11 @@ workflow.
 - ``pma_size`` - PMA region size in bytes (defaults to the ``size`` parameter if omitted)
 - ``pma_read``, ``pma_write``, ``pma_execute`` - Access permissions (``1`` or ``0``)
 - ``pma_memory_type`` - Memory type: ``memory``, ``io``, ``ch0``, ``ch1``
-- ``pma_amo_type`` - Atomic operation support: ``none``, ``logical``, ``swap``, ``arithmetic``
+- ``pma_amo_type`` - AMO type (pmacfg bits 6:5): ``none``, ``swap``, ``logical``, ``arithmetic`` (cacheable memory must use ``arithmetic``)
 - ``pma_cacheability`` - Cache behavior for memory type: ``cacheable``, ``noncacheable``
 - ``pma_combining`` - Combining behavior for io type: ``combining``, ``noncombining``
-- ``pma_routing_to`` - Coherency routing: ``coherent``, ``noncoherent``
+- ``pma_routing_to`` - Coherency routing (pmacfg bit 8): ``coherent``, ``noncoherent`` (default: ``coherent``);
+  only on a ``legacy_pma`` target; rejected off one
 - ``pma_masked`` - Force the region to be programmed with a random ``pmamask`` value; requires
   ``in_pma=1`` and ``--enable_pma_randomization`` (``1`` or ``0``, default: ``0``)
 
@@ -123,8 +124,8 @@ One region is generated per combination dict.
 - ``cacheability`` - List of cache behaviors for memory type: ``cacheable``, ``noncacheable`` (default: ``[cacheable]``)
 - ``combining`` - List of combining behaviors for io type: ``combining``, ``noncombining`` (default: ``[noncombining]``)
 - ``rwx_combos`` - List of permission strings, e.g. ``rwx``, ``rw``, ``r`` (default: ``[rwx]``)
-- ``amo_types`` - List of atomic support levels: ``none``, ``logical``, ``swap``, ``arithmetic`` (default: ``[arithmetic]``)
-- ``routing`` - List of coherency routings: ``coherent``, ``noncoherent`` (default: ``[coherent]``)
+- ``amo_types`` - List of AMO types: ``none``, ``swap``, ``logical``, ``arithmetic`` (default: ``[arithmetic]``); cacheable memory cross-terms that are not ``arithmetic`` are skipped
+- ``routing`` - List of coherency routings: ``coherent``, ``noncoherent`` (default: ``[coherent]``); only on a ``legacy_pma`` target, rejected off one
 - ``combinations`` - Explicit list of attribute dicts; when given, the attribute lists above are ignored
 - ``adjacent`` - Place the generated regions adjacent to each other (default: ``false``)
 - ``min_regions`` / ``max_regions`` - Bound the number of generated regions
@@ -145,8 +146,8 @@ One region is generated per combination dict.
     # Explicit combinations
     ;#pma_hint(name=combo_hint,
         combinations=[
-            {memory_type=memory, cacheability=cacheable, rwx=rwx, amo_type=arithmetic, routing=coherent},
-            {memory_type=memory, cacheability=noncacheable, rwx=rwx, amo_type=arithmetic, routing=coherent}
+            {memory_type=memory, cacheability=cacheable, rwx=rwx, amo_type=arithmetic},
+            {memory_type=memory, cacheability=noncacheable, rwx=rwx, amo_type=logical}
         ],
         adjacent=true
     )
@@ -194,6 +195,41 @@ NOTE: This directive is only valid if deleg_excp_to is set to machine
     ;#csr_rw(senvcfg, write, false)
     ;#csr_rw(time, read, true)
     ;#csr_rw(hpmcounter3, clear, false)
+
+**;#enable_ext** / **;#disable_ext** - Gate an ISA extension from M-mode
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Run the enable or disable assembly snippet declared for ``<extension>`` in a
+Python ``--conf`` file's ``get_extension_enablement()``. Machine-mode tests
+inline the snippet. Supervisor and user tests ecall into syscall ``0xf0001009``,
+which runs the snippet in M-mode and returns to the invoking test. An unknown
+or unconfigured extension name expands to nothing, so the same test can run on
+cores that do not need a gate.
+
+Names are normalized like Conf (lowercased, optional ``ext_`` prefix stripped).
+Do not confuse with ``;#enable_ext_intr_id``, which programs external interrupts.
+
+Snippets may use ``t2`` as scratch. Syscall plumbing uses ``t0``, ``t1``, ``t3``,
+and ``x31``.
+
+**Syntax:**
+
+.. code-block:: asm
+
+    ;#enable_ext(<extension>)
+    ;#disable_ext(<extension>)
+
+**Parameters:**
+
+- ``extension`` (required) - ISA extension name, e.g. ``zacas``
+
+**Examples:**
+
+.. code-block:: asm
+
+    ;#enable_ext(zacas)
+    amocas.q a0, a2, (a4)
+    ;#disable_ext(zacas)
 
 **;#read_leaf_pte** - Read Leaf PTE of page
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

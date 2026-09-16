@@ -11,6 +11,7 @@ import riescue.lib.enums as RV
 from riescue.dtest_framework.config.builder import FeatMgrBuilder
 from riescue.dtest_framework.config.adapaters import CliAdapter
 from riescue.dtest_framework.config.cmdline import add_arguments
+from riescue.dtest_framework.lib.pma import legacy_pma, legacy_pbmt, no_routing_on_pma, set_legacy_pma, set_legacy_pbmt
 from riescue.lib.rand import RandNum
 
 
@@ -324,3 +325,91 @@ class CliAdapterTest(unittest.TestCase):
             self.adapter.apply(self.builder, self.parser.parse_args(args=["--pma_indirect_access_pct", "101"]))
         with self.assertRaises(ValueError):
             self.adapter.apply(self.builder, self.parser.parse_args(args=["--pma_indirect_access_pct", "-1"]))
+
+    def test_user_programmable_pmacfg_flag(self):
+        """--user_programmable_pmacfg lands in FeatMgr"""
+        args = self.parser.parse_args(args=["--needs_pma", "--user_programmable_pmacfg", "4"])
+        result = self.adapter.apply(self.builder, args).featmgr
+        self.assertEqual(result.user_programmable_pmacfg, 4)
+
+    def test_user_programmable_pmacfg_validation(self):
+        """Negative counts raise, and the reserved block must leave the 2 catchalls room under --num_pmas"""
+        with self.assertRaises(ValueError):
+            self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--user_programmable_pmacfg", "-1"]))
+        with self.assertRaises(ValueError):
+            self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--user_programmable_pmacfg", "63"]))
+        with self.assertRaises(ValueError):
+            self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--num_pmas", "16", "--user_programmable_pmacfg", "15"]))
+        result = self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--num_pmas", "16", "--user_programmable_pmacfg", "14"])).featmgr
+        self.assertEqual(result.user_programmable_pmacfg, 14)
+
+    def test_shift_pma_on_load_flag(self):
+        """--shift_pma_on_load lands in FeatMgr and forces needs_pma so the loader runs the move"""
+        result = self.adapter.apply(self.builder, self.parser.parse_args(args=["--shift_pma_on_load", "2"])).featmgr
+        self.assertEqual(result.shift_pma_on_load, 2)
+        self.assertTrue(result.needs_pma)
+        # 0 is a no-op and must not turn PMA emission on by itself
+        result = self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--shift_pma_on_load", "0"])).featmgr
+        self.assertEqual(result.shift_pma_on_load, 0)
+        self.assertFalse(result.needs_pma)
+
+    def test_shift_pma_on_load_validation(self):
+        """The moved block plus the 2 catchalls must fit, so N is capped at (num_pmas - 2) / 2"""
+        with self.assertRaises(ValueError):
+            self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--shift_pma_on_load", "-1"]))
+        with self.assertRaises(ValueError):
+            self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--shift_pma_on_load", "32"]))
+        with self.assertRaises(ValueError):
+            self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--num_pmas", "16", "--shift_pma_on_load", "8"]))
+        result = self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--num_pmas", "16", "--shift_pma_on_load", "7"])).featmgr
+        self.assertEqual(result.shift_pma_on_load, 7)
+
+    def test_legacy_pma_defaults_off(self):
+        """No cpuconfig and no flag: Babylon semantics, so bit 8 is reserved read-only-zero"""
+        self.addCleanup(set_legacy_pma, legacy_pma())
+        result = self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=[])).featmgr
+        self.assertFalse(result.legacy_pma)
+        self.assertFalse(legacy_pma())
+        self.assertTrue(no_routing_on_pma())
+
+    def test_legacy_pma_flag(self):
+        """--legacy_pma latches the process-wide policy, and a rerun without it clears rather than inherits"""
+        self.addCleanup(set_legacy_pma, legacy_pma())
+
+        result = self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--legacy_pma"])).featmgr
+        self.assertTrue(result.legacy_pma)
+        self.assertTrue(legacy_pma())
+        self.assertFalse(no_routing_on_pma(), "routing must be live on a legacy_pma target")
+
+        self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=[]))
+        self.assertFalse(legacy_pma())
+
+    def test_legacy_pma_override_beats_cpuconfig(self):
+        """The flags are tri-state: absent leaves the cpuconfig value, --no_legacy_pma forces it off"""
+        self.addCleanup(set_legacy_pma, legacy_pma())
+
+        builder = FeatMgrBuilder()
+        builder.featmgr.legacy_pma = True  # stands in for mmap.pma.legacy_pma, applied by CpuConfigAdapter first
+        self.assertTrue(self.adapter.apply(builder, self.parser.parse_args(args=[])).featmgr.legacy_pma)
+
+        builder = FeatMgrBuilder()
+        builder.featmgr.legacy_pma = True
+        self.assertFalse(self.adapter.apply(builder, self.parser.parse_args(args=["--no_legacy_pma"])).featmgr.legacy_pma)
+        self.assertFalse(legacy_pma())
+
+    def test_legacy_pbmt_defaults_on_and_flags_latch(self):
+        """legacy_pbmt defaults on; --no_legacy_pbmt clears it and --legacy_pbmt overrides a cpuconfig false"""
+        self.addCleanup(set_legacy_pbmt, legacy_pbmt())
+
+        result = self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=[])).featmgr
+        self.assertTrue(result.legacy_pbmt)
+        self.assertTrue(legacy_pbmt())
+
+        result = self.adapter.apply(FeatMgrBuilder(), self.parser.parse_args(args=["--no_legacy_pbmt"])).featmgr
+        self.assertFalse(result.legacy_pbmt)
+        self.assertFalse(legacy_pbmt())
+
+        builder = FeatMgrBuilder()
+        builder.featmgr.legacy_pbmt = False
+        self.assertTrue(self.adapter.apply(builder, self.parser.parse_args(args=["--legacy_pbmt"])).featmgr.legacy_pbmt)
+        self.assertTrue(legacy_pbmt())

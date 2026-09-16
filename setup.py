@@ -15,7 +15,7 @@ if sys.version_info < (3, 9):
 
 from setuptools import setup
 
-CORETP_GIT_DEP = "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp" "@c11048c0a6c1973fbeb8850bcd0776f3d585f229"
+CORETP_GIT_DEP = "coretp @ git+https://git@github.com/tenstorrent/riscv-coretp" "@6fd7e35d54d63dd15a1185c9e40d0ca8a7ede50d"
 
 install_requires = [
     "sortedcontainers",
@@ -28,7 +28,7 @@ install_requires = [
     "black==25.1.0",
     "intervaltree",
     "coverage",
-    "pyright[nodejs]",
+    "pyright[nodejs]==1.1.407",
     "pyelftools",
     CORETP_GIT_DEP,
 ]

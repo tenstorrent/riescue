@@ -35,5 +35,7 @@ yum --enablerepo=crb -y install \
     python-sphinx                   \
     zstd                            \
     git                             \
-    git-lfs
+    git-lfs                         \
+    perf                            \
+    valgrind
 

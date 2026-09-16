@@ -47,6 +47,7 @@ from riescue.riemap.attributes import PTE_BASES, PTE_FIELD_WIDTHS, PTE_LEVELS
 from riescue.riemap.memory import Memory
 from riescue.riemap.builder import PageTableBuilder
 from riescue.riemap.config import PagingParams
+from riescue.riemap.errors import RieMapError
 from riescue.riemap.result import SpaceResult
 from riescue.riemap.request import (
     AddrSpec,
@@ -61,8 +62,6 @@ from riescue.riemap.request import (
 )
 from riescue.riemap import resolve
 from riescue.riemap.resolve import (
-    PAGING_MODE_MAP,
-    PAGING_MODE_STR_MAP,
     WeightedValue,
     AttributeSpec,
     filter_size_attribute,
@@ -118,11 +117,14 @@ def _declared_values(spec: AttributeSpec) -> List[Any]:
 
 
 def _validate_page_attribute(name: str, spec: AttributeSpec) -> None:
-    """Reject a value the attribute's PTE field cannot hold.
+    """Reject an attribute the schema does not define, or a value its PTE field cannot hold.
 
-    The name itself is checked by :meth:`PageAttributes.__post_init__`, which drops an
-    unrecognized one with a warning, so ``name`` is known by the time it gets here.
+    Unrecognized names used to pass straight through and be dropped silently further
+    down, which turns a typo (or a forcing form only valid in a two-stage config) into a
+    page that quietly lacks the bit the config asked for.
     """
+    if name not in _VALID_PAGE_ATTRS:
+        raise ValueError(f"unknown page attribute '{name}'")
     if name == "secure":
         for value in _declared_values(spec):
             if not isinstance(value, bool) and not (isinstance(value, int) and value in (0, 1)):
@@ -189,18 +191,13 @@ class PageAttributes:
 
     Attribute names come from a closed vocabulary: the base PTE bits, their per-level and
     g-stage forcing spellings, the page-geometry sizes, and ``secure``. Anything else is
-    dropped with a warning, so a typo (or a forcing form only valid in a two-stage config)
-    leaves the page without the bit the config asked for. A value that does not fit its
-    PTE field is still rejected.
+    rejected rather than dropped, and a value that does not fit its PTE field is rejected
+    too.
     """
 
     attrs: Dict[str, AttributeSpec] = field(default_factory=dict)
 
     def __post_init__(self):
-        # FIXME(RVBBL-4833): warn-and-drop until MMU TB stops passing unknown attributes.
-        for name in [name for name in self.attrs if name not in _VALID_PAGE_ATTRS]:
-            log.warning("ignoring unknown page attribute '%s'", name)
-            del self.attrs[name]
         for name, spec in self.attrs.items():
             _validate_page_attribute(name, spec)
 
@@ -687,9 +684,10 @@ def _could_be_truthy(attr_spec: AttributeSpec) -> bool:
 def resolve_paging_mode(mode_spec: Union[str, List[str], List[WeightedValue]], rng: RandNum) -> RV.RiscvPagingModes:
     """Resolve a paging mode specification, drawing any random choice from ``rng``."""
     mode_str = resolve_attribute_value(mode_spec, rng)
-    if mode_str not in PAGING_MODE_MAP:
-        raise ValueError(f"Invalid paging mode: {mode_str}")
-    return PAGING_MODE_MAP[mode_str]
+    try:
+        return RV.RiscvPagingModes.str_to_enum(mode_str)
+    except ValueError as exc:
+        raise ValueError(f"Invalid paging mode: {mode_str}") from exc
 
 
 def validate_gstage_size_fields(attributes: dict, twostage: bool, gstage_mode: RV.RiscvPagingModes) -> None:
@@ -749,13 +747,13 @@ def generate_space_output(
     - VS enabled + G disabled: VS-only with stage=1 (twostage) or None (single-stage)
     - VS disabled + G enabled: G-only with stage=2
     """
-    paging_mode_str = PAGING_MODE_STR_MAP[paging_mode]
+    paging_mode_str = RV.RiscvPagingModes.enum_to_str(paging_mode).lower()
     top_base_addr = os_result.root_addr if (os_result is not None and paging_mode != RV.RiscvPagingModes.DISABLE) else None
 
     gstage_paging_mode_str: Optional[str] = None
     gstage_top_base_addr_int: Optional[int] = None
     if g_result is not None:
-        gstage_paging_mode_str = PAGING_MODE_STR_MAP[gstage_paging_mode]
+        gstage_paging_mode_str = RV.RiscvPagingModes.enum_to_str(gstage_paging_mode).lower()
         gstage_top_base_addr_int = g_result.root_addr
 
     pages: Dict[str, Dict[int, PageEntry]] = {}  # ID -> VA -> PageEntry
@@ -1294,7 +1292,21 @@ def generate_page_tables(config: PageTableConfig, seed: int = 1) -> PageTableOut
             )
         )
 
-    result = builder.build()
+    failure_labels: Dict[object, str] = {}
+    for ctx in contexts:
+        space_id = ctx["space_id"]
+        failure_labels[ctx["src_space"]] = f"address space '{space_id}'"
+        for meta in ctx["page_meta"]:
+            display_id = meta["display_id"]
+            failure_labels[meta["src_page"]] = f"{space_id}/{display_id} (VA)"
+            failure_labels[meta["dst_page"]] = f"{space_id}/{display_id} (PA)"
+            if meta["gpa_page"] is not None:
+                failure_labels[meta["gpa_page"]] = f"{space_id}/{display_id} (GPA)"
+    try:
+        result = builder.build()
+    except RieMapError as error:
+        error.add_labels(failure_labels)
+        raise
 
     # Every PTE across every built map, read back through the public API rather than
     # by traversing PageMap internals. ``entries`` is a MEMORY IMAGE, so each PTE is keyed

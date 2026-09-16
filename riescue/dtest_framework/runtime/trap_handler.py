@@ -9,10 +9,12 @@ Notes:
     Wherever hartid is used, it is freshly retrieved so that fewer assumptions about GPR use are made.
 """
 
+from enum import IntFlag
 from typing import Optional
 
 import riescue.lib.enums as RV
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
+from riescue.dtest_framework.runtime.macros import CHECK_EXCP_FIELD_IGNORE
 from riescue.dtest_framework.trap_context import MACHINE_CTX, SUPERVISOR_CTX
 from riescue.dtest_framework.parser import ParsedCsrAccess
 from riescue.dtest_framework.pool import Pool
@@ -228,10 +230,15 @@ class InterruptHandler:
         # causing the next trap to fetch a spliced/illegal instruction. Also required
         # so the immediately-following interrupt_vector_table entries line up with
         # ``BASE + 4*cause`` indexing in HW-vectored mode.
-        code.append(".balign 4, 0")
+        code.append(".balign 4")
+        # Entries must stay 4 bytes wide for the ``trap_entry + 4*cause`` indexing above;
+        # ld would otherwise compress ``j`` to ``c.j`` and halve the stride.
+        code.append(".option push")
+        code.append(".option norelax")
         code.append(f"{self.trap_entry_label}:")
         code.append(f"    j {self.default_trap_handler_label}")
         code.append(self._generate_interrupt_vector_table())
+        code.append(".option pop")
         code.append(self._generate_interrupt_jump_table(custom_vectors))
         return "\n".join(code)
 
@@ -533,7 +540,13 @@ class InterruptHandler:
             elif interrupt_enum is RV.RiscvInterruptCause.MSI:
                 body.append("    RVMODEL_CLR_MSW_INT(t0, t1)")
             elif interrupt_enum is RV.RiscvInterruptCause.SSI:
-                body.append("    RVMODEL_CLR_SSW_INT(t0, t1)")
+                body.extend(
+                    [
+                        "#ifdef RVMODEL_CLR_SSW_INT",
+                        "    RVMODEL_CLR_SSW_INT(t0, t1)",
+                        "#endif",
+                    ]
+                )
             elif interrupt_enum is RV.RiscvInterruptCause.MEI:
                 body.append("    RVMODEL_CLR_MEXT_INT(t0, t1)")
             elif interrupt_enum is RV.RiscvInterruptCause.SEI:
@@ -605,6 +618,613 @@ class TrapHandler(AssemblyGenerator):
     - ``self.featmgr.trap``
     """
 
+    class XtinstOption(IntFlag):
+        """
+        The four columns of the privileged-spec table "Values that may be automatically written to
+        the trap instruction (``mtinst`` or ``htinst``) register on an exception trap".
+        """
+
+        ZERO = 1  #: zero, i.e. the implementation provides no information about the trap
+        TRANSFORMED = 2  #: a transformation of the trapping standard instruction
+        CUSTOM = 4  #: a custom value (permitted only if the trapping instruction is non-standard)
+        PSEUDO = 8  #: one of the guest-page-fault pseudoinstructions
+
+    #: Options the spec permits per exception cause. Causes absent from this map (the reserved
+    #: codes, and the custom cause codes at 24 and above) are not checked at all.
+    XTINST_CAUSE_OPTIONS = {
+        RV.RiscvExcpCauses.INSTRUCTION_ADDRESS_MISALIGNED.value: XtinstOption.ZERO | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.INSTRUCTION_ACCESS_FAULT.value: XtinstOption.ZERO,
+        RV.RiscvExcpCauses.ILLEGAL_INSTRUCTION.value: XtinstOption.ZERO,
+        RV.RiscvExcpCauses.BREAKPOINT.value: XtinstOption.ZERO | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.LOAD_ADDRESS_MISALIGNED.value: XtinstOption.ZERO | XtinstOption.TRANSFORMED | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.LOAD_ACCESS_FAULT.value: XtinstOption.ZERO | XtinstOption.TRANSFORMED | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.STORE_ADDRESS_MISALIGNED.value: XtinstOption.ZERO | XtinstOption.TRANSFORMED | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.STORE_ACCESS_FAULT.value: XtinstOption.ZERO | XtinstOption.TRANSFORMED | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.ECALL_FROM_USER.value: XtinstOption.ZERO | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.ECALL_FROM_SUPER.value: XtinstOption.ZERO | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.ECALL_FROM_VS.value: XtinstOption.ZERO | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.ECALL_FROM_MACHINE.value: XtinstOption.ZERO | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.INSTRUCTION_PAGE_FAULT.value: XtinstOption.ZERO,
+        RV.RiscvExcpCauses.LOAD_PAGE_FAULT.value: XtinstOption.ZERO | XtinstOption.TRANSFORMED | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.STORE_PAGE_FAULT.value: XtinstOption.ZERO | XtinstOption.TRANSFORMED | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.INSTRUCTION_GUEST_PAGE_FAULT.value: XtinstOption.ZERO | XtinstOption.PSEUDO,
+        RV.RiscvExcpCauses.LOAD_GUEST_PAGE_FAULT.value: XtinstOption.ZERO | XtinstOption.TRANSFORMED | XtinstOption.CUSTOM | XtinstOption.PSEUDO,
+        RV.RiscvExcpCauses.VIRTUAL_INSTRUCTION.value: XtinstOption.ZERO | XtinstOption.CUSTOM,
+        RV.RiscvExcpCauses.STORE_GUEST_PAGE_FAULT.value: XtinstOption.ZERO | XtinstOption.TRANSFORMED | XtinstOption.CUSTOM | XtinstOption.PSEUDO,
+    }
+
+    #: Causes raised by a reading access. Loads and load-reserved raise load causes; stores,
+    #: store-conditional and AMOs raise store/AMO causes.
+    XTINST_LOAD_CAUSES = (
+        RV.RiscvExcpCauses.LOAD_ADDRESS_MISALIGNED.value,
+        RV.RiscvExcpCauses.LOAD_ACCESS_FAULT.value,
+        RV.RiscvExcpCauses.LOAD_PAGE_FAULT.value,
+        RV.RiscvExcpCauses.LOAD_GUEST_PAGE_FAULT.value,
+    )
+    #: Causes raised by a writing access. See :attr:`XTINST_LOAD_CAUSES`.
+    XTINST_STORE_CAUSES = (
+        RV.RiscvExcpCauses.STORE_ADDRESS_MISALIGNED.value,
+        RV.RiscvExcpCauses.STORE_ACCESS_FAULT.value,
+        RV.RiscvExcpCauses.STORE_PAGE_FAULT.value,
+        RV.RiscvExcpCauses.STORE_GUEST_PAGE_FAULT.value,
+    )
+
+    #: Guest-page-fault pseudoinstruction values (read, write) for VSXLEN=64. The 0x2000/0x2020
+    #: pair is VSXLEN=32 only; RiescueD is RV64, so VSXLEN=64 is assumed rather than checked.
+    XTINST_PSEUDO_VALUES = (0x3000, 0x3020)
+
+    # Major opcodes, from the spec's RVG base opcode map (inst[1:0]=11). Both the transformed-
+    # standard-instruction case and the custom-value case are defined in terms of the value with
+    # bit 1 set, so every encoding this check classifies has inst[1:0]=11 and the map covers it.
+    XTINST_OPCODE_CUSTOM = (0x0B, 0x2B, 0x5B, 0x7B)  #: custom-0 .. custom-3
+    XTINST_OPCODE_RESERVED = (0x1F, 0x3F, 0x5F, 0x7F, 0x6B)  #: the >32b column, plus inst[6:2]=11010
+    XTINST_OPCODE_LOAD = (0x03, 0x07)  #: LOAD, LOAD-FP
+    XTINST_OPCODE_STORE = (0x23, 0x27)  #: STORE, STORE-FP
+    XTINST_OPCODE_AMO = (0x2F,)  #: AMO: LR, SC and the AMOs
+    XTINST_OPCODE_HYPER = (0x73,)  #: SYSTEM: HLV, HLVX, HSV
+    XTINST_OPCODE_CMO = (0x0F,)  #: MISC-MEM: the Zicbom/Zicboz cbo.* instructions
+
+    XTINST_RS1_MASK = 0x1F << 15  #: bits 19:15, the instruction's rs1 field
+
+    #: Fields each transformation preserves from the trapping instruction. Two chapters define
+    #: transformations: the hypervisor extension covers basic loads and stores, atomics and the
+    #: virtual-machine load/stores, and the CMO extension (``norm:h_trans_cache``) covers the
+    #: cache-block instructions. For a standard instruction outside these kinds the spec says the
+    #: trap instruction register shall be written with zero.
+    #:
+    #: - basic load: funct3, rd, opcode -- the immediate (bits 31:20) is zeroed
+    #: - basic store: rs2, funct3, opcode -- the immediate (bits 31:25 and 11:7) is zeroed
+    #: - atomic and virtual-machine load/store: every field
+    #: - cache-block: opcode, funct3, and ``operation`` (bits 31:20)
+    #:
+    #: In the first four, bits 19:15 (rs1) are replaced by Addr. Offset, so the field is listed as
+    #: kept here -- it must not be checked for zero -- and taken back out of the comparison by
+    #: :meth:`_xtinst_compare_mask`. The cache-block transformation is the exception: it has no
+    #: Addr. Offset and requires bits 19:15 to be zero, which listing them as not-kept expresses.
+    #:
+    #: The fields marked not-kept are checked for zero, deliberately, even though a spec NOTE says
+    #: decoding software need not confirm a basic load/store's immediate fields are zero and that a
+    #: future revision may put performance information there. That NOTE is advice to software
+    #: *interpreting* the register; the normative text says the transformation replaces those fields
+    #: with zero, so for the current revision a nonzero one is a DUT bug worth catching. An
+    #: extension that starts writing them would need this table updated anyway.
+    XTINST_TRANSFORM_KEEP = {
+        0x03: 0x00007FFF | XTINST_RS1_MASK,
+        0x07: 0x00007FFF | XTINST_RS1_MASK,
+        0x23: 0x01F0707F | XTINST_RS1_MASK,
+        0x27: 0x01F0707F | XTINST_RS1_MASK,
+        0x2F: 0xFFFFFFFF,
+        0x73: 0xFFFFFFFF,
+        0x0F: (0xFFF << 20) | 0x00007000 | 0x0000007F,
+    }
+
+    # A small integer per transformation kind, used to index the per-opcode class table and the
+    # per-kind mask table below. 0 is reserved for "no transformation defined" so a table entry of
+    # 0 is self-describing.
+    XTINST_KIND_NONE = 0
+    XTINST_KIND_LOAD = 1
+    XTINST_KIND_STORE = 2
+    XTINST_KIND_AMO = 3
+    XTINST_KIND_HYPER = 4
+    XTINST_KIND_CMO = 5
+
+    #: Every transformable opcode's kind. Keys are exactly :attr:`XTINST_TRANSFORM_KEEP`'s.
+    XTINST_OPCODE_KIND = {
+        0x03: XTINST_KIND_LOAD,
+        0x07: XTINST_KIND_LOAD,
+        0x23: XTINST_KIND_STORE,
+        0x27: XTINST_KIND_STORE,
+        0x2F: XTINST_KIND_AMO,
+        0x73: XTINST_KIND_HYPER,
+        0x0F: XTINST_KIND_CMO,
+    }
+
+    # Bit layout of a `_xtinst_cause_table` entry.
+    XTINST_CAUSE_TRANSFORMED = 0x01
+    XTINST_CAUSE_CUSTOM = 0x02
+    XTINST_CAUSE_PSEUDO = 0x04
+    XTINST_CAUSE_LOAD_DIR = 0x08
+    XTINST_CAUSE_STORE_DIR = 0x10
+    XTINST_CAUSE_KNOWN = 0x20  #: set iff the cause appears in XTINST_CAUSE_OPTIONS at all
+
+    # Bit layout of a `_xtinst_opcode_table` entry: RESERVED and CUSTOM as flags, KIND packed
+    # into the bits above them.
+    XTINST_OPCODE_RESERVED_BIT = 0x01
+    XTINST_OPCODE_CUSTOM_BIT = 0x02
+    XTINST_KIND_SHIFT = 2
+
+    @classmethod
+    def _xtinst_cause_mask(cls, option: "TrapHandler.XtinstOption") -> int:
+        """Bitmask over exception cause codes of the causes that permit ``option``."""
+        return cls._bitmask(cause for cause, options in cls.XTINST_CAUSE_OPTIONS.items() if options & option)
+
+    @classmethod
+    def _xtinst_known_cause_mask(cls) -> int:
+        """Bitmask of the cause codes :attr:`XTINST_CAUSE_OPTIONS` covers."""
+        return cls._bitmask(cls.XTINST_CAUSE_OPTIONS)
+
+    @classmethod
+    def _xtinst_opcode_mask(cls, opcodes) -> int:
+        """Bitmask over ``inst[6:2]`` of the given major opcodes, for indexing by ``opcode >> 2``."""
+        return cls._bitmask(opcode >> 2 for opcode in opcodes)
+
+    @classmethod
+    def _xtinst_compare_mask(cls, opcode: int) -> int:
+        """Fields of ``opcode``'s transformation that must equal the trapping instruction's."""
+        return cls.XTINST_TRANSFORM_KEEP[opcode] & ~cls.XTINST_RS1_MASK & 0xFFFFFFFF
+
+    @classmethod
+    def _xtinst_zero_field_mask(cls, opcode: int) -> int:
+        """Fields ``opcode``'s transformation must zero."""
+        return ~cls.XTINST_TRANSFORM_KEEP[opcode] & 0xFFFFFFFF
+
+    @classmethod
+    def _xtinst_cause_table(cls) -> list:
+        """
+        Byte per cause code from 0 through ``max(XTINST_CAUSE_OPTIONS)``: the permission/direction bits a
+        cause not in :attr:`XTINST_CAUSE_OPTIONS` reads back as 0, which :attr:`XTINST_CAUSE_KNOWN`
+        distinguishes from a covered cause that happens to permit nothing beyond zero.
+
+        This is the data the generated code loads instead of re-deriving each of the six
+        per-cause bitmasks (:meth:`_xtinst_cause_mask` et al.) from scratch on every test.
+        """
+        table = [0] * (max(cls.XTINST_CAUSE_OPTIONS) + 1)
+        for cause, options in cls.XTINST_CAUSE_OPTIONS.items():
+            byte = cls.XTINST_CAUSE_KNOWN
+            if options & cls.XtinstOption.TRANSFORMED:
+                byte |= cls.XTINST_CAUSE_TRANSFORMED
+            if options & cls.XtinstOption.CUSTOM:
+                byte |= cls.XTINST_CAUSE_CUSTOM
+            if options & cls.XtinstOption.PSEUDO:
+                byte |= cls.XTINST_CAUSE_PSEUDO
+            if cause in cls.XTINST_LOAD_CAUSES:
+                byte |= cls.XTINST_CAUSE_LOAD_DIR
+            if cause in cls.XTINST_STORE_CAUSES:
+                byte |= cls.XTINST_CAUSE_STORE_DIR
+            table[cause] = byte
+        return table
+
+    @classmethod
+    def _xtinst_opcode_table(cls) -> list:
+        """
+        Byte per major opcode 0..31 (indexed by ``opcode >> 2``): reserved/custom flags plus the
+        transformation kind, packed at :attr:`XTINST_KIND_SHIFT`. An opcode with kind
+        :attr:`XTINST_KIND_NONE` (0) has no defined transformation.
+        """
+        table = [0] * 32
+        for opcode in cls.XTINST_OPCODE_RESERVED:
+            table[opcode >> 2] |= cls.XTINST_OPCODE_RESERVED_BIT
+        for opcode in cls.XTINST_OPCODE_CUSTOM:
+            table[opcode >> 2] |= cls.XTINST_OPCODE_CUSTOM_BIT
+        for opcode, kind in cls.XTINST_OPCODE_KIND.items():
+            table[opcode >> 2] |= kind << cls.XTINST_KIND_SHIFT
+        return table
+
+    @classmethod
+    def _xtinst_kind_masks_table(cls):
+        """
+        ``(zero_mask, compare_mask)`` per transformation kind, indexed by the kind constants
+        above (index 0, :attr:`XTINST_KIND_NONE`, is unused filler). One table replaces the whole
+        per-opcode zero-field/compare dispatch and its duplicated per-mask blocks.
+        """
+        entries = [(0, 0)] * (max(cls.XTINST_OPCODE_KIND.values()) + 1)
+        for opcode, kind in cls.XTINST_OPCODE_KIND.items():
+            entries[kind] = (cls._xtinst_zero_field_mask(opcode), cls._xtinst_compare_mask(opcode))
+        return entries
+
+    @staticmethod
+    def _bitmask(indices) -> int:
+        """OR of ``1 << i`` over ``indices``."""
+        mask = 0
+        for index in indices:
+            mask |= 1 << index
+        return mask
+
+    def _xtinst_enabled(self) -> bool:
+        """
+        Whether this handler should check its trap instruction CSR.
+
+        Opt-in via ``--check_xtinst``.
+
+        Beyond the flag, ``mtinst``/``htinst`` only exist when the H extension does, and only
+        M-mode and HS-mode have one at all -- there is no ``vstinst``. The mode test is on the
+        reported handler mode rather than ``deleg_virtualized`` because in a bare_metal environment
+        the ``_s`` handler *is* the HS handler, and ``htinst`` is written for traps into it.
+        """
+        if not self.featmgr.check_xtinst:
+            return False
+        if not self.featmgr.feature.is_feature_enabled("h"):
+            return False
+        return self._current_mode_for_handler() != 3  # 1=M, 2=HS, 3=VS
+
+    def _xtinst_interrupt_check(self) -> str:
+        """
+        Check that the trap instruction CSR is zero on an interrupt.
+
+        The spec allows no other value for an interrupt, so this is the whole check. Emitted in the
+        interrupt dispatch path of :meth:`default_trap_handler`, where ``t0`` holds xcause and
+        ``t1`` has already been clobbered by the interrupt-vs-exception test.
+        """
+        if not self._xtinst_enabled():
+            return ""
+        return f"""
+            {self.label_prefix}xtinst_intr_check:
+                # On an interrupt the value written to {self.tinst} is always zero.
+                csrr t1, {self.tinst}
+                beqz t1, {self.label_prefix}xtinst_intr_ok
+                j {self.label_prefix}xtinst_fail
+            {self.label_prefix}xtinst_intr_ok:
+            """
+
+    def _xtinst_kind_lookup(self) -> str:
+        """
+        Load this trapping encoding's transformation kind into ``t1``.
+
+        Rederives the opcode from ``{self.tinst}`` and indexes :meth:`_xtinst_opcode_table`, so
+        this costs only ``t1`` and ``t2`` and leaves ``t0`` alone -- needed because the compare
+        stage calls this with ``t0`` holding the fetched instruction.
+        """
+        prefix = self.label_prefix
+        return f"""                csrr t1, {self.tinst}
+                ori t1, t1, 0x2
+                andi t1, t1, 0x7f
+                srli t1, t1, 2
+                la t2, {prefix}xtinst_opcode_class
+                add t2, t2, t1
+                lbu t2, 0(t2)
+                srli t1, t2, {self.XTINST_KIND_SHIFT}                     # t1 = transformation kind"""
+
+    def _xtinst_tables(self) -> str:
+        """
+        The three lookup tables :meth:`xtinst_check` indexes, emitted as data inline in the
+        handler's own section (``.runtime``/``.runtime_s``).
+
+        Placed here rather than in ``.rodata`` because the section the check's own code lives in
+        is already readable, wherever it ends up mapped -- so a plain ``la`` (PC-relative) reaches
+        the table correctly regardless of VA vs PA, with none of the ``code``/``code_pa``
+        relocation math cross-section data references would need (see ``xtinst_check``'s
+        docstring). Placed physically between ``xtinst_fail`` and ``xtinst_exit``, both of which
+        are reached only by jump, so nothing ever falls through into the data.
+        """
+        prefix = self.label_prefix
+        cause_bytes = ", ".join(f"{byte:#04x}" for byte in self._xtinst_cause_table())
+        opcode_bytes = ", ".join(f"{byte:#04x}" for byte in self._xtinst_opcode_table())
+        kind_words = ", ".join(f"{word:#010x}" for pair in self._xtinst_kind_masks_table() for word in pair)
+        return f"""            .balign 4
+            {prefix}xtinst_cause_options:                 # permission/direction bits, indexed by cause
+                .byte {cause_bytes}
+            .balign 4
+            {prefix}xtinst_opcode_class:                   # reserved/custom/kind bits, indexed by opcode>>2
+                .byte {opcode_bytes}
+            .balign 4
+            {prefix}xtinst_kind_masks:                     # (zero_mask, compare_mask) pairs, indexed by kind
+                .word {kind_words}
+            .balign 4"""
+
+    def xtinst_check(self) -> str:
+        """
+        Check the value the hardware wrote to ``mtinst``/``htinst`` against the values the spec
+        permits for the reported exception cause.
+
+        On a synchronous exception the spec permits zero, a transformation of the trapping
+        instruction, a custom value (only when the trapping instruction is non-standard), or one of
+        the guest-page-fault pseudoinstructions -- and restricts which of those may appear per
+        cause. This accepts any value the cause permits and fails the test on anything else.
+
+        Zero is a legal value for every cause. The one case the spec forbids it
+        (``norm:H_trap_xtinst_guestpage``) requires the implementation to have written a nonzero
+        faulting guest physical address to ``htval``/``mtval2``, which is its own choice to make --
+        both CSRs are WARL and may hold only zero -- so there is no value of these registers that
+        makes zero illegal on its own. The converse is checked: a pseudoinstruction implies a
+        guest-page-fault cause and a nonzero ``htval``/``mtval2``.
+
+        **What's a lookup table and what isn't.** Which options a cause permits, and whether an
+        opcode is custom/reserved/transformable, are genuine lookup tables:
+        :meth:`_xtinst_cause_table` and :meth:`_xtinst_opcode_table` pack the spec tables into
+        byte arrays (plus :meth:`_xtinst_kind_masks_table` for the per-kind zero/compare masks),
+        emitted as data by :meth:`_xtinst_tables` and indexed with a single ``la``/``add``/``lbu``
+        or ``lw`` -- one load regardless of how many causes or opcodes it covers, in place of
+        rebuilding a bitmask from scratch per test. What's left as a branch is only genuinely
+        small, fixed-arity dispatch with no table to speak of: the pseudoinstruction-value compare
+        (2 literals) and the kind-to-direction-label dispatch (5 kinds).
+
+        **Register footprint: ``t0``, ``t1`` and ``t2`` only, with nothing spilled.** Those are the
+        three the exception path already clobbers, and generated tests do keep live values in
+        ``t3``-``t6`` across a trap, so touching those breaks them. Staying inside three registers
+        works because everything the check needs is either a re-readable CSR (``{tinst}``,
+        ``xcause``, ``xepc``, ``htval``/``mtval2``) or a cheap re-lookup in one of the tables
+        above, so no value has to stay live: ``t0`` holds the trap value during the legality
+        checks and the fetched instruction during the comparison, and every table lookup is
+        redone rather than carried across a branch. ``t1`` is reloaded with ``xcause`` on the way
+        out, because the code that follows expects it there.
+
+        Emitted inline at the head of the non-ecall exception path. Sitting behind the ecall
+        dispatch rather than in front of it is deliberate: the syscall path carries its arguments
+        in ``t2``-``t6``. The cost is that xtinst on an ecall trap goes unchecked, where the spec
+        defines no transformation anyway.
+        """
+        if not self._xtinst_enabled():
+            return ""
+
+        prefix = self.label_prefix
+        cause_limit = max(self.XTINST_CAUSE_OPTIONS) + 1
+
+        pseudo_value_checks = "\n".join(
+            f"""                li t1, {value:#x}
+                beq t0, t1, {prefix}xtinst_pseudo_value_ok"""
+            for value in self.XTINST_PSEUDO_VALUES
+        )
+
+        kind_lookup = self._xtinst_kind_lookup()
+
+        return f"""
+            {prefix}xtinst_check:
+                # Verify {self.tinst} holds one of the values the spec permits for this cause.
+                # Touches t0, t1 and t2 only, and spills nothing -- see the method docstring.
+                csrr t0, {self.tinst}
+                beqz t0, {prefix}xtinst_done             # zero is a legal value for every cause
+                srli t1, t0, 32
+                bnez t1, {prefix}xtinst_fail    # nonzero above bit 31; every defined value is 32 bits
+
+                # Cause permission/direction bits, looked up once instead of rebuilt per test.
+                csrr t1, {self.xcause}
+                li t2, {cause_limit}
+                bgeu t1, t2, {prefix}xtinst_exit          # cause outside the spec table: not checked
+                la t2, {prefix}xtinst_cause_options
+                add t2, t2, t1
+                lbu t2, 0(t2)                              # t2 = permission/direction byte for this cause
+                andi t1, t2, {self.XTINST_CAUSE_KNOWN:#04x}
+                beqz t1, {prefix}xtinst_exit              # cause not covered by the spec table
+
+                andi t1, t0, 0x3
+                bnez t1, {prefix}xtinst_not_pseudo
+
+                # bits[1:0] == 0b00: the value can only be a guest-page-fault pseudoinstruction.
+                # Not conditioned on htval/mtval2: the allowed-value list
+                # (norm:H_trap_xtinst_exception_list) permits a pseudoinstruction on any
+                # guest-page-fault cause outright. norm:H_trap_xtinst_guestpage only implies the
+                # other direction -- an implicit VS-stage access *with* a nonzero faulting guest
+                # physical address must write one -- so requiring a nonzero htval here would fail a
+                # conforming DUT whose WARL htval reads zero.
+                andi t1, t2, {self.XTINST_CAUSE_PSEUDO:#04x}
+                beqz t1, {prefix}xtinst_fail    # cause does not permit a pseudoinstruction
+{pseudo_value_checks}
+                j {prefix}xtinst_fail    # bits[1:0] == 0b00 but not a defined pseudoinstruction
+            {prefix}xtinst_pseudo_value_ok:
+                j {prefix}xtinst_exit
+
+            {prefix}xtinst_not_pseudo:
+                andi t1, t0, 0x1
+                beqz t1, {prefix}xtinst_fail    # bits[1:0] == 0b10, which no defined value has
+
+                # Both remaining cases are defined in terms of the value with bit 1 set, so they
+                # are decided by the opcode-class byte for that encoding's major opcode.
+                csrr t1, {self.tinst}
+                ori t1, t1, 0x2
+                andi t1, t1, 0x7f
+                srli t1, t1, 2
+                la t0, {prefix}xtinst_opcode_class
+                add t0, t0, t1
+                lbu t0, 0(t0)                              # t0 = reserved/custom/kind byte for this opcode
+
+                andi t1, t0, {self.XTINST_OPCODE_RESERVED_BIT:#04x}
+                bnez t1, {prefix}xtinst_fail    # a reserved encoding is not a legal custom value
+                andi t1, t0, {self.XTINST_OPCODE_CUSTOM_BIT:#04x}
+                beqz t1, {prefix}xtinst_not_custom
+                andi t1, t2, {self.XTINST_CAUSE_CUSTOM:#04x}
+                beqz t1, {prefix}xtinst_fail    # cause does not permit a custom value
+                j {prefix}xtinst_exit
+
+            {prefix}xtinst_not_custom:
+                # A standard encoding: it must be the transformation of the trapping instruction,
+                # so the trapping instruction must be a kind a transformation is defined for.
+                srli t1, t0, {self.XTINST_KIND_SHIFT}
+                beqz t1, {prefix}xtinst_fail    # standard instruction with no defined transformation
+                andi t0, t2, {self.XTINST_CAUSE_TRANSFORMED:#04x}
+                beqz t0, {prefix}xtinst_fail    # cause does not permit a transformation
+
+                # The access direction the value describes must match the exception cause. AMO and
+                # cache-block operations accept either direction (LR raises load causes while SC
+                # and the AMOs raise store/AMO causes, and the CMO spec leaves the direction
+                # implementation-specific), so they skip straight to the zero-fields check.
+                li t0, {self.XTINST_KIND_LOAD}
+                beq t1, t0, {prefix}xtinst_dir_load
+                li t0, {self.XTINST_KIND_STORE}
+                beq t1, t0, {prefix}xtinst_dir_store
+                li t0, {self.XTINST_KIND_HYPER}
+                beq t1, t0, {prefix}xtinst_dir_hyper
+                j {prefix}xtinst_dir_any
+            {prefix}xtinst_dir_any:
+                # AMO and cache-block: either direction is legal, so there is nothing to check.
+                # Named rather than a bare fall-through so the trace shows which path a trap took,
+                # and so a kind added to the table later lands somewhere explicit.
+                j {prefix}xtinst_zero_fields
+            {prefix}xtinst_dir_hyper:
+                # SYSTEM: HSV differs from HLV and HLVX in funct7 bit 0, i.e. bit 25.
+                csrr t0, {self.tinst}
+                srli t0, t0, 25
+                andi t0, t0, 1
+                bnez t0, {prefix}xtinst_dir_store
+            {prefix}xtinst_dir_load:
+                andi t1, t2, {self.XTINST_CAUSE_LOAD_DIR:#04x}
+                beqz t1, {prefix}xtinst_fail    # read/write direction disagrees with the cause
+                j {prefix}xtinst_zero_fields
+            {prefix}xtinst_dir_store:
+                andi t1, t2, {self.XTINST_CAUSE_STORE_DIR:#04x}
+                beqz t1, {prefix}xtinst_fail    # read/write direction disagrees with the cause
+
+            {prefix}xtinst_zero_fields:
+                # Fields the transformation must have zeroed, looked up by kind. t2 (the cause
+                # byte) is dead from here on, so this and the compare below are free to clobber it.
+{kind_lookup}
+                la t2, {prefix}xtinst_kind_masks
+                slli t1, t1, 3
+                add t2, t2, t1
+                lw t1, 0(t2)                                # zero_mask
+                csrr t2, {self.tinst}
+                and t1, t1, t2
+                bnez t1, {prefix}xtinst_fail    # a field the transformation must zero is nonzero
+
+{self._xtinst_fetch_instruction()}
+
+            {prefix}xtinst_compare:
+                # t0 now holds the trapping instruction; every field the transformation keeps must
+                # match the value, looked up by kind the same way.
+{kind_lookup}
+                la t2, {prefix}xtinst_kind_masks
+                slli t1, t1, 3
+                add t2, t2, t1
+                lw t1, 4(t2)                                # compare_mask
+                csrr t2, {self.tinst}
+                ori t2, t2, 0x2
+                xor t2, t2, t0
+                and t1, t1, t2
+                bnez t1, {prefix}xtinst_fail    # does not describe the instruction that trapped
+                j {prefix}xtinst_exit
+
+            {prefix}xtinst_fail:
+                j {self.test_fail_label}
+
+{self._xtinst_tables()}
+
+            {prefix}xtinst_exit:
+                csrr t1, {self.xcause}                   # the code below expects the cause here
+            {prefix}xtinst_done:
+            """
+
+    def _xtinst_fetch_instruction(self) -> str:
+        """
+        Read the trapping instruction at ``xepc`` into ``t0``.
+
+        bits[1:0] of the value say whether the trapping instruction was compressed, so the two
+        cases are split before the read and each fetches only what it needs -- a *word* read of a
+        compressed instruction in the last two bytes of a page would touch a page that was never
+        fetched at all. A compressed instruction is not compared field by field -- that would mean
+        expanding it to its 32-bit equivalent first -- so its path ends at the bits[1:0] agreement
+        check.
+
+        Both reads are halfword reads, and the 32-bit case combines two of them, rather than a
+        single ``lwu``. With RVC enabled a 32-bit instruction can sit at an address ≡ 2 (mod 4),
+        which would make a word read misaligned; on a DUT that does not implement misaligned loads
+        that raises a nested load-address-misaligned exception while ``xtvec`` still points at
+        ``trap_panic``, turning a passing test into a panic. Halfword reads are always aligned
+        here, and they also make the page-straddling case fall out for free.
+
+        How to read depends on where the trap came from. In M-mode, ``MPRV`` makes the load use
+        ``MPP``'s privilege and ``MPV``'s virtualization, so one path covers traps from HS, HU, VS
+        and VU. HLVX is not usable there: it takes its effective privilege from ``hstatus.SPVP``,
+        which only a trap into HS updates, so in the M-mode handler that field is stale. In HS-mode
+        there is no ``MPRV``, so ``hstatus.SPV`` selects between an ordinary translated load and
+        ``hlvx.hu``, which performs the two-stage read with execute permission and the VS-vs-VU
+        privilege the trap just recorded in ``hstatus.SPVP``.
+
+        Every path but HLVX sets ``MXR`` alongside ``SUM``, so a page that is executable but not
+        readable -- which the original instruction fetch sailed through -- is still readable here.
+        HLVX needs no ``MXR``: it reads with execute permission by construction.
+
+        Uses ``t0``, ``t1`` and ``t2`` only: ``t1`` holds the saved ``xstatus`` across the load and
+        ``t2`` the mask and then the address, so ``xepc`` is read straight into a scratch register
+        rather than kept live.
+        """
+        prefix = self.label_prefix
+        mxr = 1 << 19
+        sum_ = 1 << 18
+        mprv = 1 << 17
+
+        def read(wide: bool, tag: str) -> str:
+            # An ordinary translated read, of one halfword or of two combined into t0. t2 does
+            # double duty -- the address, then the high halfword -- because t1 has to hold the
+            # saved xstatus across both loads and t0 the result.
+            def loads(indent: str) -> str:
+                if not wide:
+                    return f"{indent}csrr t2, {self.xepc}\n{indent}lhu t0, 0(t2)"
+                return f"""{indent}csrr t2, {self.xepc}
+{indent}lhu t0, 0(t2)
+{indent}lhu t2, 2(t2)"""
+
+            def combine(indent: str) -> str:
+                if not wide:
+                    return ""
+                return f"\n{indent}slli t2, t2, 16\n{indent}or t0, t0, t2"
+
+            body = "                "
+            if self.deleg_mode == RV.RiscvPrivileges.MACHINE:
+                # Skip MPRV for the M-mode-paging test configuration, which has its own MPRV/MPP
+                # semantics in the test code -- the same carve-out the skip-instruction path makes.
+                mmode_paging_test = self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE and self.featmgr.paging_mode != RV.RiscvPagingModes.DISABLE
+                bits = f"{sum_:#x} | {mxr:#x}" if mmode_paging_test else f"{mprv:#x} | {sum_:#x} | {mxr:#x}"
+                return f"""                csrr t1, {self.xstatus}
+                li t2, {bits}
+                csrs {self.xstatus}, t2
+{loads(body)}
+                csrw {self.xstatus}, t1{combine(body)}"""
+            guest = f"{prefix}xtinst_fetch_{tag}_guest"
+            done = f"{prefix}xtinst_fetch_{tag}_done"
+            # HLVX has no offset form, so the second halfword needs the address bumped. t1 is free
+            # on this path -- it is not holding a saved xstatus, since HLVX needs no xstatus change.
+            if wide:
+                hlvx = f"""                csrr t2, {self.xepc}
+                hlvx.hu t0, (t2)
+                addi t2, t2, 2
+                hlvx.hu t1, (t2)
+                slli t1, t1, 16
+                or t0, t0, t1"""
+            else:
+                hlvx = f"""                csrr t2, {self.xepc}
+                hlvx.hu t0, (t2)"""
+            return f"""                csrr t1, hstatus
+                srli t1, t1, 7                           # hstatus.SPV
+                andi t1, t1, 1
+                bnez t1, {guest}
+                csrr t1, {self.xstatus}
+                li t2, {sum_:#x} | {mxr:#x}
+                csrs {self.xstatus}, t2
+{loads(body)}
+                csrw {self.xstatus}, t1{combine(body)}
+                j {done}
+            {guest}:
+{hlvx}
+            {done}:"""
+
+        return f"""            {prefix}xtinst_fetch:
+                # bit 1 of the value: set iff it says the trapping instruction was 32-bit.
+                csrr t0, {self.tinst}
+                andi t0, t0, 0x2
+                beqz t0, {prefix}xtinst_fetch_compressed
+
+{read(True, "word")}
+                andi t1, t0, 0x3
+                li t2, 0x3
+                bne t1, t2, {prefix}xtinst_fail    # value says 32-bit, instruction is compressed
+                j {prefix}xtinst_compare
+
+            {prefix}xtinst_fetch_compressed:
+{read(False, "half")}
+                andi t1, t0, 0x3
+                li t2, 0x3
+                beq t1, t2, {prefix}xtinst_fail    # value says compressed, instruction is 32-bit
+                j {prefix}xtinst_exit"""
+
     def __init__(self, deleg_mode: RV.RiscvPrivileges, deleg_virtualized: bool = False, **kwargs):
         super().__init__(**kwargs)
 
@@ -664,6 +1284,10 @@ class TrapHandler(AssemblyGenerator):
         self.xstatus = "sstatus"
         self.tvec = "stvec"
         self.tval = "stval"
+        # H-extension trap CSRs. Only exist when H is implemented, so every use is gated on
+        # ``featmgr.feature.is_feature_enabled("h")``.
+        self.tval2 = "htval"
+        self.tinst = "htinst"
         self.scratch_reg = "sscratch"
         if self.deleg_mode == RV.RiscvPrivileges.MACHINE:
             self.xcause = "mcause"
@@ -673,6 +1297,8 @@ class TrapHandler(AssemblyGenerator):
             self.xstatus = "mstatus"
             self.tvec = "mtvec"
             self.tval = "mtval"
+            self.tval2 = "mtval2"
+            self.tinst = "mtinst"
             self.scratch_reg = "mscratch"
         self.panic_cause = f"{self.label_prefix}TRAP_HANDLER_PANIC_CAUSE"
 
@@ -765,7 +1391,7 @@ class TrapHandler(AssemblyGenerator):
             vec_mode = RV.RiscvPrivileges.SUPER if vec_delegated else RV.RiscvPrivileges.MACHINE
             if vec_mode == self.deleg_mode:
                 ctx = SUPERVISOR_CTX if vec_delegated else MACHINE_CTX
-                override_handlers += f"\n.balign 4, 0\n{label}:\n{assembly_fn(ctx)}\n"
+                override_handlers += f"\n.balign 4\n{label}:\n{assembly_fn(ctx)}\n"
 
         # Emit handler bodies for FeatMgr-level default exception handler overrides.
         # Routing parallels the interrupt side but uses medeleg: causes whose medeleg
@@ -779,7 +1405,7 @@ class TrapHandler(AssemblyGenerator):
             cause_mode = RV.RiscvPrivileges.SUPER if cause_delegated else RV.RiscvPrivileges.MACHINE
             if cause_mode == self.deleg_mode:
                 ctx = SUPERVISOR_CTX if cause_delegated else MACHINE_CTX
-                excp_override_handlers += f"\n.balign 4, 0\n{label}:\n{assembly_fn(ctx)}\n"
+                excp_override_handlers += f"\n.balign 4\n{label}:\n{assembly_fn(ctx)}\n"
 
         code = f"""
         .section .{section_name}, "ax"
@@ -789,7 +1415,7 @@ class TrapHandler(AssemblyGenerator):
         {excp_override_handlers}
         {self.test_fail()}
         {self.default_trap_handler()}
-        .balign 4, 0
+        .balign 4
         {self.exception_handler_label}:
         """
 
@@ -815,6 +1441,7 @@ class TrapHandler(AssemblyGenerator):
             {check_excp_actual_cause.store(src_reg='t1'):<40}  # Save check_excp_actual_cause
             csrr t0, {self.xepc}
             {check_excp_actual_pc.store(src_reg='t0'):<40}  # Save check_excp_actual_pc
+            {self.xtinst_check()}
 
             {self.check_excp(return_label=f'{self.label_prefix}return_to_host', xepc=self.xepc, xret=f"j {self.trap_exit_label}")}
 
@@ -939,11 +1566,11 @@ class TrapHandler(AssemblyGenerator):
             # cell stores a VMA that's also a usable PA).
             code += "\n"
             code += f"""
-                .balign 8, 0
+                .balign 8
                 .size __{self.label_prefix}isr_table, 512
                 __{self.label_prefix}isr_table:
 {isr_table_body}
-                .balign 8, 0
+                .balign 8
                 .size __{self.label_prefix}aplic_isr_table, 8192
                 .globl __{self.label_prefix}aplic_isr_table
                 __{self.label_prefix}aplic_isr_table:
@@ -1228,6 +1855,7 @@ class TrapHandler(AssemblyGenerator):
             li t1, (0x1<<(XLEN-1))              # Isolate interrupt bit
             and t1, t1, t0
             beq t1, x0, {self.label_prefix}exception_path  # If the interrupt bit is 0, exception
+            {self._xtinst_interrupt_check()}
 
                 {self.interrupt_handler_label}:
                 {self.save_context()}
@@ -1307,6 +1935,7 @@ class TrapHandler(AssemblyGenerator):
             li t1, (0x1<<(XLEN-1))              # Isolate interrupt bit
             and t1, t1, t0
             beq t1, x0, {self.label_prefix}exception_path  # If the interrupt bit is 0, exception
+            {self._xtinst_interrupt_check()}
 
                 {self.interrupt_handler_label}:
                 # Enter hart context so check_intr's tp-relative loads work. Per-cause
@@ -1400,13 +2029,92 @@ class TrapHandler(AssemblyGenerator):
             xret_code = self.xret
 
         return f"""
-.balign 4, 0
+.balign 4
 {self.trap_exit_label}:
     {self.featmgr.call_hook(RV.HookPoint.POST_TRAP)}
     {self.restore_trap_handler()}
     {self.restore_gprs(self.scratch_reg) if self.featmgr.save_restore_gprs else self.variable_manager.exit_hart_context(scratch=self.scratch_reg)}
     {xret_code}
 """
+
+    def _check_trap_entry_priv_state(self, unexpected_exception: str) -> str:
+        """
+        Verify the privilege state a trap entry is required to leave behind:
+        ``sstatus``/``vsstatus``.SPP, ``hstatus``.SPV and ``hstatus``.SPVP.
+
+        Each expectation is set by ``OS_SETUP_CHECK_EXCP`` and holds the expected
+        bit itself -- 0 or 1 -- or ``CHECK_EXCP_FIELD_IGNORE`` (-1, the macro
+        default) to skip the check. Any negative value reads as "ignore", so the
+        test is a single ``bltz``.
+
+        The sentinel is written back after each read rather than clearing to zero,
+        because zero is a meaningful expectation under this encoding: a leftover
+        would otherwise arm a spurious "SPP must be 0" check on the next trap.
+        These are hart-local variables, so a plain load/store is sufficient and no
+        atomic swap is needed.
+
+        SPP is read from ``sstatus``, which the hardware resolves to ``vsstatus``
+        when this handler runs at V=1 -- so one emission covers both the trap-into-HS
+        and the trap-into-VS rule. SPV and SPVP live in ``hstatus``, which is only
+        accessible at V=0, so they can only be checked in the HS-mode handler. Every
+        handler still consumes all three variables; a handler that cannot perform a
+        check fails the test on a non-sentinel expectation rather than silently
+        passing a mis-specified scenario.
+
+        Clobbers t0 (loaded value), t1 (scratch) and t2 (the sentinel).
+
+        :param unexpected_exception: label to branch to when a check fails
+        :return: Assembly code string
+        """
+        check_excp_expected_spp = self.variable_manager.get_variable("check_excp_expected_spp")
+        check_excp_expected_spv = self.variable_manager.get_variable("check_excp_expected_spv")
+        check_excp_expected_spvp = self.variable_manager.get_variable("check_excp_expected_spvp")
+
+        h_enabled = self.featmgr.feature.is_feature_enabled("h")
+        # 1=M, 2=HS, 3=VS
+        handler_mode = self._current_mode_for_handler()
+        # A trap into M-mode writes mstatus.MPP/MPV, not SPP -- there is nothing to
+        # check there.
+        can_check_spp = self.deleg_mode == RV.RiscvPrivileges.SUPER
+        # hstatus is inaccessible at V=1, so only the HS handler can read SPV/SPVP.
+        can_check_hstatus = h_enabled and handler_mode == 2
+
+        def consume(var, name: str) -> str:
+            """Read the expectation into t0 and re-arm the ignore sentinel."""
+            return f"""
+            {var.load(dest_reg="t0")}
+            {var.store(src_reg="t2", temp_reg="t1")}"""
+
+        def field_check(var, name: str, csr: str, bit: int) -> str:
+            return f"""{consume(var, name)}
+            bltz t0, {self.label_prefix}skip_{name}_check
+            csrr t1, {csr}
+            srli t1, t1, {bit}
+            andi t1, t1, 1
+            bne t0, t1, {unexpected_exception}
+         {self.label_prefix}skip_{name}_check:
+            """
+
+        def reject(var, name: str) -> str:
+            return f"""{consume(var, name)}
+            bgez t0, {unexpected_exception}   # {name} is not checkable in this handler
+            """
+
+        code = f"""
+            li t2, {CHECK_EXCP_FIELD_IGNORE}   # trap-entry field check: "do not check" sentinel"""
+        if can_check_spp:
+            code += field_check(check_excp_expected_spp, "spp", "sstatus", 8)
+        else:
+            code += reject(check_excp_expected_spp, "spp")
+
+        if can_check_hstatus:
+            code += field_check(check_excp_expected_spv, "spv", "hstatus", 7)
+            code += field_check(check_excp_expected_spvp, "spvp", "hstatus", 8)
+        else:
+            code += reject(check_excp_expected_spv, "spv")
+            code += reject(check_excp_expected_spvp, "spvp")
+
+        return code
 
     def check_excp(self, return_label: str, xepc: str, xret: str) -> str:
         """
@@ -1434,6 +2142,9 @@ class TrapHandler(AssemblyGenerator):
         check_excp_expected_tval = self.variable_manager.get_variable("check_excp_expected_tval")
         check_excp_expected_htval = self.variable_manager.get_variable("check_excp_expected_htval")
         check_excp_gva_check = self.variable_manager.get_variable("check_excp_gva_check")
+        check_excp_expected_spp = self.variable_manager.get_variable("check_excp_expected_spp")
+        check_excp_expected_spv = self.variable_manager.get_variable("check_excp_expected_spv")
+        check_excp_expected_spvp = self.variable_manager.get_variable("check_excp_expected_spvp")
 
         # label to jump to if invalid exception is encountered
         if self.featmgr.skip_instruction_for_unexpected:
@@ -1470,6 +2181,7 @@ class TrapHandler(AssemblyGenerator):
             {check_excp_expected_cause.load_and_clear(dest_reg="t0"):<35}  # check_excp_expected_cause
             bne t1, t0, {unexpected_exception}
 
+{self._check_trap_entry_priv_state(unexpected_exception)}
             # when skip_pc_check is set, skip the pc check
             {check_excp_skip_pc_check.load_and_clear(dest_reg="t0"):<35}  # check_excp_skip_pc_check
             bne t0, x0, {self.label_prefix}skip_pc_check
@@ -1500,7 +2212,7 @@ class TrapHandler(AssemblyGenerator):
             beqz t0, {self.label_prefix}skip_nonzero_htval_check
 
          {self.label_prefix}nonzero_htval_check:
-            csrr t1, {'htval' if self.deleg_mode == RV.RiscvPrivileges.SUPER else 'mtval2'}
+            csrr t1, {self.tval2}
             bne t1, t0, {unexpected_exception}
 
          {self.label_prefix}skip_nonzero_htval_check:

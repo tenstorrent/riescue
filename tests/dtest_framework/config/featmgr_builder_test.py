@@ -19,6 +19,7 @@ from riescue.dtest_framework.config.conf import Conf
 import riescue.lib.enums as RV
 
 from tests.dtest_framework.config.data.example_conf import CandidateConf, PrivConfig
+from tests.dtest_framework.config.data.extension_enablement_conf import DISABLE_SNIPPET, ENABLE_SNIPPET, ZacasEnablementConf
 
 
 # Privilege-mode features the cli_adapter consults when no --supported_priv_modes flag is supplied.
@@ -615,3 +616,35 @@ class TestFeatMgrExceptionHandlerOverrides(unittest.TestCase):
         for cause in (0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 15, 20, 21, 22, 23):
             fm.register_default_exception_handler(cause, f"h_{cause}", h)
             self.assertIn(cause, fm.exception_handler_overrides)
+
+
+class ExtensionControlsMergeTest(FeatMgrBuilderBase):
+    """Conf extension enablement is merged onto FeatMgr during build()."""
+
+    def test_default_extension_controls_empty(self):
+        featmgr = self.builder.build(rng=self.rng)
+        self.assertEqual(featmgr.extension_controls, {})
+
+    def test_merges_normalized_conf_mapping(self):
+        self.builder.conf = [ZacasEnablementConf()]
+        featmgr = self.builder.build(rng=self.rng)
+        self.assertEqual(set(featmgr.extension_controls), {"zacas"})
+        self.assertEqual(featmgr.extension_controls["zacas"]["enable"], ENABLE_SNIPPET)
+        self.assertEqual(featmgr.extension_controls["zacas"]["disable"], DISABLE_SNIPPET)
+        self.assertEqual(featmgr.extension_control_action_id("zacas", True), 0)
+        self.assertEqual(featmgr.extension_control_action_id("zacas", False), 1)
+        self.assertIsNone(featmgr.extension_control_action_id("zvbb", True))
+
+    def test_identical_snippets_from_two_confs_ok(self):
+        self.builder.conf = [ZacasEnablementConf(), ZacasEnablementConf()]
+        featmgr = self.builder.build(rng=self.rng)
+        self.assertEqual(set(featmgr.extension_controls), {"zacas"})
+
+    def test_conflicting_snippets_raise(self):
+        class OtherZacas(Conf):
+            def get_extension_enablement(self) -> dict[str, dict[str, str]]:
+                return {"zacas": {"enable": "OTHER_EN", "disable": "OTHER_DIS"}}
+
+        self.builder.conf = [ZacasEnablementConf(), OtherZacas()]
+        with self.assertRaises(ValueError):
+            self.builder.build(rng=self.rng)

@@ -113,6 +113,14 @@ class CpuConfigAdapter(Adapter):
             featmgr.user_programmable_pmacfg = cpu_config.pma_config.user_programmable_pmacfg
             if cpu_config.pma_config.num_pmas is not None:
                 featmgr.num_pmas = cpu_config.pma_config.num_pmas
+            featmgr.shift_pma_on_load = cpu_config.pma_config.shift_pma_on_load
+            if featmgr.shift_pma_on_load:
+                featmgr.needs_pma = True  # the loader must run setup_pma to perform the move
+            # PMA/PBMT atomicity policy; --legacy_pma / --legacy_pbmt override these in the CLI adapter
+            featmgr.legacy_pma = cpu_config.pma_config.legacy_pma
+            featmgr.legacy_pbmt = cpu_config.pma_config.legacy_pbmt
+            # Cpuconfig-only by design: there is deliberately no CLI override for this one
+            featmgr.allow_amos_in_pma_ncio = cpu_config.pma_config.allow_amos_in_pma_ncio
 
         # Debug mode (from features.debug) and debug ROM (from mmap.io.debug_rom)
         featmgr.debug_mode = cpu_config.debug_mode

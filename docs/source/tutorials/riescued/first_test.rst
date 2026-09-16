@@ -144,7 +144,9 @@ Adding ``--run_iss`` will also run the test on an Instruction Set Simulator to v
 Examining the Output
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-In your working directory, you should see your compiled ELF ``tutorial_example_test`` along with some test runtime environment ``.inc``, a linker script, and a disassembly file.
+In your working directory, you should see your compiled ELF ``tutorial_example_test`` along with some test runtime environment ``.inc`` files and a linker script.
+
+Adding ``--disassemble_test`` also writes a disassembly of the ELF next to it.
 
 In the disassembly file  (``tutorial_example_test.dis``) we can see the discrete test was compiled with the test runtime environment in the subroutine ``test01``:
 

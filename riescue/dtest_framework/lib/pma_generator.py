@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 import riescue.lib.common as common
-from riescue.dtest_framework.lib.pma import PmaInfo
+from riescue.dtest_framework.lib.pma import PmaInfo, no_routing_on_pma, NO_ROUTING_ERROR, ncio_amo_clamped, warn_ncio_amo_clamp
 from riescue.dtest_framework.parser import ParsedPmaHint
 from riescue.dtest_framework.config.pma_config import PmaConfig, PmaRegionConfig
 from riescue.riemap.memory import Memory
@@ -137,7 +137,7 @@ class PmaGenerator:
         """
         # If specific combinations provided, use those
         if hint.combinations:
-            return hint.combinations
+            return self._dedupe_combinations([self._clamp_explicit_combo(hint, combo) for combo in hint.combinations])
 
         # Otherwise, generate cartesian product
         combinations = []
@@ -148,26 +148,67 @@ class PmaGenerator:
         combining = hint.combining or ["noncombining"]
         rwx_combos = hint.rwx_combos or ["rwx"]
         amo_types = hint.amo_types or ["arithmetic"]
-        routing = hint.routing or ["coherent"]
+        # routing=[None] drops the key from every combo, so no explicit routing reaches PmaInfo under the flag
+        if no_routing_on_pma():
+            if hint.routing:
+                raise ValueError(f"{NO_ROUTING_ERROR} (got ;#pma_hint routing={hint.routing} on {hint.name!r})")
+            routing = [None]
+        else:
+            routing = hint.routing or ["coherent"]
 
-        # Generate all combinations
+        # Generate all combinations; cacheable memory only accepts amo_type=arithmetic, so those cross-terms are dropped
         for mem_type in memory_types:
             for rwx in rwx_combos:
                 for amo in amo_types:
                     for route in routing:
+                        route_kv = {} if route is None else {"routing": route}
                         if mem_type == "memory":
                             for cache in cacheability:
-                                combo = {"memory_type": mem_type, "cacheability": cache, "rwx": rwx, "amo_type": amo, "routing": route}
+                                if cache == "cacheable" and amo != "arithmetic":
+                                    log.warning(f"pma_hint: skipping cacheable memory combo with amo_type={amo!r}; cacheable memory requires pmacfg[6:5]=0b11")
+                                    continue
+                                combo = {"memory_type": mem_type, "cacheability": cache, "rwx": rwx, "amo_type": self._clamp_combo_amo(hint, mem_type, cache, amo), **route_kv}
                                 combinations.append(combo)
                         elif mem_type == "io":
                             for comb in combining:
-                                combo = {"memory_type": mem_type, "combining": comb, "rwx": rwx, "amo_type": amo, "routing": route}
+                                combo = {"memory_type": mem_type, "combining": comb, "rwx": rwx, "amo_type": self._clamp_combo_amo(hint, mem_type, None, amo), **route_kv}
                                 combinations.append(combo)
                         else:  # ch0, ch1
-                            combo = {"memory_type": mem_type, "rwx": rwx, "amo_type": amo, "routing": route}
+                            combo = {"memory_type": mem_type, "rwx": rwx, "amo_type": self._clamp_combo_amo(hint, mem_type, None, amo), **route_kv}
                             combinations.append(combo)
 
-        return combinations
+        # Clamping collapses amo_types=[none, arithmetic] on io into one shape; do not repeat it
+        return self._dedupe_combinations(combinations)
+
+    def _clamp_explicit_combo(self, hint: ParsedPmaHint, combo: dict) -> dict:
+        """Apply the NC/IO clamp to a combinations=[...] entry, which skips the expansion above."""
+        memory_type = combo.get("memory_type", "memory")
+        cacheability = combo.get("cacheability") if memory_type == "memory" else None
+        if not ncio_amo_clamped(memory_type, cacheability):
+            return combo
+        warn_ncio_amo_clamp(f"pma_hint {hint.name!r}", memory_type, cacheability, combo.get("amo_type", "arithmetic"))
+        return {**combo, "amo_type": "none"}
+
+    def _clamp_combo_amo(self, hint: ParsedPmaHint, memory_type: str, cacheability: Optional[str], amo: str) -> str:
+        """Force AMONone on NC/IO when the knob is off, warning only if the hint named amo_types."""
+        if not ncio_amo_clamped(memory_type, cacheability):
+            return amo
+        if hint.amo_types:
+            warn_ncio_amo_clamp(f"pma_hint {hint.name!r}", memory_type, cacheability, amo)
+        return "none"
+
+    @staticmethod
+    def _dedupe_combinations(combinations: list[dict]) -> list[dict]:
+        """Drop combos that became byte-identical after clamping, preserving first-seen order."""
+        seen = set()
+        unique = []
+        for combo in combinations:
+            key = tuple(sorted(combo.items()))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(combo)
+        return unique
 
     def _generate_region(self, combo: dict, hint: ParsedPmaHint, idx: int) -> PmaInfo:
         """
@@ -200,9 +241,10 @@ class PmaGenerator:
             pma_write=write,
             pma_execute=execute,
             pma_amo_type=combo.get("amo_type", "arithmetic"),
+            pma_rsrv=combo.get("rsrv"),
             pma_cacheability=combo.get("cacheability", "cacheable"),
             pma_combining=combo.get("combining", "noncombining"),
-            pma_routing_to=combo.get("routing", "coherent"),
+            pma_routing_to=combo.get("routing"),
             pma_valid=True,
         )
 
@@ -219,11 +261,12 @@ class PmaGenerator:
         # Use hint size if specified, otherwise default
         size = hint.size if hint.size is not None else self.DEFAULT_REGION_SIZE
 
+        alignment = self._napot_alignment(size)
+
         # If adjacent requested, place next to last region
         if hint.adjacent and self.last_region:
             base = self.last_region.pma_address + self.last_region.pma_size
-            # Align to 4KB
-            base = (base + 0xFFF) & ~0xFFF
+            base = self._align_up(base, alignment)
             log.debug(f"Placing adjacent PMA region at 0x{base:x}")
             return base, size
 
@@ -233,7 +276,7 @@ class PmaGenerator:
             if self.memory.dram_ranges:
                 dram_range = self.memory.dram_ranges[0]
                 # Find space avoiding existing regions
-                base = self._find_free_space(dram_range.start, dram_range.size, size)
+                base = self._find_free_space(dram_range.start, dram_range.size, size, alignment)
             else:
                 base = 0x80000000  # Default DRAM address
                 log.warning("No DRAM range available, using default address 0x80000000")
@@ -241,28 +284,46 @@ class PmaGenerator:
             # Use IO range
             if self.memory.io_ranges:
                 io_range = self.memory.io_ranges[0]
-                base = self._find_free_space(io_range.start, io_range.size, size)
+                base = self._find_free_space(io_range.start, io_range.size, size, alignment)
             else:
                 base = 0x10000000  # Default IO address
                 log.warning("No IO range available, using default address 0x10000000")
 
-        # Align to 4KB
-        base = (base + 0xFFF) & ~0xFFF
-        return base, size
+        return self._align_up(base, alignment), size
 
-    def _find_free_space(self, start: int, range_size: int, needed_size: int) -> int:
+    @staticmethod
+    def _align_up(value: int, alignment: int) -> int:
+        return (value + alignment - 1) & ~(alignment - 1)
+
+    @staticmethod
+    def _napot_alignment(size: int) -> int:
+        """
+        Alignment a region of this size must sit at.
+
+        PMA entries are NAPOT: pmacfg stores base>>12 plus log2(size), so hardware reads the entry as the
+        naturally-aligned power-of-two block containing that base. A region parked at a merely 4KB-aligned
+        address therefore does not describe the range RiescueD thinks it does, and no large page can be
+        carved inside it either. Mirrors PmaInfo._encoded_size_bits, so the alignment matches what is emitted.
+        """
+        if size <= 0:
+            return 0x1000
+        bits = common.msb(size) if size & (size - 1) == 0 else common.msb(size) + 1
+        return max(1 << bits, 0x1000)
+
+    def _find_free_space(self, start: int, range_size: int, needed_size: int, alignment: int = 0x1000) -> int:
         """
         Find free space in address range, avoiding existing regions.
 
         :param start: Start of address range
         :param range_size: Size of address range
         :param needed_size: Size needed for new region
+        :param alignment: NAPOT alignment the region must satisfy
         :return: Base address for new region
         """
         # Simple implementation: find space after existing regions
         if self.generated_regions:
             # Find the highest end address
-            last_end = max(r.pma_address + r.pma_size for r in self.generated_regions)
+            last_end = self._align_up(max(r.pma_address + r.pma_size for r in self.generated_regions), alignment)
             # Check if we have space after last region
             if last_end + needed_size < start + range_size:
                 return last_end
@@ -273,13 +334,13 @@ class PmaGenerator:
             # Range too small
             return start
 
-        # Generate random address aligned to 4KB
-        num_4k_pages = (max_start - start) // 0x1000
-        if num_4k_pages <= 0:
-            return start
+        # Generate a random NAPOT-aligned base inside the range
+        first_slot = self._align_up(start, alignment)
+        num_slots = (max_start - first_slot) // alignment
+        if num_slots <= 0:
+            return first_slot if first_slot <= max_start else start
 
-        random_page = self.rng.random_in_range(0, num_4k_pages - 1)
-        return start + (random_page * 0x1000)
+        return first_slot + self.rng.random_in_range(0, num_slots - 1) * alignment
 
     def _create_pma_from_config(self, region_cfg: PmaRegionConfig) -> PmaInfo:
         """
@@ -404,22 +465,36 @@ class PmaRandomizer:
         return regions
 
     def _random_legal_attributes(self) -> dict:
-        """Pick a random attribute combo satisfying whisper isLegalPmacfg (faulting flavors included)."""
+        """Pick a random attribute combo for a decoy region (faulting flavors included).
+
+        pmacfg[6:5] is the 2-bit amo type: cacheable main memory is pinned to 0b11 (arithmetic), every
+        other region rolls freely over 0b00-0b11. Routing (bit 8) follows whisper's isLegalPmacfg unless
+        a non-legacy_pma target has retired it, in which case no decoy carries a routing request.
+        """
         memory_type = self.rng.random_choice_weighted(self.MEMORY_TYPE_WEIGHTS)
         if memory_type == "memory":
             read, write, execute = self.rng.random_entry_in([(1, 1, 1), (0, 0, 0)])
             cacheability = self.rng.random_choice_weighted(self.CACHEABILITY_WEIGHTS)
-            if cacheability == "cacheable":
-                amo_type, routing_to = "arithmetic", "coherent"
-            else:
-                amo_type = "none"
-                routing_to = self.rng.random_entry_in(["coherent", "noncoherent"])
             combining = "noncombining"
         else:
             read, write, execute = self.rng.random_entry_in(self.IO_RWX_CHOICES)
             cacheability = "cacheable"  # unused: bit 7 encodes combining for non-memory types
-            amo_type, routing_to = "none", "noncoherent"
             combining = self.rng.random_entry_in(["combining", "noncombining"])
+        if memory_type == "memory" and cacheability == "cacheable":
+            amo_type = "arithmetic"  # pmacfg[6:5]=0b11 is the only legal amo type on cacheable main memory
+        else:
+            # The draw stays even when clamped, so decoy placement is bit-identical across the knob
+            amo_type = self.rng.random_entry_in(["none", "swap", "logical", "arithmetic"])
+            if ncio_amo_clamped(memory_type, cacheability):
+                amo_type = "none"  # a random draw is not a user request, so no warning here
+        if no_routing_on_pma():
+            routing_to = None
+        elif memory_type != "memory":
+            routing_to = "noncoherent"  # whisper's isLegalPmacfg rejects a coherent io/ch region
+        elif cacheability == "cacheable":
+            routing_to = "coherent"  # cacheable main memory must be coherent
+        else:
+            routing_to = self.rng.random_entry_in(["coherent", "noncoherent"])
         return {
             "pma_memory_type": memory_type,
             "pma_read": read,

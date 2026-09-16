@@ -17,16 +17,23 @@ import unittest
 from typing import Optional
 
 from riescue.dtest_framework.config import FeatMgr
-from riescue.dtest_framework.lib.pma import PmaInfo
+from riescue.dtest_framework.lib.pma import PmaInfo, legacy_pma, no_routing_on_pma, set_legacy_pma
 from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.runtime import Runtime
-from riescue.dtest_framework.runtime.loader import Loader, PMA_INDIRECT_SELECT_BASE, PMA_IO_CATCHALL, PMA_DRAM_CATCHALL
+from riescue.dtest_framework.runtime.loader import Loader, PMA_INDIRECT_SELECT_BASE, PMA_IO_CATCHALL, PMA_DRAM_CATCHALL, PMA_DRAM_CATCHALL_NO_ROUTING
 from riescue.lib.rand import RandNum
 
 
-def make_loader(num_regions: int, num_pmas: Optional[int] = None, user_programmable: int = 0, num_carveouts: int = 0, carveouts: tuple = (), indirect_pct: Optional[int] = None) -> Loader:
+def expected_dram_catchall() -> int:
+    """The DRAM catch-all the loader emits under the active policy: bit 8 is only written on a legacy_pma target."""
+    return PMA_DRAM_CATCHALL_NO_ROUTING if no_routing_on_pma() else PMA_DRAM_CATCHALL
+
+
+def make_loader(
+    num_regions: int, num_pmas: Optional[int] = None, user_programmable: int = 0, num_carveouts: int = 0, carveouts: tuple = (), indirect_pct: Optional[int] = None, shift: int = 0
+) -> Loader:
     """Build a Loader with needs_pma set and ``num_regions`` non-adjacent memory PMA regions."""
-    featmgr = FeatMgr(needs_pma=True, user_programmable_pmacfg=user_programmable)
+    featmgr = FeatMgr(needs_pma=True, user_programmable_pmacfg=user_programmable, shift_pma_on_load=shift)
     if num_pmas is not None:
         featmgr.num_pmas = num_pmas
     if indirect_pct is not None:
@@ -46,7 +53,6 @@ def make_loader(num_regions: int, num_pmas: Optional[int] = None, user_programma
                 pma_memory_type="memory",
                 pma_cacheability="noncacheable",
                 pma_amo_type="none",
-                pma_routing_to="noncoherent",
                 pma_valid=True,
             )
         )
@@ -64,9 +70,10 @@ def make_random_loader(
     masked_indices: tuple = (),
     num_carveouts: int = 0,
     indirect_pct: int = 0,
+    shift: int = 0,
 ) -> Loader:
     """Build a Loader with PMA randomization enabled, defined regions, carve-outs, and decoys."""
-    featmgr = FeatMgr(needs_pma=True, enable_pma_randomization=True, user_programmable_pmacfg=user_programmable, pma_indirect_access_pct=indirect_pct)
+    featmgr = FeatMgr(needs_pma=True, enable_pma_randomization=True, user_programmable_pmacfg=user_programmable, pma_indirect_access_pct=indirect_pct, shift_pma_on_load=shift)
     if num_pmas is not None:
         featmgr.num_pmas = num_pmas
     pool = Pool()
@@ -83,7 +90,6 @@ def make_random_loader(
                 pma_write=False,
                 pma_execute=False,
                 pma_amo_type="none",
-                pma_routing_to="noncoherent",
                 pma_valid=True,
             )
         )
@@ -115,6 +121,21 @@ def entry_indices(code: str) -> list:
 def invalidated_indices(code: str) -> list:
     """List pmacfg entry indices cleared by the invalidation band."""
     return [int(idx) for idx in re.findall(r"# Invalidate pmacfg(\d+)", code)]
+
+
+def pmacfg_value(code: str, index: int) -> int:
+    """The pmacfg immediate emitted for one entry."""
+    block = code.split(f"# Setting up pmacfg{index} ")[1]
+    match = re.search(r"li t0, (0x[0-9a-f]+)", block)
+    assert match is not None
+    return int(match.group(1), 16)
+
+
+def pmacfg_coverage(value: int) -> tuple:
+    """The [base, base+size) whisper matches: bits[63:58] are log2(size) and the base aligns down."""
+    size = 1 << ((value >> 58) & 0x3F)
+    base = ((value >> 12) & ((1 << 40) - 1)) << 12
+    return base & ~(size - 1), size
 
 
 class LoaderPmaTest(unittest.TestCase):
@@ -176,10 +197,11 @@ class LoaderPmaTest(unittest.TestCase):
         self.assertIn(io_select, code)
         self.assertIn(dram_select, code)
         self.assertIn(f"li t0, 0x{PMA_IO_CATCHALL:x}", code)
-        self.assertIn(f"li t0, 0x{PMA_DRAM_CATCHALL:x}", code)
+        self.assertIn(f"li t0, 0x{expected_dram_catchall():x}", code)
         # Catchall values match the pmacfg14/15 boot resets in whisper_config.json
         self.assertEqual(PMA_IO_CATCHALL, 0x7C00000000000007)
         self.assertEqual(PMA_DRAM_CATCHALL, 0xE0000000000001E7)
+        self.assertEqual(PMA_DRAM_CATCHALL_NO_ROUTING, 0xE0000000000000E7)  # bit 8 held at 0 off a legacy_pma target
         # IO catchall (lower entry, higher priority) must be written before DRAM
         self.assertLess(code.index(io_select), code.index(dram_select))
         # Catchalls precede every programmed entry: coverage must not lapse while the band is invalidated
@@ -187,6 +209,20 @@ class LoaderPmaTest(unittest.TestCase):
         # No pmamask write on the catchall entries; that flips whisper to masked-compare (see _setup_pma_catchall)
         catchall_block = code[code.index(io_select) : code.index("# Setting up pmacfg61")]
         self.assertNotIn("mireg2", catchall_block)
+
+    def test_dram_catchall_routing_bit_follows_legacy_pma(self):
+        """The catch-all is the one place bit 8 reaches the ISS: set only on a legacy_pma target, clear otherwise."""
+        self.addCleanup(set_legacy_pma, legacy_pma())
+
+        set_legacy_pma(True)
+        code = make_loader(1).setup_pma()
+        self.assertIn(f"li t0, 0x{PMA_DRAM_CATCHALL:x}", code)
+        self.assertNotIn(f"li t0, 0x{PMA_DRAM_CATCHALL_NO_ROUTING:x}", code)
+
+        set_legacy_pma(False)
+        code = make_loader(1).setup_pma()
+        self.assertIn(f"li t0, 0x{PMA_DRAM_CATCHALL_NO_ROUTING:x}", code)
+        self.assertNotIn(f"li t0, 0x{PMA_DRAM_CATCHALL:x}", code)
 
     def test_select_value_bounds(self):
         """Reg 16 -> 0x8000000000000010, reg 63 -> 0x800000000000003F per spec."""
@@ -239,6 +275,17 @@ class LoaderPmaTest(unittest.TestCase):
         value = re.search(r"li t0, (0x[0-9a-f]+)", carveout_block)
         assert value is not None
         self.assertNotEqual(int(value.group(1), 16), 0, "carve-out must be programmed with a real pmacfg value")
+
+    def test_map_region_encodes_its_declared_size(self):
+        """The legacy msb+1 encoder doubled a pow2 map region, running the io window into real DRAM"""
+        loader = make_loader(0)
+        loader.pool.pma_regions.add_region(0x0, 0x8000_0000, "io")
+        loader.pool.pma_regions.add_region(0x8000_0000, 0xF_FFFF_8000_0000, "memory")
+        code = loader.setup_pma()
+        self.assertEqual(entry_indices(code), [60, 61])
+        base, size = pmacfg_coverage(pmacfg_value(code, 60))
+        self.assertEqual((base, size), (0x0, 0x8000_0000), "io map region must encode the size it declares")
+        self.assertFalse(base <= 0x8000_0000 < base + size, "a doubled io window shadows the bottom of DRAM")
 
     def test_band_between_groups_invalidated(self):
         """Entries between the carve-outs and the memory map are cleared so boot 14/15 stop shadowing."""
@@ -422,7 +469,7 @@ class LoaderPmaRandomizationTest(unittest.TestCase):
         """Catchalls at 62/63 are written before any lower entry changes so coverage never lapses."""
         code = make_random_loader(num_regions=1, num_random=1).setup_pma()
         self.assertLess(code.index("# PMA catchall pmacfg62"), code.index("# Setting up pmacfg0 "))
-        self.assertLess(code.index(f"li t0, 0x{PMA_DRAM_CATCHALL:x}"), code.index("# Invalidate pmacfg"))
+        self.assertLess(code.index(f"li t0, 0x{expected_dram_catchall():x}"), code.index("# Invalidate pmacfg"))
 
     def test_randomize_catchalls_never_write_pmamask(self):
         """An explicit mireg2 write collapses whisper's 2^56 DRAM catchall to page 0; skip it."""
@@ -453,6 +500,88 @@ class LoaderPmaRandomizationTest(unittest.TestCase):
         auto = make_random_loader(num_regions=2, num_random=2, user_programmable=4, indirect_pct=-1).setup_pma()
         explicit = make_random_loader(num_regions=2, num_random=2, user_programmable=4, indirect_pct=50).setup_pma()
         self.assertEqual(auto, explicit)
+
+
+class LoaderPmaShiftTest(unittest.TestCase):
+    """Check the shift_pma_on_load bootrom-entry relocation in Loader.setup_pma()."""
+
+    def test_move_emitted_before_any_pma_write(self):
+        """Bootrom values are read before catchalls, carve-out writes, and invalidation can clobber them."""
+        code = make_loader(2, num_carveouts=1, shift=2).setup_pma()
+        self.assertLess(code.index("# Move bootrom pmacfg0"), code.index("# PMA catchall pmacfg62"))
+        self.assertLess(code.index("# Move bootrom pmacfg1"), code.index("# Setting up pmacfg0 "))
+        self.assertLess(code.index("# Move bootrom pmacfg1"), code.index("# Invalidate pmacfg"))
+
+    def test_move_packs_entries_directly_under_catchalls(self):
+        """s=2: bootrom pmacfg0/1 land at entries 60/61 via miselect; catchalls stay at 62/63."""
+        code = make_loader(1, shift=2).setup_pma()
+        self.assertIn("csrr t0, 0x7e0", code)  # read bootrom pmacfg0 (direct CSR)
+        self.assertIn("csrr t0, 0x7f0", code)  # read bootrom pmamask0 (direct CSR)
+        for dest in (60, 61):
+            self.assertIn(f"li t1, 0x{PMA_INDIRECT_SELECT_BASE + dest:x}", code, f"missing indirect write for entry {dest}")
+        self.assertIn("# Move bootrom pmacfg0/pmamask0 to entry 60", code)
+        self.assertIn("# Move bootrom pmacfg1/pmamask1 to entry 61", code)
+        self.assertIn("# PMA catchall pmacfg62", code)
+        self.assertIn("# PMA catchall pmacfg63", code)
+
+    def test_mask_written_after_cfg_at_destination(self):
+        """A pmacfg write resets the mask, so each moved pmamask write follows its pmacfg write."""
+        code = make_loader(1, shift=1).setup_pma()
+        move = code[code.index("# Move bootrom pmacfg0") :]
+        self.assertLess(move.index("csrw mireg, t0"), move.index("csrw mireg2, t0"))
+
+    def test_sources_overwritten_or_invalidated(self):
+        """True move: after copying, the low source entries are reprogrammed or zeroed."""
+        code = make_loader(1, num_carveouts=1, shift=2).setup_pma()
+        self.assertIn("# Setting up pmacfg0 for name=pma_carve_0", code)  # carve-out overwrites entry 0
+        self.assertIn("# Invalidate pmacfg1", code)  # the band zeroes entry 1
+        self.assertLess(code.index("# Move bootrom pmacfg1"), code.index("# Invalidate pmacfg1"))
+
+    def test_memmap_packs_under_moved_block(self):
+        """Flag off: memory-map regions pack under the moved block, not under the catchalls."""
+        code = make_loader(3, shift=2).setup_pma()
+        self.assertEqual(entry_indices(code), [57, 58, 59])
+        self.assertEqual(invalidated_indices(code), list(range(0, 57)))
+
+    def test_randomize_invalidates_up_to_moved_block(self):
+        """Randomize: the invalidation band stops at the moved block; moved entries are never zeroed."""
+        code = make_random_loader(num_regions=2, num_random=2, shift=3).setup_pma()
+        invalidated = sorted(invalidated_indices(code))
+        self.assertEqual(invalidated, list(range(4, 59)))
+        for dest in (59, 60, 61):
+            self.assertNotIn(dest, invalidated)
+        self.assertIn("# PMA catchall pmacfg62", code)
+
+    def test_move_precedes_reserved_zeroing(self):
+        """With randomization, reserved entries are zeroed only after the bootrom values are copied out."""
+        code = make_random_loader(num_regions=1, num_random=1, user_programmable=4, shift=2).setup_pma()
+        self.assertLess(code.index("# Move bootrom pmacfg0"), code.index("# Invalidate pmacfg0"))
+
+    def test_capacity_error_accounts_for_shift(self):
+        """The moved block consumes real entries: regions + 2 catchalls + shift must fit num_pmas."""
+        with self.assertRaises(ValueError) as ctx:
+            make_loader(13, num_pmas=16, shift=2).setup_pma()
+        self.assertIn("shift=2", str(ctx.exception))
+        self.assertIn("> 16 PMA entries", str(ctx.exception))
+
+    def test_sources_above_15_read_indirectly(self):
+        """Shift counts reaching past the direct CSR window read the bootrom entries via miselect/mireg."""
+        code = make_loader(1, shift=20).setup_pma()
+        self.assertIn(f"li t1, 0x{PMA_INDIRECT_SELECT_BASE + 16:x}", code)
+        self.assertIn("csrr t0, mireg\n", code)
+        self.assertIn("csrr t0, mireg2", code)
+        self.assertIn("# Move bootrom pmacfg19/pmamask19 to entry 61", code)  # dest block [42, 62)
+
+    def test_shift_alone_still_emits_move(self):
+        """No test regions at all: the move and catchalls still run (relocation is the only PMA work)."""
+        code = make_loader(0, shift=2).setup_pma()
+        self.assertIn("# Move bootrom pmacfg0/pmamask0 to entry 60", code)
+        self.assertIn("# PMA catchall pmacfg62", code)
+
+    def test_shift_zero_byte_identical(self):
+        """shift=0 (the default) emits exactly the legacy code, with or without randomization."""
+        self.assertEqual(make_loader(3, num_carveouts=1).setup_pma(), make_loader(3, num_carveouts=1, shift=0).setup_pma())
+        self.assertEqual(make_random_loader(num_regions=2, num_random=2).setup_pma(), make_random_loader(num_regions=2, num_random=2, shift=0).setup_pma())
 
 
 if __name__ == "__main__":

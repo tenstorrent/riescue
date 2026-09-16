@@ -9,7 +9,7 @@ from typing import Any
 import riescue.lib.common as common
 import riescue.lib.enums as RV
 from riescue.lib.counters import Counters
-from riescue.dtest_framework.lib.pma import PmaInfo, PmaRegion
+from riescue.dtest_framework.lib.pma import PmaInfo, PmaRegion, no_routing_on_pma, PMACFG_ROUTING_BIT
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 
 log = logging.getLogger(__name__)
@@ -21,11 +21,12 @@ log = logging.getLogger(__name__)
 PMA_INDIRECT_SELECT_BASE = 0x8000000000000000
 PMA_DIRECT_CSR_ENTRIES = 16
 PMA_IO_CATCHALL = 0x7C00000000000007  # IO/non-cacheable 0-2GB (pmacfg14 boot reset value)
-PMA_DRAM_CATCHALL = 0xE0000000000001E7  # cacheable-coherent RWX 0-2^56 (pmacfg15 boot reset value)
+PMA_DRAM_CATCHALL = 0xE0000000000001E7  # cacheable-coherent RWX 0-2^56, amo type 0b11 (pmacfg15 boot reset value)
+PMA_DRAM_CATCHALL_NO_ROUTING = PMA_DRAM_CATCHALL & ~PMACFG_ROUTING_BIT  # same entry with bit 8 held at its reserved 0
 PMA_NUM_CATCHALLS = 2  # the last two entries (lowest priority) re-established as IO/DRAM catchalls
 
 
-def decoy_pma_budget(reserved: int, essential_regions: int, num_pmas: int) -> int:
+def decoy_pma_budget(reserved: int, essential_regions: int, num_pmas: int, shift: int = 0) -> int:
     """How many randomized decoy PMA entries fit after everything else must be emitted.
 
     Shared between :meth:`Loader.setup_pma`'s emission-time truncation and the generator's
@@ -33,8 +34,10 @@ def decoy_pma_budget(reserved: int, essential_regions: int, num_pmas: int) -> in
     decoys will actually survive to be programmed -- the generator must truncate the decoy
     exclusion list *before* RieMap allocates, or a decoy that is later truncated away at
     emission time would still have vetoed page-table placements for no reason.
+
+    ``shift`` reserves the entries a shift_pma_on_load move occupies directly under the catchalls.
     """
-    essential = reserved + essential_regions + PMA_NUM_CATCHALLS
+    essential = reserved + essential_regions + PMA_NUM_CATCHALLS + shift
     return max(num_pmas - essential, 0)
 
 
@@ -112,6 +115,7 @@ _start:
     {self.set_initial_panic()}
 
 loader__initialize_runtime:
+    RVMODEL_BOOT
     {smrnmi_init}
     {self.featmgr.call_hook(RV.HookPoint.PRE_LOADER)}
     {self.initialize_runtime()}
@@ -357,28 +361,15 @@ loader__set_mstatus:
 
         # satp value = [31]:mode, [30:22]: asid, [21:0]: sptbr[31:10]
         asid_val = self.rng.random_in_range(0, 2**9)
-        mode_val = 0
-        mode_name = None
-        if self.paging_mode == RV.RiscvPagingModes.SV39:
-            mode_val = 0x8
-            mode_name = "Sv39"
-        elif self.paging_mode == RV.RiscvPagingModes.SV48:
-            mode_val = 0x9
-            mode_name = "Sv48"
-        elif self.paging_mode == RV.RiscvPagingModes.SV57:
-            mode_val = 0xA
-            mode_name = "Sv57"
-        else:
-            raise ValueError(f"OS does not support paging mode {self.paging_mode} yet")
 
         # Set sptbr, asid and mode field values in the satp csr
         satp_val = os_sptbr >> 12
         satp_val |= common.set_bits(original_value=satp_val, bit_hi=59, bit_lo=44, value=asid_val)
-        satp_val |= common.set_bits(original_value=satp_val, bit_hi=63, bit_lo=60, value=mode_val)
+        satp_val |= RV.RiscvPagingModes.enum_to_mode_val(self.paging_mode)
 
         enable_paging_code += f"""
         loader__enable_paging:
-            # Enable paging by writing CSR SATP.MODE = {mode_name} (1)
+            # Enable paging by writing CSR SATP.MODE = {RV.RiscvPagingModes.enum_to_str(self.paging_mode)} (1)
             ;os_sptbr = 0x{os_sptbr:x}
             li x1, 0x{satp_val:x}
             csrw satp, x1"""
@@ -506,6 +497,12 @@ loader__validate_hartid_done:
         count above 14 cannot leave whisper's boot pmacfg14/15 catchalls shadowing every real entry),
         then leaves them for the test to program at runtime. Flag-off emission never touches them.
 
+        With featmgr.shift_pma_on_load = s, the loader first copies the bootrom-programmed entries
+        [0, s) (pmacfg and pmamask alike) to [num_pmas - 2 - s, num_pmas - 2), packing them directly
+        under the catchalls with order preserved; the copy runs before anything else writes PMA CSRs,
+        and the normal flow then reprograms or invalidates the vacated low entries. The moved block
+        consumes s entries of capacity like any other group.
+
         Entries 0-15 are reachable both ways; pma_indirect_access_pct rolls each write (entry and
         invalidate alike) between the direct CSRs and miselect/mireg, defaulting to 50 when
         randomizing and 0 otherwise. Entries above 15 are always indirect.
@@ -514,27 +511,29 @@ loader__validate_hartid_done:
         random_pmas = self.pool.pma_random_regions
         reserved = self.featmgr.user_programmable_pmacfg
         num_pmas = self.featmgr.num_pmas
+        shift = self.featmgr.shift_pma_on_load
         catchall_base = num_pmas - PMA_NUM_CATCHALLS
+        move_base = catchall_base - shift  # bootrom entries [0, shift) are relocated to [move_base, catchall_base)
         # merge_named=False keeps every carve-out intact; the memory-map group is re-consolidated below
         pmas = self.pool.pma_regions.consolidated_entries(merge_named=False)
-        if not pmas and not random_pmas:
+        if not pmas and not random_pmas and not shift:
             return ""
 
         carveouts = sorted((p for p in pmas if p.pma_name.startswith("pma_")), key=lambda p: (p.pma_size, p.pma_address))
         unnamed = [p for p in pmas if not p.pma_name.startswith("pma_")]
         # Randomization keeps unmerged map entries (gap-merged io windows align NAPOT bases below the test); flag-off re-merges
         memmap_regions = unnamed if randomize else self._consolidate_memmap_regions(unnamed)
-        essential = reserved + len(carveouts) + len(memmap_regions) + PMA_NUM_CATCHALLS
+        essential = reserved + len(carveouts) + len(memmap_regions) + PMA_NUM_CATCHALLS + shift
         if essential > num_pmas:
             raise ValueError(
                 f"PMA entries exceed capacity: user_programmable={reserved} + carveouts={len(carveouts)} "
-                f"+ memory_map={len(memmap_regions)} + {PMA_NUM_CATCHALLS} catchalls = {essential} > {num_pmas} PMA entries"
+                f"+ memory_map={len(memmap_regions)} + {PMA_NUM_CATCHALLS} catchalls + shift={shift} = {essential} > {num_pmas} PMA entries"
             )
         self._check_carveout_overlap(carveouts, memmap_regions)
 
         if randomize:
             # Decoys are pure coverage: truncate to whatever fits rather than failing the test
-            decoy_budget = decoy_pma_budget(reserved, len(carveouts) + len(memmap_regions), num_pmas)
+            decoy_budget = decoy_pma_budget(reserved, len(carveouts) + len(memmap_regions), num_pmas, shift=shift)
             decoys = list(random_pmas[:decoy_budget])
             if len(decoys) < len(random_pmas):
                 log.warning(f"PMA randomization: truncating decoys {len(random_pmas)} -> {len(decoys)} to fit " f"{num_pmas} PMA entries")
@@ -544,19 +543,21 @@ loader__validate_hartid_done:
             # Carve-outs first (specific beats containing), decoys before memory-map so they are live
             ordered = carveouts + decoys + memmap_regions
             groups = [(reserved, ordered, True)]
-            invalidate = (reserved + len(ordered), catchall_base)
+            invalidate = (reserved + len(ordered), move_base)
         else:
-            # Carve-outs claim the lowest entries; the memory map packs directly under the catchalls
-            # Map regions stay on the legacy encoder, so only the carve-out group is force-encoded
-            groups = [(reserved, carveouts, True), (catchall_base - len(memmap_regions), memmap_regions, False)]
+            # Carve-outs claim the lowest entries; the memory map packs directly under the moved block/catchalls
+            # Map regions force-encode too: the legacy msb+1 size doubled them over real DRAM
+            groups = [(reserved, carveouts, True), (move_base - len(memmap_regions), memmap_regions, True)]
             # The band between the two groups is invalidated so boot entries 14/15 stop shadowing the memory map
-            invalidate = (reserved + len(carveouts), catchall_base - len(memmap_regions))
+            invalidate = (reserved + len(carveouts), move_base - len(memmap_regions))
 
         indirect_pct = self.featmgr.pma_indirect_access_pct
         if indirect_pct < 0:
             indirect_pct = 50 if randomize else 0  # auto: split direct/indirect for entries 0-15 when randomizing
         code = "\nloader__setup_pma:\n"
         log.info("Setting up PMAs")
+        # The move reads entries [0, shift) first: every later pass (reserved zeroing, groups, invalidation) clobbers them
+        code += self._pma_move_code(shift, move_base)
         # Catchalls first: boot entries 14/15 still hold catchall values, so coverage never lapses while lower entries change
         code += self._setup_pma_catchall(reserved + len(carveouts), catchall_base, clear_masks=False)
         if randomize and reserved:
@@ -643,6 +644,51 @@ loader__validate_hartid_done:
             """
         return code
 
+    def _pma_read_code(self, index: int, direct_csr: int, indirect_reg: str) -> str:
+        """Read pmacfg/pmamask ``index`` into t0: direct CSR below 16, miselect + indirect reg above."""
+        if index >= PMA_DIRECT_CSR_ENTRIES:
+            return f"""
+                li t1, 0x{PMA_INDIRECT_SELECT_BASE + index:x}
+                csrw miselect, t1
+                csrr t0, {indirect_reg}
+            """
+        return f"""
+                csrr t0, 0x{direct_csr + index:x}
+            """
+
+    def _pma_write_code(self, index: int, direct_csr: int, indirect_reg: str) -> str:
+        """Write t0 to pmacfg/pmamask ``index``: direct CSR below 16, miselect + indirect reg above."""
+        if index >= PMA_DIRECT_CSR_ENTRIES:
+            return f"""
+                li t1, 0x{PMA_INDIRECT_SELECT_BASE + index:x}
+                csrw miselect, t1
+                csrw {indirect_reg}, t0
+            """
+        return f"""
+                csrw 0x{direct_csr + index:x}, t0
+            """
+
+    def _pma_move_code(self, count: int, dest_base: int) -> str:
+        """Copy the bootrom's pmacfg/pmamask entries [0, count) to [dest_base, dest_base + count).
+
+        Emitted before every other PMA write, since the reserved zeroing, group programming, and the
+        invalidation band all clobber the low entries the bootrom left behind. At each destination the
+        pmamask write follows the pmacfg write, which resets the mask. Entries 0-15 read/write the
+        direct CSRs; higher entries go through miselect/mireg/mireg2 (never rolled, unlike the
+        pma_indirect_access_pct path).
+        """
+        code = ""
+        for i in range(count):
+            dest = dest_base + i
+            code += f"""
+                # Move bootrom pmacfg{i}/pmamask{i} to entry {dest}
+            """
+            code += self._pma_read_code(i, 0x7E0, "mireg")
+            code += self._pma_write_code(dest, 0x7E0, "mireg")
+            code += self._pma_read_code(i, 0x7F0, "mireg2")
+            code += self._pma_write_code(dest, 0x7F0, "mireg2")
+        return code
+
     def _pma_invalidate_code(self, start: int, end: int, indirect_pct: int = 0) -> str:
         """Write pmacfg=0 (and clear pmamask) for stale entries in [start, end); kills boot 14/15 shadows."""
         code = ""
@@ -676,7 +722,8 @@ loader__validate_hartid_done:
         if used > catchall_base:
             log.warning(f"PMA regions occupy entries {catchall_base}/{catchall_base + 1}; catchall writes will overwrite them")
         code = ""
-        for idx, value, desc in ((catchall_base, PMA_IO_CATCHALL, "IO 0-2GB"), (catchall_base + 1, PMA_DRAM_CATCHALL, "DRAM 0-2^56")):
+        dram_catchall = PMA_DRAM_CATCHALL_NO_ROUTING if no_routing_on_pma() else PMA_DRAM_CATCHALL
+        for idx, value, desc in ((catchall_base, PMA_IO_CATCHALL, "IO 0-2GB"), (catchall_base + 1, dram_catchall, "DRAM 0-2^56")):
             if idx >= PMA_DIRECT_CSR_ENTRIES:
                 code += f"""
                 # PMA catchall pmacfg{idx} ({desc})
@@ -867,7 +914,10 @@ loader__setup_mideleg:"""
     def setup_menvcfg(self) -> str:
         """
         Generate code to setup menvcfg.
-        Configuration's menvcfg is OR'd with default menvcfg.
+
+        ORs FeatMgr overrides (``featmgr.menvcfg``) with loader defaults for
+        PBMTE / Svadu / Sstc. CBO enable bits are not derived here — generators
+        (e.g. Voyager) pass them via ``--menvcfg`` / FeatMgr.
         """
 
         code = "\nloader__setup_menvcfg:"
@@ -956,21 +1006,11 @@ __enable_all_interrupts:
         if self.pool.init_guest_imsic:
             eie_top = 0xC0 + ((self.pool.max_aplic_irq + 1) >> 4)
             code += f"""
-            # IMSIC guest interrupt file setup.
-            # Two guest files are configured so VSEI and SGEI can be exercised
-            # independently:
-            #   * Guest file 1 -> selected by hstatus.VGEIN, so it drives
-            #     vsip[9]=VSEIP. hgeie[1]=0, so poking file 1 does NOT raise
-            #     hip[12]=SGEIP.
-            #   * Guest file 2 -> hgeie[2]=1, so it drives hip[12]=SGEIP, but it
-            #     is NOT selected by VGEIN in the resting state, so poking file 2
-            #     does NOT raise VSEIP.
-            # vsiselect/vsireg act on the VGEIN-selected file, so each file is
-            # configured with VGEIN pointed at it. VGEIN is left = 1 afterwards
-            # (the home for VSEI delivery); RVMODEL_CLR_HGEI_INT restores VGEIN=1
-            # after it temporarily points VGEIN at the claimed guest file.
+            # IMSIC guest interrupt file setup. vsiselect/vsireg act on the
+            # VGEIN-selected file, so each file is programmed with VGEIN pointed
+            # at it. EnableInterrupts later selects VGEIN / hgeie per scenario.
 
-            # --- Configure guest file 1 (VSEI): VGEIN = 1 ---
+            # --- Configure guest file 1: VGEIN = 1 ---
             li t0, (0x3f << 12)
             csrc hstatus, t0
             li t0, (1 << 12)
@@ -1023,31 +1063,6 @@ __enable_all_guest_interrupts_f2:
             csrw    vsireg, t1
             addi    t0, t0, 2
             bne     t0, t2, __enable_all_guest_interrupts_f2
-
-            # --- Leave VGEIN = 1 (home for VSEI delivery) ---
-            li t0, (0x3f << 12)
-            csrc hstatus, t0
-            li t0, (1 << 12)
-            csrs hstatus, t0
-
-            # Enable hgeie[2] so hip[12]=SGEIP asserts when guest file 2 has a
-            # pending interrupt. hgeie[1] stays 0 so guest file 1 (VSEI) never
-            # raises SGEIP, keeping the VSEI and SGEI signals independent.
-            li t0, (1 << 2)
-            csrs hgeie, t0
-
-            # Delegate SGEI (mideleg[12]) to HS so SGEI is serviced/checked in
-            # HS rather than trapping to M. Per the priv spec (norm:mideleg_acc_h)
-            # this bit is read-only one whenever GEILEN!=0, so SGEI is always
-            # delegated past M to HS; on a target that hardwires it this csrs is
-            # a no-op. Whisper only sets GEILEN from the top-level
-            # ``guest_interrupt_count`` config tag (not ``imsic.guests``), so
-            # unless that tag is present mideleg[12] is left writable/zero and
-            # SGEI would otherwise trap to M. Setting it explicitly here keeps
-            # SGEI delivery correct regardless of that tag, and is scoped to the
-            # guest-IMSIC bring-up so non-hypervisor tests are unaffected.
-            li t0, (1 << 12)
-            csrs mideleg, t0
         """
 
         code += f"""
@@ -1166,9 +1181,6 @@ __enable_aplic_interrupt_target:
         """
 
         code = ""
-        if self.featmgr.c_used:
-            code += "la sp, __c__stack_addr\n"
-            code += "ld sp, 0(sp)\n"
 
         code += "\nloader__setup_tvec:\n"
         code += "la t0, trap_handler_m__trap_entry\n"

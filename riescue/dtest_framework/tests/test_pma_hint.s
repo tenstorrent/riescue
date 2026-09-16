@@ -40,15 +40,17 @@
     memory_types=[memory],
     cacheability=[cacheable, noncacheable],
     rwx_combos=[rwx],
+    size=0x4000000,
     adjacent=true
 )
 
 # Example 2: Hint with specific combinations
 ;#pma_hint(name=combo_hint,
     combinations=[
-        {memory_type=memory, cacheability=cacheable, rwx=rwx, amo_type=arithmetic, routing_to=coherent},
-        {memory_type=memory, cacheability=noncacheable, rwx=rwx, amo_type=arithmetic, routing_to=coherent}
+        {memory_type=memory, cacheability=cacheable, rwx=rwx, amo_type=arithmetic},
+        {memory_type=memory, cacheability=noncacheable, rwx=rwx, amo_type=logical}
     ],
+    size=0x4000000,
     adjacent=true
 )
 
@@ -57,7 +59,7 @@
     memory_types=[io],
     combining=[combining, noncombining],
     rwx_combos=[rw],
-    routing_to=[coherent, noncoherent]
+    amo_types=[none, arithmetic]
 )
 
 # Example 4: Large PMA region for multiple address allocation
@@ -65,6 +67,7 @@
     memory_types=[memory],
     cacheability=[cacheable],
     rwx_combos=[rwx],
+    size=0x4000000,
     max_regions=1
 )
 
@@ -83,6 +86,7 @@
         {memory_type=memory, cacheability=cacheable, rwx=rwx},
         {memory_type=memory, cacheability=noncacheable, rwx=rwx}
     ],
+    size=0x4000000,
     adjacent=true,
     max_regions=2
 )
@@ -99,52 +103,52 @@
 # These addresses match the attributes from simple_hint (memory, cacheable/noncacheable, rwx)
 ;#random_addr(name=lin_test01_cacheable, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys_test01_cacheable, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1)
-;#page_mapping(lin_name=lin_test01_cacheable, phys_name=phys_test01_cacheable, v=1, r=1, w=1, x=1, a=1, d=1)
+;#page_mapping(lin_name=lin_test01_cacheable, phys_name=phys_test01_cacheable, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 ;#random_addr(name=lin_test01_noncacheable, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys_test01_noncacheable, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=noncacheable, pma_read=1, pma_write=1, pma_execute=1)
-;#page_mapping(lin_name=lin_test01_noncacheable, phys_name=phys_test01_noncacheable, v=1, r=1, w=1, x=1, a=1, d=1)
+;#page_mapping(lin_name=lin_test01_noncacheable, phys_name=phys_test01_noncacheable, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 # Test 02: Allocate addresses that should reuse combo_hint regions
 ;#random_addr(name=lin_test02_combo1, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
-;#random_addr(name=phys_test02_combo1, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1, pma_amo_type=arithmetic, pma_routing_to=coherent)
-;#page_mapping(lin_name=lin_test02_combo1, phys_name=phys_test02_combo1, v=1, r=1, w=1, x=1, a=1, d=1)
+;#random_addr(name=phys_test02_combo1, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1, pma_amo_type=arithmetic)
+;#page_mapping(lin_name=lin_test02_combo1, phys_name=phys_test02_combo1, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 ;#random_addr(name=lin_test02_combo2, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
-;#random_addr(name=phys_test02_combo2, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=noncacheable, pma_read=1, pma_write=1, pma_execute=1, pma_amo_type=arithmetic, pma_routing_to=coherent)
-;#page_mapping(lin_name=lin_test02_combo2, phys_name=phys_test02_combo2, v=1, r=1, w=1, x=1, a=1, d=1)
+;#random_addr(name=phys_test02_combo2, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=noncacheable, pma_read=1, pma_write=1, pma_execute=1, pma_amo_type=logical)
+;#page_mapping(lin_name=lin_test02_combo2, phys_name=phys_test02_combo2, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 # Test 03: Allocate addresses that should reuse io_hint regions
 ;#random_addr(name=lin_test03_io, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
-;#random_addr(name=phys_test03_io, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=io, pma_read=1, pma_write=1, pma_execute=0, pma_combining=noncombining, pma_routing_to=coherent)
-;#page_mapping(lin_name=lin_test03_io, phys_name=phys_test03_io, v=1, r=1, w=1, x=0, a=1, d=1)
+;#random_addr(name=phys_test03_io, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=io, pma_read=1, pma_write=1, pma_execute=0, pma_combining=noncombining, pma_amo_type=none)
+;#page_mapping(lin_name=lin_test03_io, phys_name=phys_test03_io, v=1, r=1, w=1, x=0, a=1, d=1, pagesize=['4kb'])
 
 # Test 04: Allocate address with attributes that don't match any hint (should create new region)
 ;#random_addr(name=lin_test04_new, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
-;#random_addr(name=phys_test04_new, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=0, pma_execute=1, pma_amo_type=logical)
-;#page_mapping(lin_name=lin_test04_new, phys_name=phys_test04_new, v=1, r=1, w=0, x=1, a=1, d=1)
+;#random_addr(name=phys_test04_new, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=0, pma_execute=1, pma_amo_type=arithmetic)
+;#page_mapping(lin_name=lin_test04_new, phys_name=phys_test04_new, v=1, r=1, w=0, x=1, a=1, d=1, pagesize=['4kb'])
 
 # Test 05: Multiple addresses within same PMA region (verify PMA CSR limit not exceeded)
 # All these addresses should reuse the large_shared_region PMA hint region
 ;#random_addr(name=lin_test05_shared1, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys_test05_shared1, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1)
-;#page_mapping(lin_name=lin_test05_shared1, phys_name=phys_test05_shared1, v=1, r=1, w=1, x=1, a=1, d=1)
+;#page_mapping(lin_name=lin_test05_shared1, phys_name=phys_test05_shared1, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 ;#random_addr(name=lin_test05_shared2, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys_test05_shared2, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1)
-;#page_mapping(lin_name=lin_test05_shared2, phys_name=phys_test05_shared2, v=1, r=1, w=1, x=1, a=1, d=1)
+;#page_mapping(lin_name=lin_test05_shared2, phys_name=phys_test05_shared2, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 ;#random_addr(name=lin_test05_shared3, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys_test05_shared3, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1)
-;#page_mapping(lin_name=lin_test05_shared3, phys_name=phys_test05_shared3, v=1, r=1, w=1, x=1, a=1, d=1)
+;#page_mapping(lin_name=lin_test05_shared3, phys_name=phys_test05_shared3, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 ;#random_addr(name=lin_test05_shared4, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys_test05_shared4, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1)
-;#page_mapping(lin_name=lin_test05_shared4, phys_name=phys_test05_shared4, v=1, r=1, w=1, x=1, a=1, d=1)
+;#page_mapping(lin_name=lin_test05_shared4, phys_name=phys_test05_shared4, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 ;#random_addr(name=lin_test05_shared5, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys_test05_shared5, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1)
-;#page_mapping(lin_name=lin_test05_shared5, phys_name=phys_test05_shared5, v=1, r=1, w=1, x=1, a=1, d=1)
+;#page_mapping(lin_name=lin_test05_shared5, phys_name=phys_test05_shared5, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 # Test 06: Pages allocated with adjacent PMA regions
 # This test verifies that adjacent PMA regions are created correctly and pages can be allocated
@@ -153,11 +157,11 @@
 # Note: Pages are allocated within the regions; exact boundary placement depends on address generation.
 ;#random_addr(name=lin_test06_boundary1, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys_test06_boundary1, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1)
-;#page_mapping(lin_name=lin_test06_boundary1, phys_name=phys_test06_boundary1, v=1, r=1, w=1, x=1, a=1, d=1)
+;#page_mapping(lin_name=lin_test06_boundary1, phys_name=phys_test06_boundary1, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 ;#random_addr(name=lin_test06_boundary2, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
 ;#random_addr(name=phys_test06_boundary2, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=noncacheable, pma_read=1, pma_write=1, pma_execute=1)
-;#page_mapping(lin_name=lin_test06_boundary2, phys_name=phys_test06_boundary2, v=1, r=1, w=1, x=1, a=1, d=1)
+;#page_mapping(lin_name=lin_test06_boundary2, phys_name=phys_test06_boundary2, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 # Test 07: PMA regions with various page sizes
 # This test verifies that PMA regions work correctly with different page sizes (4KB, 2MB, 1GB)
@@ -195,13 +199,13 @@
 
 # Test 09: Physical in_pma address declared BEFORE its linear partner (VA==PA adopts the phys slot
 # under paging disable instead of double-placing inside the exactly-sized region)
-;#random_addr(name=phys_test09_physfirst, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=cacheable, pma_read=1, pma_write=1, pma_execute=1, pma_amo_type=swap)
+;#random_addr(name=phys_test09_physfirst, type=physical, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=memory, pma_cacheability=noncacheable, pma_read=1, pma_write=1, pma_execute=1, pma_amo_type=swap)
 ;#random_addr(name=lin_test09_physfirst, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
-;#page_mapping(lin_name=lin_test09_physfirst, phys_name=phys_test09_physfirst, v=1, r=1, w=1, x=1, a=1, d=1)
+;#page_mapping(lin_name=lin_test09_physfirst, phys_name=phys_test09_physfirst, v=1, r=1, w=1, x=1, a=1, d=1, pagesize=['4kb'])
 
 # Test 10: io=1 + in_pma=1 must anchor its region in an MMIO window, not DRAM
 ;#random_addr(name=lin_test10_io, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
-;#random_addr(name=phys_test10_io, type=physical, size=0x1000, and_mask=0xfffffffffffff000, io=1, in_pma=1, pma_size=0x1000, pma_memory_type=io, pma_read=1, pma_write=1, pma_execute=0, pma_amo_type=none, pma_routing_to=noncoherent)
+;#random_addr(name=phys_test10_io, type=physical, size=0x1000, and_mask=0xfffffffffffff000, io=1, in_pma=1, pma_size=0x1000, pma_memory_type=io, pma_read=1, pma_write=1, pma_execute=0, pma_amo_type=none)
 ;#page_mapping(lin_name=lin_test10_io, phys_name=phys_test10_io, v=1, r=1, w=1, x=0, a=1, d=1, pagesize=['4kb'])
 
 #####################

@@ -113,6 +113,27 @@ class _TriggerDirectiveAction(Action):
         return DirectiveInstruction(directive=self._build_directive(ctx))
 
 
+class _WatchpointDirectiveAction(_TriggerDirectiveAction):
+    """Base for the mcontrol6 data watchpoints, which can name a ``Memory`` step.
+
+    ``memory`` is in ``register_fields`` so the canonicalizer rewrites it from
+    the IR id to the allocated page label, which RiescueD loads into tdata2.
+    """
+
+    register_fields: list[str] = ["memory"]
+
+    def __init__(self, step_id: str, spec, memory: Optional[str] = None, **kwargs):
+        super().__init__(step_id=step_id, spec=spec, **kwargs)
+        self.memory = memory
+
+    @staticmethod
+    def _memory_input(step: StepIR) -> Optional[str]:
+        return str(step.inputs[0]) if step.inputs else None
+
+    def _addr(self) -> str:
+        return self.memory if self.memory is not None else self.spec.addr
+
+
 class ConfigureExecuteTriggerAction(_TriggerDirectiveAction):
     register_fields: list[str] = []
 
@@ -129,54 +150,54 @@ class ConfigureExecuteTriggerAction(_TriggerDirectiveAction):
         return f";#trigger_config(index={s.index}, type=execute, addr={s.addr}, action={_action_str(s.action)}{priv}{match_str})\n"
 
 
-class ConfigureLoadTriggerAction(_TriggerDirectiveAction):
-    register_fields: list[str] = []
+class ConfigureLoadTriggerAction(_WatchpointDirectiveAction):
+    register_fields: list[str] = ["memory"]
 
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "ConfigureLoadTriggerAction":
         if TYPE_CHECKING:
             assert isinstance(step.step, ConfigureLoadTrigger)
-        return cls(step_id=step_id, spec=step.step)
+        return cls(step_id=step_id, spec=step.step, memory=cls._memory_input(step))
 
     def _build_directive(self, ctx: LoweringContext) -> str:
         s: ConfigureLoadTrigger = self.spec
         size_str = f", size={s.size}" if s.size != 4 else ""
         priv = _priv_mode_fragment(s.priv_mode, ctx)
         match_str = _match_fragment(s.match)
-        return f";#trigger_config(index={s.index}, type=load, addr={s.addr}, action={_action_str(s.action)}{size_str}{priv}{match_str})\n"
+        return f";#trigger_config(index={s.index}, type=load, addr={self._addr()}, action={_action_str(s.action)}{size_str}{priv}{match_str})\n"
 
 
-class ConfigureStoreTriggerAction(_TriggerDirectiveAction):
-    register_fields: list[str] = []
+class ConfigureStoreTriggerAction(_WatchpointDirectiveAction):
+    register_fields: list[str] = ["memory"]
 
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "ConfigureStoreTriggerAction":
         if TYPE_CHECKING:
             assert isinstance(step.step, ConfigureStoreTrigger)
-        return cls(step_id=step_id, spec=step.step)
+        return cls(step_id=step_id, spec=step.step, memory=cls._memory_input(step))
 
     def _build_directive(self, ctx: LoweringContext) -> str:
         s: ConfigureStoreTrigger = self.spec
         size_str = f", size={s.size}" if s.size != 4 else ""
         priv = _priv_mode_fragment(s.priv_mode, ctx)
         match_str = _match_fragment(s.match)
-        return f";#trigger_config(index={s.index}, type=store, addr={s.addr}, action={_action_str(s.action)}{size_str}{priv}{match_str})\n"
+        return f";#trigger_config(index={s.index}, type=store, addr={self._addr()}, action={_action_str(s.action)}{size_str}{priv}{match_str})\n"
 
 
-class ConfigureLoadStoreTriggerAction(_TriggerDirectiveAction):
-    register_fields: list[str] = []
+class ConfigureLoadStoreTriggerAction(_WatchpointDirectiveAction):
+    register_fields: list[str] = ["memory"]
 
     @classmethod
     def from_step(cls, step_id: str, step: StepIR, **kwargs) -> "ConfigureLoadStoreTriggerAction":
         if TYPE_CHECKING:
             assert isinstance(step.step, ConfigureLoadStoreTrigger)
-        return cls(step_id=step_id, spec=step.step)
+        return cls(step_id=step_id, spec=step.step, memory=cls._memory_input(step))
 
     def _build_directive(self, ctx: LoweringContext) -> str:
         s: ConfigureLoadStoreTrigger = self.spec
         priv = _priv_mode_fragment(s.priv_mode, ctx)
         match_str = _match_fragment(s.match)
-        return f";#trigger_config(index={s.index}, type=load_store, addr={s.addr}, action={_action_str(s.action)}{priv}{match_str})\n"
+        return f";#trigger_config(index={s.index}, type=load_store, addr={self._addr()}, action={_action_str(s.action)}{priv}{match_str})\n"
 
 
 class ConfigureIcountTriggerAction(_TriggerDirectiveAction):

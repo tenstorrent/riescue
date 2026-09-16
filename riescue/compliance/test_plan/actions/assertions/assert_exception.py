@@ -11,10 +11,30 @@ from coretp.isa import Instruction, Label, Operand, get_register
 from coretp.rv_enums import PrivilegeMode
 
 from riescue.compliance.test_plan.actions import Action, LabelAction
-from riescue.compliance.test_plan.actions.directive import DirectiveAction
 from riescue.compliance.test_plan.actions.label_step import LabelTestStepAction
 from riescue.compliance.test_plan.context import LoweringContext
+from riescue.dtest_framework.runtime.macros import CHECK_EXCP_FIELD_IGNORE
 from .assertion_base import AssertionBase, AssertionJumpToFail
+
+
+def expected_bit(expected: Optional[int], name: str = "expected bit") -> int:
+    """
+    Encode an optional trap-entry field expectation for ``OS_SETUP_CHECK_EXCP``.
+
+    The macro takes the CSR bit value itself, so 0 and 1 pass straight through and
+    ``None`` becomes the ignore sentinel. Hand-written RiescueD tests calling the
+    macro directly use the same encoding.
+
+    :param expected: expected bit value (0 or 1), or None to skip the check
+    :param name: field name, for the error message
+    :return: 0, 1, or CHECK_EXCP_FIELD_IGNORE
+    :raises ValueError: if ``expected`` is neither None, 0, nor 1
+    """
+    if expected is None:
+        return CHECK_EXCP_FIELD_IGNORE
+    if expected not in (0, 1):
+        raise ValueError(f"{name} must be 0, 1, or None (unchecked), got {expected!r}")
+    return int(expected)
 
 
 class AssertExceptionMarkerInstruction(Instruction):
@@ -65,6 +85,37 @@ class AssertExceptionMarkerAction(Action):
         )
 
 
+class CheckExceptionOccurredAction(Action):
+    """Branch past the failure path only after a re-executed exception occurred."""
+
+    register_fields: list[str] = []
+
+    def __init__(
+        self,
+        step_id: str,
+        success_label: str,
+    ):
+        super().__init__(step_id=step_id)
+        self.success_label = success_label
+
+    def repr_info(self) -> str:
+        return f"success_label={self.success_label}"
+
+    def pick_instruction(self, ctx: LoweringContext) -> Instruction:
+        return Instruction(
+            name="OS_CHECK_EXCP_OCCURRED",
+            extension=Extension.I,
+            xlen=Xlen.XLEN32,
+            category=Category.PSEUDO,
+            destination=None,
+            source=[
+                Operand(type=OperandType.SYMBOL, name="success_label", val=self.success_label),
+            ],
+            formatter="OS_CHECK_EXCP_OCCURRED {success_label}",
+            clobbers=[get_register("t3").name],
+        )
+
+
 class AssertExceptionAction(AssertionBase):
     """
     Assertion Action that checks for an exception.
@@ -86,6 +137,9 @@ class AssertExceptionAction(AssertionBase):
         re_execute: Optional[bool] = None,
         skip_pc_check: bool = False,
         disable_triggers_after: bool = False,
+        expected_spp: Optional[int] = None,
+        expected_spv: Optional[int] = None,
+        expected_spvp: Optional[int] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -109,6 +163,9 @@ class AssertExceptionAction(AssertionBase):
             re_execute = cause == ExceptionCause.BREAKPOINT
         self.re_execute: bool = bool(re_execute)
         self.disable_triggers_after: bool = bool(disable_triggers_after)
+        self.expected_spp: Optional[int] = expected_spp
+        self.expected_spv: Optional[int] = expected_spv
+        self.expected_spvp: Optional[int] = expected_spvp
         self.force_machine: bool = False
         self.force_supervisor: bool = False
         self.force_user: bool = False
@@ -149,6 +206,9 @@ class AssertExceptionAction(AssertionBase):
             re_execute=step.step.re_execute,
             skip_pc_check=step.step.skip_pc_check,
             disable_triggers_after=step.step.disable_triggers_after,
+            expected_spp=step.step.expected_spp,
+            expected_spv=step.step.expected_spv,
+            expected_spvp=step.step.expected_spvp,
             **kwargs,
         )
 
@@ -275,21 +335,16 @@ class AssertExceptionAction(AssertionBase):
         expanded_code.extend(last_expansion[fault_pos:])
 
         # When __re_execute=1 the trap handler returns to the faulting PC. With
-        # the plan-wide ``excp_handler_post`` body installed (see TestPlan.excp_handler_post,
-        # invoked when ``--excp_hooks`` is set), the trigger is cleared in the
-        # handler, so the re-fetched faulting instruction now completes
-        # cleanly — that *is* the success path. Without this skip jump the clean
-        # re-execution would fall straight into the AssertionJumpToFail
-        # trampoline below (li failed_addr; ld; jr → test_failed) and fail the
-        # test. Emit ``j <excp_return_label>`` right after the faulting code to
-        # branch over jum_to_fail. The non-re-execute path is unaffected because
-        # the handler writes xepc=excp_return_label and xret skips this code
-        # entirely.
+        # the plan-wide ``excp_handler_post`` body installed, the trigger is
+        # cleared and the re-fetched instruction completes. Only skip the
+        # failure trampoline if the trap handler consumed check_excp_re_execute;
+        # if no exception occurred, the flag remains armed and this action falls
+        # through to AssertionJumpToFail.
         if self.re_execute:
             expanded_code.append(
-                DirectiveAction(
+                CheckExceptionOccurredAction(
                     step_id=ctx.new_value_id(),
-                    directive=f"j {self.excp_return_label}",
+                    success_label=self.excp_return_label,
                 )
             )
 
@@ -380,10 +435,26 @@ class AssertExceptionAction(AssertionBase):
                     name="force_user",
                     val="1" if self.force_user else "0",
                 ),
+                Operand(
+                    type=OperandType.IMM,
+                    name="expected_spp",
+                    val=str(expected_bit(self.expected_spp, "expected_spp")),
+                ),
+                Operand(
+                    type=OperandType.IMM,
+                    name="expected_spv",
+                    val=str(expected_bit(self.expected_spv, "expected_spv")),
+                ),
+                Operand(
+                    type=OperandType.IMM,
+                    name="expected_spvp",
+                    val=str(expected_bit(self.expected_spvp, "expected_spvp")),
+                ),
             ],
             formatter=(
                 "OS_SETUP_CHECK_EXCP {cause}, {excp_label}, {excp_ret_label}, {tval}, {htval}, {skip_pc_check}, 0, 0, "
-                "{gva_check}, {expected_mode}, {re_execute}, {disable_triggers_after}, {force_machine}, {force_supervisor}, {force_user}"
+                "{gva_check}, {expected_mode}, {re_execute}, {disable_triggers_after}, {force_machine}, {force_supervisor}, {force_user}, "
+                "{expected_spp}, {expected_spv}, {expected_spvp}"
             ),
             clobbers=[get_register("t0").name, get_register("t1").name, get_register("t2").name, get_register("t3").name, "x31"],
         )

@@ -116,7 +116,7 @@
         "zvkng": {"supported": true, "enabled": false, "randomize": 0},
         "zvksg": {"supported": true, "enabled": false, "randomize": 0},
         "zabha": {"supported": true, "enabled": false, "randomize": 0},
-        "zacas": {"supported": true, "enabled": false, "randomize": 0},
+        "zacas": {"supported": true, "enabled": true, "randomize": 0},
         "ziccamoc": {"supported": true, "enabled": false, "randomize": 0},
         "zama16b": {"supported": true, "enabled": false, "randomize": 0},
         "sdtrig": {"supported": true, "enabled": true, "randomize": 0},

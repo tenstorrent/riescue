@@ -6,7 +6,7 @@
 from __future__ import annotations
 import importlib.util
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Any, Iterable, Union
+from typing import TYPE_CHECKING, Optional, Any, Iterable, Mapping, Union, cast
 
 
 if TYPE_CHECKING:
@@ -101,6 +101,106 @@ class Conf:
         Only called at TP configuration
         """
         pass
+
+    def get_extension_enablement(self) -> dict[str, dict[str, str]]:
+        """
+        Returns a mapping of ISA extension name to M-mode enable/disable assembly snippets.
+
+        Default is an empty mapping. Subclasses override to declare per-extension
+        controls consumed by RiescueD ``;#enable_ext`` / ``;#disable_ext``, e.g.::
+
+            def get_extension_enablement(self) -> dict[str, dict[str, str]]:
+                return {
+                    "zacas": {
+                        "enable": "li t2, <bit>\\ncsrs <csr>, t2",
+                        "disable": "li t2, <bit>\\ncsrc <csr>, t2",
+                    }
+                }
+
+        The CSR and bit that gate an extension are implementation-defined, so
+        substitute the ones your core documents.
+
+        Names may use any casing and an optional ``ext_`` prefix. Each value is a
+        mapping with non-empty ``enable`` and ``disable`` strings, or a 2-tuple of
+        those strings. Consumers should pass the result through
+        :meth:`normalize_extension_enablement`.
+
+        Snippets execute in M-mode (inlined when the test privilege is machine,
+        otherwise via the RiescueD extension-control syscall) and must therefore
+        be self-contained. They may use ``t2`` as scratch; syscall plumbing uses
+        ``t0``, ``t1``, ``t3``, and ``x31``.
+        """
+        return {}
+
+    @staticmethod
+    def normalize_extension_enablement(mapping: object) -> dict[str, dict[str, str]]:
+        """
+        Normalize and validate a :meth:`get_extension_enablement` mapping.
+
+        Suitable for RiescueD to call after loading ``Conf`` objects:
+
+        * extension names are lowercased
+        * an optional ``ext_`` prefix is stripped (``ext_zacas`` and ``Zacas`` both
+          become ``zacas``)
+        * both ``enable`` and ``disable`` snippets must be non-empty strings
+        * malformed entries and conflicting aliases raise ``ValueError``
+
+        :param mapping: Raw mapping from a ``Conf``, or ``None`` (treated as empty).
+        :returns: Mapping of canonical extension name to ``{"enable", "disable"}``.
+        :raises ValueError: If the mapping or any entry is malformed, incomplete,
+            empty, or aliases the same extension to conflicting snippets.
+        """
+        if mapping is None:
+            return {}
+        if not isinstance(mapping, Mapping):
+            raise ValueError(f"extension enablement must be a mapping, got {type(mapping).__name__}")
+
+        normalized: dict[str, dict[str, str]] = {}
+        typed_mapping = cast(Mapping[object, object], mapping)
+        for raw_name, value in typed_mapping.items():
+            name = Conf.normalize_extension_name(raw_name)
+            snippets = Conf._parse_extension_snippets(name, value)
+            existing = normalized.get(name)
+            if existing is not None and existing != snippets:
+                raise ValueError(f"conflicting extension enablement for {name!r}")
+            normalized[name] = snippets
+        return normalized
+
+    @staticmethod
+    def normalize_extension_name(name: Any) -> str:
+        if not isinstance(name, str):
+            raise ValueError(f"malformed extension enablement entry: name must be a string, got {type(name).__name__}")
+        canonical = name.strip().lower()
+        if canonical.startswith("ext_"):
+            canonical = canonical[4:]
+        canonical = canonical.strip()
+        if not canonical:
+            raise ValueError("malformed extension enablement entry: extension name is empty after normalization")
+        return canonical
+
+    @staticmethod
+    def _parse_extension_snippets(extension: str, value: object) -> dict[str, str]:
+        enable: object
+        disable: object
+        if isinstance(value, Mapping):
+            if "enable" not in value or "disable" not in value:
+                raise ValueError(f"malformed extension enablement entry for {extension!r}: mapping must include 'enable' and 'disable'")
+            enable = cast(object, value["enable"])
+            disable = cast(object, value["disable"])
+        elif isinstance(value, (list, tuple)):
+            items = cast(Union[list[object], tuple[object, ...]], value)
+            if len(items) != 2:
+                raise ValueError(f"malformed extension enablement entry for {extension!r}: expected mapping with 'enable'/'disable' or a 2-tuple of strings")
+            enable = items[0]
+            disable = items[1]
+        else:
+            raise ValueError(f"malformed extension enablement entry for {extension!r}: expected mapping with 'enable'/'disable' or a 2-tuple of strings")
+
+        if not isinstance(enable, str) or not isinstance(disable, str):
+            raise ValueError(f"malformed extension enablement entry for {extension!r}: 'enable' and 'disable' must be strings")
+        if not enable.strip() or not disable.strip():
+            raise ValueError(f"malformed extension enablement entry for {extension!r}: 'enable' and 'disable' must be non-empty strings")
+        return {"enable": enable, "disable": disable}
 
     @staticmethod
     def load_conf_from_path(path: Path) -> Conf:

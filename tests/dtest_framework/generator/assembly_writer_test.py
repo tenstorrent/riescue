@@ -197,5 +197,75 @@ class WrapDiscreteTestsMethodTest(unittest.TestCase):
         self.assertNotIn("# post\n", result[cleanup_idx:])
 
 
+class ExtensionControlDirectiveTest(unittest.TestCase):
+    def _writer(self, controls=None, wysiwyg=False, priv_mode=None):
+        writer = AssemblyWriter.__new__(AssemblyWriter)
+        writer.featmgr = FeatMgr()
+        writer.featmgr.wysiwyg = wysiwyg
+        if priv_mode is not None:
+            writer.featmgr.priv_mode = priv_mode
+        if controls is not None:
+            writer.featmgr.extension_controls = controls
+        return writer
+
+    def test_supervisor_expands_to_syscall(self):
+        writer = self._writer(
+            {"zacas": {"enable": "ENABLE_ZACAS", "disable": "DISABLE_ZACAS"}},
+            priv_mode=RV.RiscvPrivileges.SUPER,
+        )
+        enable = writer._expand_extension_control(";#enable_ext(zacas)")
+        disable = writer._expand_extension_control(";#disable_ext(zacas)")
+        self.assertIn("li t2, 0", enable)
+        self.assertIn("li x31, 0xf0001009", enable)
+        self.assertIn("ecall", enable)
+        self.assertIn("li t2, 1", disable)
+
+    def test_unknown_extension_expands_to_nothing(self):
+        writer = self._writer({"zacas": {"enable": "ENABLE_ZACAS", "disable": "DISABLE_ZACAS"}})
+        self.assertEqual(writer._expand_extension_control(";#enable_ext(zvbb)"), "")
+        self.assertEqual(writer._expand_extension_control(";#disable_ext(unknown)"), "")
+
+    def test_normalizes_ext_prefix_and_case(self):
+        writer = self._writer(
+            {"zacas": {"enable": "ENABLE_ZACAS", "disable": "DISABLE_ZACAS"}},
+            priv_mode=RV.RiscvPrivileges.USER,
+        )
+        self.assertIn("0xf0001009", writer._expand_extension_control(";#enable_ext(ext_Zacas)"))
+
+    def test_does_not_match_enable_ext_intr_id(self):
+        writer = self._writer({"zacas": {"enable": "ENABLE_ZACAS", "disable": "DISABLE_ZACAS"}})
+        self.assertEqual(writer._expand_extension_control(";#enable_ext_intr_id(intr=1)"), "")
+
+    def test_machine_priv_inlines_snippet(self):
+        writer = self._writer({"zacas": {"enable": "ENABLE_ZACAS", "disable": "DISABLE_ZACAS"}})
+        self.assertEqual(writer.featmgr.priv_mode, RV.RiscvPrivileges.MACHINE)
+        self.assertEqual(writer._expand_extension_control(";#enable_ext(zacas)"), "ENABLE_ZACAS\n")
+        self.assertEqual(writer._expand_extension_control(";#disable_ext(zacas)"), "DISABLE_ZACAS\n")
+
+    def test_wysiwyg_inlines_snippet(self):
+        writer = self._writer({"zacas": {"enable": "ENABLE_ZACAS", "disable": "DISABLE_ZACAS"}}, wysiwyg=True)
+        self.assertEqual(writer._expand_extension_control(";#enable_ext(zacas)"), "ENABLE_ZACAS\n")
+        self.assertNotIn("ecall", writer._expand_extension_control(";#disable_ext(zacas)"))
+
+
+class ExtensionControlSyscallTest(unittest.TestCase):
+    def test_handler_embeds_snippets_and_returns_to_test(self):
+        from riescue.dtest_framework.runtime.syscalls import SysCalls
+
+        sc = SysCalls.__new__(SysCalls)
+        sc.featmgr = FeatMgr()
+        sc.featmgr.extension_controls = {"zacas": {"enable": "ENABLE_ZACAS", "disable": "DISABLE_ZACAS"}}
+        sc.label_prefix = "syscalls__"
+        sc.xepc = "mepc"
+        sc.os_save_ecall_fn_epc = MagicMock()
+        sc.os_save_ecall_fn_epc.store.return_value = "store_epc"
+        code = sc.os_fn_f0001009()
+        self.assertIn("ENABLE_ZACAS", code)
+        self.assertIn("DISABLE_ZACAS", code)
+        self.assertIn("os_fn_f0001004", code)
+        self.assertIn("syscalls__ext_ctrl_0:", code)
+        self.assertIn("syscalls__ext_ctrl_1:", code)
+
+
 if __name__ == "__main__":
     unittest.main()

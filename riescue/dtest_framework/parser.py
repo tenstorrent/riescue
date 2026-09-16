@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # ;#random_addr() arguments that stay string literals (not int(..., 0) parsed).
-_RND_ADDR_STR_KEY_A = r"name|type|pma_memory_type|pma_amo_type|pma_cacheability|"
+_RND_ADDR_STR_KEY_A = r"name|type|pma_memory_type|pma_amo_type|pma_rsrv|pma_cacheability|"
 _RND_ADDR_STR_KEY_B = r"pma_combining|pma_routing_to|custom_region|derive_from"
 _RANDOM_ADDR_STRING_KEYS = re.compile(_RND_ADDR_STR_KEY_A + _RND_ADDR_STR_KEY_B)
 
@@ -59,9 +59,61 @@ class Parser:
         self._collecting_discrete_debug_test = False
         self._discrete_debug_test_body: list[str] = []
 
+    #: A paren-form directive: the name is glued to its opening paren, e.g. ";#pma_hint(". Prose directives like
+    #: ";#test.summary ... (see below" never match, so their unbalanced parens are left alone.
+    _PAREN_DIRECTIVE = re.compile(r"^;#\w+\(")
+
+    def _join_wrapped_directives(self, contents: list[str]) -> list[str]:
+        """
+        Fold a paren-form directive that wraps across lines back into one logical line.
+
+        Every ``parse_*`` matches its directive with a single-line regex that needs the closing paren, so a
+        wrapped ``;#pma_hint(name=x,\n  memory_types=[...])`` used to match nothing and be dropped without a
+        word. Continuation lines are joined with a space (the arg parsers all strip), and the consumed lines
+        are replaced by blanks so line numbering downstream is unchanged.
+
+        A directive that never balances is left exactly as it was and warned about, rather than swallowing
+        the rest of the file.
+        """
+        joined: list[str] = []
+        index = 0
+        while index < len(contents):
+            line = contents[index]
+            depth = line.count("(") - line.count(")")
+            if not (self._PAREN_DIRECTIVE.match(line) and depth > 0):
+                joined.append(line)
+                index += 1
+                continue
+
+            parts = [line.rstrip("\n").rstrip()]
+            scan = index + 1
+            while scan < len(contents) and depth > 0:
+                nxt = contents[scan]
+                # A new directive or a section marker means the open one was never closed; stop before consuming it
+                if self._PAREN_DIRECTIVE.match(nxt) or nxt.strip().startswith(".section"):
+                    break
+                stripped = nxt.strip()
+                scan += 1
+                if stripped.startswith("#"):
+                    continue  # a comment line inside the wrap would otherwise be folded into the argument string
+                parts.append(stripped)
+                depth += nxt.count("(") - nxt.count(")")
+
+            if depth != 0:
+                log.warning(f"Unterminated directive in {self.filename}, line {index + 1}: {line.strip()!r} -- missing ')', left unparsed")
+                joined.append(line)
+                index += 1
+                continue
+
+            joined.append(" ".join(part for part in parts if part) + "\n")
+            joined.extend("\n" for _ in range(scan - index - 1))  # keep the total line count stable
+            index = scan
+        return joined
+
     def parse(self):
         with open(self.filename, "r") as file:
             contents = file.readlines()
+        contents = self._join_wrapped_directives(contents)
 
         for line in contents:
             # If we were collecting ;#discrete_debug_test body, check for terminator
@@ -724,6 +776,11 @@ class Parser:
                 var = arg.split("=")[0]
                 val = arg.split("=")[1]
                 if re.match(r"name", var):
+                    # Reject map names containing '.' at parse time (before pool storage).
+                    try:
+                        self.pool._validate_map_name(val)
+                    except ValueError as e:
+                        raise ValueError(f"{e}: {line.strip()}") from e
                     pm_inst.name = val
                 if re.match(r"mode", var):
                     pm_inst.mode = val
@@ -767,7 +824,7 @@ class Parser:
             self.pool.add_parsed_init_mem_addr(lin_name)
         else:
             for m in maps:
-                self.pool.add_parsed_init_mem_addr(f"{lin_name}_{m.strip()}")
+                self.pool.add_parsed_init_mem_addr(self.pool.append_map_to_name(lin_name, m.strip()))
 
     def parse_sections(self, line):
         section_name = re.findall(r".section .(\w+)", line)[0]

@@ -116,7 +116,7 @@ class ParallelScheduler(Scheduler):
         """
         code = ""
         if self.featmgr.force_alignment:
-            code += ".balign 8, 0\n"
+            code += ".balign 8\n"
         code += f"""
         # Scheduler local variables
         scheduler__seed:
@@ -243,7 +243,7 @@ scheduler__cleanup_was_ran:
     li gp, 1
     j eot__end_test
 
-    .balign 8, 0
+    .balign 8
     scheduler__test_cleanup_ran:
     """
         for hart in range(self.featmgr.num_cpus):

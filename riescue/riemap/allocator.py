@@ -40,6 +40,14 @@ from riescue.lib.rand import RandNum
 from riescue.riemap.addrgen import AddrGen
 from riescue.riemap.addrgen.exceptions import AddrGenError
 from riescue.riemap.addrgen.types import AddressConstraint
+from riescue.riemap.errors import (
+    AddressSpaceExhausted,
+    AllocationConflict,
+    FailureKind,
+    FailureParticipant,
+    FailurePhase,
+    PlanningExhausted,
+)
 from riescue.riemap.masked_bases import MaskedBases, choose_in_windows, free_windows
 from riescue.riemap.request import AddrSpec, DerivedFrom, MemoryRegion, OffsetFrom, Page, SameAs, Space
 
@@ -499,6 +507,8 @@ class BatchAllocationStrategy(AllocationStrategy):
     ) -> SolveResult:
         result = SolveResult()
         self._last_claim_conflict = ""
+        self._last_claim_explanation = ""
+        self._last_claim_owner: Any = None
         # A region listed twice is one declaration: MemoryRegion compares by identity, so
         # placing it once per listing would consume its window twice.
         regions = self._unique_regions(regions)
@@ -526,8 +536,26 @@ class BatchAllocationStrategy(AllocationStrategy):
                     reservations,
                     allow_reserved=True,
                 ):
-                    raise AddrGenError(
-                        f"exact placement 0x{req.addr.exact:x} has an " f"incompatible backing or coverage claim for " f"{req.page!r}: {req.span_claims()!r}; " f"{self._last_claim_conflict}"
+                    participants = [FailureParticipant(req.page, "pinned page", f"exact address 0x{req.addr.exact:x}")]
+                    if self._last_claim_owner is not None:
+                        participants.append(FailureParticipant(self._last_claim_owner, "existing reservation owner"))
+                    raise AllocationConflict(
+                        f"exact placement 0x{req.addr.exact:x} has an " f"incompatible backing or coverage claim for " f"{req.page!r}: {req.span_claims()!r}; " f"{self._last_claim_conflict}",
+                        kind=FailureKind.CLAIM_OVERLAP,
+                        phase=FailurePhase.ALLOCATION,
+                        summary="A page pinned to an exact address conflicts with another reservation or violates its geometry.",
+                        reason=self._last_claim_explanation or self._last_claim_conflict,
+                        participants=participants,
+                        context={
+                            "address": req.addr.exact,
+                            "required_size": req.size,
+                            "pagesize": req.page.pagesize.name,
+                            "claims": ", ".join(f"{claim.kind.value} span 0x{claim.size:x}" for claim in req.span_claims()),
+                        },
+                        hints=(
+                            "Move one exact address or shrink the overlapping reservation.",
+                            "Check that the address satisfies the page-size alignment and declared address width.",
+                        ),
                     )
                 self._commit_claims(
                     req,
@@ -584,8 +612,15 @@ class BatchAllocationStrategy(AllocationStrategy):
                 if signatures:
                     new_sigs = [sig for sig in signatures if sig not in rejected_sigs]
                     if not new_sigs:
-                        raise AddrGenError(
-                            f"region granule search made no progress for member " f"(size 0x{req.size:x}) at 0x{value:x}: repeated claim " f"signatures {signatures!r}; {self._last_claim_conflict}"
+                        raise AllocationConflict(
+                            f"region granule search made no progress for member " f"(size 0x{req.size:x}) at 0x{value:x}: repeated claim " f"signatures {signatures!r}; {self._last_claim_conflict}",
+                            kind=FailureKind.CLAIM_OVERLAP,
+                            phase=FailurePhase.ALLOCATION,
+                            summary="Every candidate in the current region granule repeats the same conflicting reservation.",
+                            reason=self._last_claim_explanation or self._last_claim_conflict,
+                            participants=(FailureParticipant(req.page, "region member"),),
+                            context={"candidate": value, "required_size": req.size, "claim_signatures": signatures},
+                            hints=("Move or enlarge the region, or relax the member's granule/alignment constraint.",),
                         )
                     rejected_sigs.update(new_sigs)
                     for claim in req.span_claims():
@@ -597,10 +632,25 @@ class BatchAllocationStrategy(AllocationStrategy):
                     rejected.append(value)
                 if attempts > self._REGION_REJECTION_BUDGET:
                     conflict = f": {self._last_claim_conflict}" if self._last_claim_conflict else ""
-                    raise AddrGenError(
+                    raise AllocationConflict(
                         f"region member (size 0x{req.size:x}, pagesize={req.page.pagesize.name}) had "
                         f"{attempts} candidates rejected in region (base 0x{result.region_bases[region]:x}, "
-                        f"size 0x{region.size:x}){conflict}"
+                        f"size 0x{region.size:x}){conflict}",
+                        kind=FailureKind.CLAIM_OVERLAP,
+                        phase=FailurePhase.ALLOCATION,
+                        summary="Region candidates exist, but each conflicts with another address-domain claim.",
+                        reason=self._last_claim_explanation or self._last_claim_conflict or "The region rejection budget was exhausted.",
+                        participants=(
+                            FailureParticipant(req.page, "region member"),
+                            FailureParticipant(region, "region"),
+                        ),
+                        context={
+                            "region_base": result.region_bases[region],
+                            "region_size": region.size,
+                            "required_size": req.size,
+                            "attempts": attempts,
+                        },
+                        hints=("Enlarge or move the region, or relax the member's mask, alignment, or overlapping structural claim.",),
                     )
             bisect.insort(taken, (value, value + req.size))
             resolved[req.page] = value
@@ -657,14 +707,33 @@ class BatchAllocationStrategy(AllocationStrategy):
             solved = self._search(requests, by_page, children, variable_keys, heap_order, rollback_roots, sparse_pages, waiting, ready, resolved, addrgen, reservations, budget)
         except _SearchBudgetExhausted as exc:
             detail = f": {self._last_dead_end}" if self._last_dead_end else ""
-            raise AddrGenError(f"allocation search budget exhausted after " f"{self._BACKTRACK_BUDGET} backtracks{detail}") from exc
+            raise PlanningExhausted(
+                f"allocation search budget exhausted after " f"{self._BACKTRACK_BUDGET} backtracks{detail}",
+                kind=FailureKind.SEARCH_EXHAUSTED,
+                phase=FailurePhase.PLANNING,
+                summary="RieMap reached its bounded backtracking limit before proving success or impossibility.",
+                reason=self._last_dead_end,
+                context={"backtrack_budget": self._BACKTRACK_BUDGET},
+                hints=(
+                    "Inspect the last dead end below before increasing the search budget.",
+                    "Reduce interacting masks, relations, or large alignment constraints; another seed may also find a layout.",
+                ),
+            ) from exc
         finally:
             if required_recursion_limit > previous_recursion_limit:
                 sys.setrecursionlimit(previous_recursion_limit)
         if solved is None:
             unresolved = len(requests) - len(resolved)
             detail = f": {self._last_dead_end}" if self._last_dead_end else ""
-            raise AddrGenError(f"unsatisfiable allocation constraints ({unresolved} unresolved page(s)){detail}")
+            raise AllocationConflict(
+                f"unsatisfiable allocation constraints ({unresolved} unresolved page(s)){detail}",
+                kind=FailureKind.UNSATISFIABLE,
+                phase=FailurePhase.ALLOCATION,
+                summary="No address assignment satisfies all declared allocation constraints.",
+                reason=self._last_dead_end,
+                context={"unresolved_pages": unresolved},
+                hints=("Relax the constraint identified by the last dead end, or separate the conflicting address families.",),
+            )
         resolved, winning_addrgen, _reservations = solved
         rng.rand.setstate(winning_addrgen._rng.rand.getstate())
         result.addresses.update(resolved)
@@ -748,7 +817,19 @@ class BatchAllocationStrategy(AllocationStrategy):
                     reservations,
                     allow_reserved=self._is_exact_alias(req, by_page),
                 ):
-                    raise AddrGenError(f"relation placement 0x{value:x} overlaps already-reserved " f"backing or coverage: " f"{self._last_claim_conflict}")
+                    raise AllocationConflict(
+                        f"relation placement 0x{value:x} overlaps already-reserved " f"backing or coverage: " f"{self._last_claim_conflict}",
+                        kind=FailureKind.CLAIM_OVERLAP,
+                        phase=FailurePhase.ALLOCATION,
+                        summary="A relation forces a page onto an incompatible existing reservation.",
+                        reason=self._last_claim_explanation or self._last_claim_conflict,
+                        participants=(
+                            FailureParticipant(req.page, "related page", f"forced address 0x{value:x}"),
+                            FailureParticipant(target, "relation target"),
+                        ),
+                        context={"address": value, "relation": type(req.addr.relation).__name__},
+                        hints=("Change the relation offset/mask, move its target, or authorize sharing only when both declarations describe the same object.",),
+                    )
                 self._commit_claims(req, value, addrgen, reservations)
                 resolved[req.page] = value
                 progress = True
@@ -794,7 +875,15 @@ class BatchAllocationStrategy(AllocationStrategy):
                 if not self._is_fixed_relation(child):
                     continue
                 if child.page in values:
-                    raise AddrGenError("unresolvable relations (cycle in fixed bundle)")
+                    raise AllocationConflict(
+                        "unresolvable relations (cycle in fixed bundle)",
+                        kind=FailureKind.RELATION_CYCLE,
+                        phase=FailurePhase.ALLOCATION,
+                        summary="Fixed address relations form a dependency cycle.",
+                        reason="No page in the cycle has an independently placeable address from which the others can be derived.",
+                        participants=(FailureParticipant(child.page, "cycle member"),),
+                        hints=("Break the cycle by pinning or freely placing one root page.",),
+                    )
                 values[child.page] = self._relation_value(child, values[page])
                 queue.append(child.page)
         return values
@@ -1057,15 +1146,19 @@ class BatchAllocationStrategy(AllocationStrategy):
     ) -> bool:
         """Check every backing/coverage claim at one candidate base."""
         bits = req.addr.bits if req.addr.bits is not None else 64
+        self._last_claim_explanation = ""
         # The whole footprint has to fit, not only its base: a span running off the top of
         # the domain would be truncated by canonicalization into a different address.
         span = self._reservation_span(req)
+        self._last_claim_owner = None
         if value < 0 or value + span > (1 << bits):
             self._last_claim_conflict = f"value 0x{value:x} (span 0x{span:x}) does not fit the declared {bits}-bit address domain"
+            self._last_claim_explanation = self._last_claim_conflict
             return False
         alignment = self._alignment(req)
         if value & (alignment - 1):
             self._last_claim_conflict = f"value 0x{value:x} does not satisfy the required 0x{alignment:x} " f"alignment (pagesize {req.page.pagesize.name})"
+            self._last_claim_explanation = self._last_claim_conflict
             return False
         for claim in req.span_claims():
             space = self._conflict_space(claim.addr_type, claim.space)
@@ -1114,10 +1207,17 @@ class BatchAllocationStrategy(AllocationStrategy):
                 }
                 if not shared and not physical_coverage_vs_backing and not linear_coverage_vs_address:
                     self._last_claim_conflict = f"{claim!r} overlaps {reserved!r}"
+                    self._last_claim_explanation = (
+                        f"The requested {claim.kind.value} span [0x{lo:x}, 0x{hi:x}) overlaps "
+                        f"an existing {reserved.kind.value if reserved.kind is not None else 'reserved'} "
+                        f"span [0x{reserved.start:x}, 0x{reserved.end:x})."
+                    )
+                    self._last_claim_owner = reserved.owner
                     return False
                 explained_overlap = True
             if check_addrgen and self._claim_overlaps_addrgen(claim, value, addrgen) and not explained_overlap:
                 self._last_claim_conflict = f"{claim!r} at 0x{value:x} overlaps the address " "generator without a matching reservation-ledger owner"
+                self._last_claim_explanation = f"The requested {claim.kind.value} span at 0x{value:x} overlaps memory already reserved in the address generator."
                 return False
         return True
 
@@ -1484,11 +1584,34 @@ class BatchAllocationStrategy(AllocationStrategy):
             value = choose_in_windows(domain, free_windows(base, base + region.size, taken), req.size, rng, rejected)
             if value is not None:
                 return value
-        raise AddrGenError(
+        raise AddressSpaceExhausted(
             f"region (base 0x{base:x}, size 0x{region.size:x}) has no free base for member "
             f"(size 0x{req.size:x}, pagesize={req.page.pagesize.name}, reserve_size={req.page.reserve_size}, "
             f"space={req.page.space}, and_mask=0x{_effective_and_mask(spec):x}, or_mask=0x{spec.or_mask or 0:x}, "
-            f"bits={spec.bits}); {len(taken)} span(s) placed, {len(rejected)} base(s) rejected"
+            f"bits={spec.bits}); {len(taken)} span(s) placed, {len(rejected)} base(s) rejected",
+            kind=FailureKind.REGION_EXHAUSTED,
+            phase=FailurePhase.ALLOCATION,
+            summary="The region has no remaining base that fits this member's size and address constraints.",
+            reason="Every aligned base is occupied, rejected, or excluded by the member's mask.",
+            participants=(
+                FailureParticipant(req.page, "unplaced member"),
+                FailureParticipant(region, "exhausted region"),
+            ),
+            context={
+                "region_base": base,
+                "region_size": region.size,
+                "required_size": req.size,
+                "pagesize": req.page.pagesize.name,
+                "and_mask": _effective_and_mask(spec),
+                "or_mask": spec.or_mask or 0,
+                "address_bits": spec.bits,
+                "placed_spans": len(taken),
+                "rejected_bases": len(rejected),
+            },
+            hints=(
+                "Enlarge the region or reduce the number or size of its members.",
+                "Relax the member's mask/alignment, or move already placed members to another region.",
+            ),
         )
 
     @staticmethod

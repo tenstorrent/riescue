@@ -15,6 +15,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 import riescue.lib.common as common
 import riescue.lib.enums as RV
 from riescue.riemap import resolve
+from riescue.riemap.errors import ConstraintConflict, FailureKind, FailureParticipant, FailurePhase, FailureSite
 from riescue.riemap.request import Mapping, Page, Space, Stage
 
 
@@ -112,7 +113,7 @@ class LeafIntent:
     provenance: IntentProvenance = IntentProvenance.EXPLICIT
 
 
-class TopologyConflict(ValueError):
+class TopologyConflict(ConstraintConflict):
     """A page-table contradiction with enough ownership data for search."""
 
     def __init__(
@@ -122,11 +123,28 @@ class TopologyConflict(ValueError):
         mappings: Iterable[Mapping] = (),
         node_keys: Iterable[NodeKey] = (),
         retriable: bool = False,
+        kind: FailureKind = FailureKind.CONSTRAINT,
+        summary: Optional[str] = None,
+        reason: Optional[str] = None,
+        participants: Iterable[FailureParticipant] = (),
+        site: Optional[FailureSite] = None,
+        context: Optional[Dict[str, Any]] = None,
+        hints: Iterable[str] = (),
     ):
-        super().__init__(message)
         self.mappings = tuple(dict.fromkeys(mappings))
         self.node_keys = tuple(dict.fromkeys(node_keys))
         self.retriable = retriable
+        super().__init__(
+            message,
+            kind=kind,
+            phase=FailurePhase.TOPOLOGY,
+            summary=summary,
+            reason=reason,
+            participants=participants or (FailureParticipant(mapping, "mapping") for mapping in self.mappings),
+            site=site,
+            context=context,
+            hints=hints,
+        )
 
 
 @dataclass(frozen=True)
@@ -351,6 +369,11 @@ class TopologyPlan:
             mappings=implicated,
             retriable=any(self.intents.get(mapping) is not None and self.intents[mapping].provenance.conditional for mapping in implicated)
             or any(mapping.src.addr.exact is None and mapping.src.addr.relation is None for mapping in implicated),
+            kind=FailureKind.REQUIRED_TRANSLATION,
+            summary="Page-table frames required by a translation walk became unreachable.",
+            reason="Resolving another declaration suppressed every leaf that could translate the listed structural addresses.",
+            context={"uncovered": details},
+            hints=("Separate the conflicting address spans or provide explicit translations for the listed page-table frames.",),
         )
 
     @staticmethod
@@ -400,8 +423,24 @@ class TopologyPlan:
         key: SlotKey,
         prior: SlotClaim,
         claim: SlotClaim,
+        *,
+        kind: FailureKind,
+        summary: str,
+        reason: str,
+        hints: Iterable[str] = (),
     ) -> TopologyConflict:
         mappings = [*prior.mappings, *claim.mappings]
+        participants = []
+        for role, slot_claim in (("existing", prior), ("incoming", claim)):
+            if isinstance(slot_claim, LeafClaim):
+                target = slot_claim.target
+                description = f"{slot_claim.intent.span.pagesize.name} leaf covers " f"[0x{slot_claim.intent.span.start:x}, 0x{slot_claim.intent.span.end:x})"
+                if target is not None:
+                    description += f" and maps to 0x{target:x}"
+            else:
+                size = 1 << RV.RiscvPagingModes.index_bits(slot_claim.child.space.paging_mode, slot_claim.level)[1]
+                description = f"pointer to a level-{slot_claim.child.level} table is required for " f"a finer mapping inside this 0x{size:x}-byte slot"
+            participants.extend(FailureParticipant(mapping, role, description) for mapping in slot_claim.mappings)
         return TopologyConflict(
             message,
             mappings=mappings,
@@ -413,6 +452,17 @@ class TopologyPlan:
                 ),
             ),
             retriable=self._is_movable(prior) or self._is_movable(claim),
+            kind=kind,
+            summary=summary,
+            reason=reason,
+            participants=participants,
+            site=FailureSite(
+                space=key.table.space,
+                level=key.table.level,
+                slot=key.index,
+                table_prefix=key.table.prefix,
+            ),
+            hints=hints,
         )
 
     def merge_slot(self, key: SlotKey, claim: SlotClaim) -> None:
@@ -431,6 +481,10 @@ class TopologyPlan:
                 key,
                 prior,
                 claim,
+                kind=FailureKind.LEAF_LEAF,
+                summary="Two different leaf mappings require the same page-table entry.",
+                reason="A PTE slot can describe only one leaf address span, target, and attribute contract.",
+                hints=("Move one mapping, or make the mappings use the same source span and destination.",),
             )
         if isinstance(prior, PointerClaim) and isinstance(
             claim,
@@ -449,6 +503,10 @@ class TopologyPlan:
                 key,
                 prior,
                 claim,
+                kind=FailureKind.POINTER_POINTER,
+                summary="One page-table entry is required to point at two different child tables.",
+                reason="Mappings sharing a parent slot must also share the same lower-level table.",
+                hints=("Move one address into a different parent slot, or remove contradictory pinned child frames.",),
             )
         if isinstance(prior, LeafClaim) != isinstance(claim, LeafClaim):
             leaf = prior if isinstance(prior, LeafClaim) else claim
@@ -470,6 +528,13 @@ class TopologyPlan:
                 key,
                 prior,
                 claim,
+                kind=FailureKind.LEAF_POINTER,
+                summary="A coarse leaf and a finer mapping require the same page-table entry.",
+                reason=("The coarse mapping ends the walk at this level, while the finer mapping " "requires the same PTE to point to a lower-level table; one PTE cannot be both."),
+                hints=(
+                    "Split the coarse mapping into leaves no larger than the finer mapping.",
+                    "Alternatively, move the finer mapping outside the coarse leaf's address span.",
+                ),
             )
         raise AssertionError("unhandled topology claim combination")
 
@@ -519,11 +584,21 @@ def plan_topology(
                 raise TopologyConflict(
                     f"source page maps to a different destination: " f"{prior_contract.target!r} versus {contract.target!r}",
                     mappings=(prior_mapping, mapping),
+                    kind=FailureKind.DUPLICATE_SOURCE,
+                    summary="One source page is mapped to two different destinations.",
+                    reason="A source page installs one leaf PTE, so all declarations for it must agree on the target.",
+                    context={"first_target": prior_contract.target, "second_target": contract.target},
+                    hints=("Use separate source Page objects, or make both declarations target the same destination.",),
                 )
             if prior_contract != contract:
                 raise TopologyConflict(
                     f"source page is declared twice in {src.space!r} with conflicting leaf " f"contracts: {prior_contract!r} versus {contract!r}",
                     mappings=(prior_mapping, mapping),
+                    kind=FailureKind.DUPLICATE_SOURCE,
+                    summary="Duplicate declarations disagree on the leaf PTE contract.",
+                    reason="One source page cannot install two page sizes, attributes, security states, or pinned-frame layouts.",
+                    context={"first_contract": prior_contract, "second_contract": contract},
+                    hints=("Make the duplicate declarations identical, or use separate source Page objects.",),
                 )
             continue
         seen_sources[src] = (mapping, contract)

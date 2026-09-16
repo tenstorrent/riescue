@@ -84,6 +84,92 @@ class InterruptsSupported:
 
 
 @dataclass(frozen=True)
+class ClusterTopology:
+    """
+    Defines the mapping of hart IDs to clusters for multi-processor test generation.
+
+    The cluster topology is the source of truth for which harts belong to which
+    physical cluster. This allows MP generators to pin sequences to specific harts
+    while automatically resolving their cluster membership.
+
+    cpuconfig schema::
+
+        {
+          "cluster_topology": {
+            "clusters": {
+              "0": { "hart_ids": [0, 1, 2, 3] },
+              "1": { "hart_ids": [8, 9, 10, 11] }
+            }
+          }
+        }
+
+    Validation rules:
+    - Every listed hart_id must be unique across all clusters
+    - Empty clusters are rejected
+    - Cluster IDs are stored as integers (string keys in JSON are converted)
+    """
+
+    # cluster_id -> list of hart_ids in that cluster
+    clusters: dict[int, list[int]] = field(default_factory=dict)
+    # Reverse mapping: hart_id -> cluster_id (built from clusters)
+    hart_to_cluster: dict[int, int] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, cfg: dict) -> ClusterTopology:
+        """
+        Construct ClusterTopology from a JSON dictionary.
+
+        :param cfg: dictionary containing the cluster_topology configuration
+        :raises ValueError: on validation errors (duplicates, empty clusters)
+        """
+        clusters_raw = cfg.get("clusters", {})
+        clusters: dict[int, list[int]] = {}
+        hart_to_cluster: dict[int, int] = {}
+        seen_harts: set[int] = set()
+
+        for cluster_id_str, cluster_data in clusters_raw.items():
+            # Convert cluster_id to int (JSON keys are strings)
+            try:
+                cluster_id = int(cluster_id_str)
+            except ValueError:
+                raise ValueError(f"Cluster ID must be an integer, got: {cluster_id_str}")
+
+            # Get hart_ids list
+            if isinstance(cluster_data, dict):
+                hart_ids = cluster_data.get("hart_ids", [])
+            elif isinstance(cluster_data, list):
+                # Allow shorthand: "0": [0, 1, 2, 3]
+                hart_ids = cluster_data
+            else:
+                raise ValueError(f"Cluster {cluster_id} must be a dict with 'hart_ids' or a list, " f"got: {type(cluster_data).__name__}")
+
+            # Validate non-empty
+            if not hart_ids:
+                raise ValueError(f"Cluster {cluster_id} has no hart_ids (empty clusters not allowed)")
+
+            # Validate uniqueness
+            for hart_id in hart_ids:
+                if not isinstance(hart_id, int):
+                    raise ValueError(f"hart_id must be an integer, got: {hart_id} in cluster {cluster_id}")
+                if hart_id in seen_harts:
+                    raise ValueError(f"hart_id {hart_id} appears in multiple clusters")
+                seen_harts.add(hart_id)
+                hart_to_cluster[hart_id] = cluster_id
+
+            clusters[cluster_id] = list(hart_ids)
+
+        return cls(clusters=clusters, hart_to_cluster=hart_to_cluster)
+
+    def get_cluster_id(self, hart_id: int) -> Optional[int]:
+        """Return the cluster_id for a given hart_id, or None if not found."""
+        return self.hart_to_cluster.get(hart_id)
+
+    def get_harts_in_cluster(self, cluster_id: int) -> list[int]:
+        """Return list of hart_ids in the given cluster, or empty list if not found."""
+        return self.clusters.get(cluster_id, [])
+
+
+@dataclass(frozen=True)
 class CpuConfig:
     """
     Data class containing infomration about the CPU and memory map.
@@ -95,6 +181,7 @@ class CpuConfig:
     features: FeatureDiscovery = field(default_factory=lambda: FeatureDiscovery({}))
     interrupts_supported: InterruptsSupported = field(default_factory=InterruptsSupported)
     test_gen: TestGeneration = field(default_factory=TestGeneration)
+    cluster_topology: Optional[ClusterTopology] = None
     isa: list[str] = field(default_factory=list)
     reset_pc: int = DEFAULT_RESET_PC
     pma_config: Optional[PmaConfig] = None
@@ -156,6 +243,15 @@ class CpuConfig:
                 # Optionally re-raise if you want strict validation
                 # raise ValueError(f"Invalid PMA configuration: {e}") from e
 
+        # Load cluster topology if present
+        cluster_topology = None
+        if "cluster_topology" in cfg:
+            try:
+                cluster_topology = ClusterTopology.from_dict(cfg["cluster_topology"])
+                log.debug(f"Loaded cluster topology with {len(cluster_topology.clusters)} clusters")
+            except Exception as e:
+                raise ValueError(f"Invalid cluster_topology configuration: {e}") from e
+
         # Debug mode (RISC-V Debug): from features (standard extension)
         debug_mode = features.is_feature_enabled("debug")
         # Debug ROM region: from mmap.io.debug_rom (address and size)
@@ -175,6 +271,7 @@ class CpuConfig:
             memory=memory,
             features=features,
             interrupts_supported=interrupts_supported,
+            cluster_topology=cluster_topology,
             isa=cfg.get("isa", []),
             reset_pc=reset_pc,
             test_gen=tg,

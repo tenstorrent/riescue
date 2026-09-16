@@ -238,7 +238,7 @@ class Selfcheck(AssemblyGenerator):
         """
         code_parts: list[str] = [
             '.section .runtime, "ax"',
-            ".balign 4, 0",
+            ".balign 4",
             self._generate_decide_save_or_check(),
             self._generate_save_or_check_routine(),
         ]

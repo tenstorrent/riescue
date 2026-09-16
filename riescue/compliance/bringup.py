@@ -182,7 +182,9 @@ class BringupMode(BaseMode[Resource]):
             iss = [iss]
         rd = RiescueD(file, run_dir=self.run_dir, seed=resource.seed, toolchain=toolchain)
         rd.generate(resource.featmgr)
-        rd.build(resource.featmgr)
+        # Bringup always needs the .dis: TestGenerator._process_disassembly cross-references
+        # labels against the ISS log to build the second-pass testcase.
+        rd.build(resource.featmgr, disassemble=True)
         for simulator in iss:
             if toolchain.whisper is not None:
                 whisper_config_json_override = toolchain.whisper.check_filepath(toolchain.whisper.whisper_config_json)

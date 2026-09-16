@@ -16,6 +16,7 @@ from typing import Any, TYPE_CHECKING, cast
 import riescue.lib.enums as RV
 from riescue.lib.rand import RandNum
 from riescue.lib.csr_manager.csr_manager_interface import CsrManagerInterface
+from riescue.dtest_framework.lib.pma import no_routing_on_pma, allow_amos_in_pma_ncio
 from riescue.dtest_framework.lib.dtest_instruction_helper import DtestInstructionHelper
 from riescue.dtest_framework.lib.sdtrig import (
     TriggerType,
@@ -28,7 +29,7 @@ from riescue.dtest_framework.pool import Pool
 from riescue.dtest_framework.parser import Parser, ParsedPageMapping
 from riescue.riemap.request import Page
 from riescue.riemap.result import SpaceResult
-from riescue.dtest_framework.config import FeatMgr
+from riescue.dtest_framework.config import FeatMgr, Conf
 from riescue.dtest_framework.runtime import Runtime
 from riescue.dtest_framework.artifacts import GeneratedFiles
 
@@ -142,7 +143,6 @@ class AssemblyWriter:
         test_section = self._wrap_discrete_tests(test_section)
         runtime_sections = self.generate_runtime_sections()
         equates_section = self.generate_equates_section()
-        data_section = self.generate_data_section()
 
         # Prepend #include for rvmodel_macros.h so I/O macros are always available
         # This must come before equates so macros are available in the opsys #include
@@ -150,9 +150,9 @@ class AssemblyWriter:
 
         if self.pool.init_aplic_interrupts:
             aplic_imsic_assembly = self.generate_aplic_imsic_assembly()
-            assembly_content = header_section + rvmodel_include + equates_section + aplic_imsic_assembly + runtime_sections + test_section + data_section
+            assembly_content = header_section + rvmodel_include + equates_section + aplic_imsic_assembly + runtime_sections + test_section
         else:
-            assembly_content = header_section + rvmodel_include + equates_section + runtime_sections + test_section + data_section
+            assembly_content = header_section + rvmodel_include + equates_section + runtime_sections + test_section
 
         # apply find and replace to all code
         all_assembly = "".join(assembly_content)
@@ -434,6 +434,41 @@ class AssemblyWriter:
                 return self._emit_direct_csr("", csr_name, access_type)
         return self._emit_direct_csr("", csr_name, access_type)
 
+    _ENABLE_EXT_RE = re.compile(r"^;#enable_ext\(([^)]+)\)")
+    _DISABLE_EXT_RE = re.compile(r"^;#disable_ext\(([^)]+)\)")
+
+    def _expand_extension_control(self, parsed_line: str) -> str:
+        """Expand ``;#enable_ext(name)`` / ``;#disable_ext(name)``.
+
+        Unknown extensions expand to nothing so the same test can run on cores that
+        do not need a gate. Matches ``;#enable_ext(`` only so ``;#enable_ext_intr_id``
+        is left untouched. Machine-mode (and WYSIWYG) tests already run in M-mode, so
+        snippets are inlined; S/U tests ecall into syscall ``0xf0001009``.
+        """
+        enable_match = self._ENABLE_EXT_RE.match(parsed_line)
+        disable_match = self._DISABLE_EXT_RE.match(parsed_line)
+        if enable_match is not None:
+            raw_name = enable_match.group(1)
+            enable = True
+        elif disable_match is not None:
+            raw_name = disable_match.group(1)
+            enable = False
+        else:
+            return ""
+        try:
+            name = Conf.normalize_extension_name(raw_name)
+        except ValueError:
+            return ""
+        snippets = self.featmgr.extension_controls.get(name)
+        if snippets is None:
+            return ""
+        if self.featmgr.wysiwyg or self.featmgr.priv_mode == RV.RiscvPrivileges.MACHINE:
+            return snippets["enable" if enable else "disable"] + "\n"
+        action_id = self.featmgr.extension_control_action_id(name, enable)
+        if action_id is None:
+            return ""
+        return f"li t2, {action_id}\nli x31, 0xf0001009\necall\n"
+
     def find_and_replace_assembly(self, assembly_content: str) -> list[str]:
         """
         Handle overwritting text from input file to output assembly file. Currently handles:
@@ -441,6 +476,7 @@ class AssemblyWriter:
         - replacing .section .code, with .section .code, "ax"
         - ;#init_memory
         - ;#csr_rw
+        - ;#enable_ext, ;#disable_ext
         - ;#test_passed, ;#test_failed
 
 
@@ -500,7 +536,7 @@ class AssemblyWriter:
                     else:
                         for m in maps:
                             lin_name_2 = (line.split(":")[0]).split("@")[1].strip()
-                            if lin_name == (lin_name_2 + "_" + m):
+                            if lin_name == self.pool.append_map_to_name(lin_name_2, m):
                                 permissions = "aw"
                                 if self.pool.parsed_page_mapping_exists(lin_name, m) and self.pool.get_parsed_page_mapping(lin_name, m).x:
                                     permissions = "ax"
@@ -608,6 +644,10 @@ class AssemblyWriter:
                 parsed_lines.append(line)
                 continue
 
+
+            # replace ;#enable_ext / ;#disable_ext with M-mode syscall (or inline in wysiwyg)
+            if parsed_line.startswith(";#enable_ext(") or parsed_line.startswith(";#disable_ext("):
+                line = line + "\n" + self._expand_extension_control(parsed_line)
 
             # replace ;#csr_rw with csrr/csrw instructions or system call to jump table
             if parsed_line.startswith(";#csr_rw"):
@@ -723,15 +763,6 @@ class AssemblyWriter:
                     f.write(runtime_assembly + "\n")
                 runtime_sections.append(f'#include "{include_file.name}"\n')
 
-        if self.featmgr.c_used:
-            runtime_sections.append(
-                """
-            .balign 16, 0
-            __c__stack_addr:
-                .dword __c__stack
-            """
-            )
-
         # Debug ROM section: ;#discrete_debug_test() body + DRET epilogue
         debug_rom_section = self._generate_debug_rom_section()
         if debug_rom_section:
@@ -817,8 +848,9 @@ discrete_debug_test_entry:
             aplic_assembly_inc_content += """
 
 .section .runtime, "ax"
+.option norvc
 
-.balign 16, 0
+.balign 16
 
 # __set_maplic_eidelivery(interrrupt_delivery)
 # interrupt_delivery == 0 => interrupt delivery is disabled
@@ -1162,23 +1194,6 @@ __set_aplic_isr:
 
         return ret
 
-    def generate_data_section(self) -> list[str]:
-        """
-        Generate any data section
-        """
-        ret: list[str] = []
-        if self.featmgr.c_used:
-            data_section = """
-.section .bss
-.size __c__stack_low__, 4096
-__c__stack_low__:
-.zero 4096
-__c__stack:
-            """
-            ret.append(data_section)
-
-        return ret
-
     def generate_equates_section(self) -> list[str]:
         """
         Generate the equates section, return all code in a list of strings.
@@ -1451,6 +1466,20 @@ __c__stack:
             f"d={int(ppm.d) if ppm.d is not None else 1}, page_maps={page_maps_str})"
         )
 
+    def _generate_page_map_satp_equates(self) -> list[str]:
+        """Emit {map_name}_satp equates for Voyager map-switch sequences (mode + PPN, ASID=0)."""
+        equates: list[str] = []
+        for map_inst in self.pool.get_page_maps().values():
+            # sptbr defaults to 0 until page-table build assigns a root frame.
+            if map_inst.paging_mode == RV.RiscvPagingModes.DISABLE or map_inst.sptbr == 0:
+                continue
+            satp_val = (map_inst.sptbr >> 12) | RV.RiscvPagingModes.enum_to_mode_val(map_inst.paging_mode)
+            name = f"{map_inst.name}_satp"
+            equates.append(f".equ {name:35}, 0x{satp_val:016x}")
+        if equates:
+            return ["\n# Page map SATP values (mode + PPN; ASID preserved by map-switch code):"] + equates
+        return []
+
     def _generate_equates_assembly(self) -> list[str]:
         """
         Generate equates and write to filehandle.
@@ -1498,6 +1527,8 @@ __c__stack:
                 equates_assembly.append(self._format_page_mapping_comment(ppm))
             equates_assembly.append(f".equ {addr_name:35}, 0x{addr.address:016x}")
 
+        equates_assembly.extend(self._generate_page_map_satp_equates())
+
         # Write PMA region information
         equates_assembly.append("\n# PMA regions:")
         pma_regions = self.pool.pma_regions.consolidated_entries()
@@ -1513,10 +1544,11 @@ __c__stack:
             equates_assembly.append(f".equ {end_name:35}, 0x{region.get_end_address():016x}")
             # PMA attributes
             rwx_str = f"{'r' if region.pma_read else '-'}{'w' if region.pma_write else '-'}{'x' if region.pma_execute else '-'}"
+            routing_str = "" if no_routing_on_pma() else f", routing={region.effective_routing_to}"
             equates_assembly.append(
                 f"#   type={region.pma_memory_type}, cacheability={region.pma_cacheability}, "
                 f"combining={region.pma_combining}, rwx={rwx_str}, "
-                f"amo_type={region.pma_amo_type}, routing={region.pma_routing_to}"
+                f"amo_type={region.effective_amo_type}, rsrv={region.effective_rsrv}{routing_str}"
             )
 
         # Generate PA equates for all named sections.
@@ -1557,6 +1589,10 @@ __c__stack:
         # Also write needs pma flag based on the commandline
         pma_enabled = 1 if self.featmgr.needs_pma else 0
         equates_assembly.append(f"\n.equ PMA_ENABLED, {pma_enabled}")
+
+        # NC/IO atomicity policy, so a test can assert either the passing or the faulting arm
+        ncio_amos = 1 if allow_amos_in_pma_ncio() else 0
+        equates_assembly.append(f".equ PMA_ALLOW_AMOS_IN_NCIO, {ncio_amos}")
 
         # Add MISA equates
         equates_assembly.append(f"\n.equ MISA_BITS, {self.featmgr.get_misa_bits()}")

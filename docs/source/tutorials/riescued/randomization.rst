@@ -18,7 +18,7 @@ We can run the test using:
 
    riescued --testfile random_tutorial.s --run_iss
 
-Each time you run it, ``my_8_bit_value`` gets a different random value between 0-255. You can check the disassembly file to see what value was generated when no seed is specified.
+Each time you run it, ``my_8_bit_value`` gets a different random value between 0-255.
 
 
 ``;#discrete_test`` - Multiple Discrete Tests

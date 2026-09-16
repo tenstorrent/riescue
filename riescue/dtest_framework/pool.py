@@ -7,7 +7,7 @@ import logging
 import re
 import copy
 from dataclasses import dataclass, field
-from typing import Optional, TYPE_CHECKING, Union
+from typing import Optional, TYPE_CHECKING, Union, Tuple
 
 if TYPE_CHECKING:
     from riescue.riemap.result import AllocationResult
@@ -98,6 +98,11 @@ class Pool:
     - test headers
     - misc information
     """
+
+    _OS_SHARED_MAP_NAMES = frozenset({"map_os", "map_hyp"})
+    # Boundary between a linear/phys name and its page-map name. Map names must not
+    # contain this character, so a plain join is unambiguous given a known map set.
+    _map_separator: str = "."
 
     def __init__(self):
         # Parsed structures
@@ -235,28 +240,88 @@ class Pool:
     def parsed_page_mapping_exists(self, lin_name: str, map_name: str) -> bool:
         return (lin_name, map_name) in self.parsed_page_mappings
 
+    def _validate_map_name(self, map_name: str) -> None:
+        """Reject map names that contain ``_map_separator``.
+
+        Called from ``;#page_map`` parsing. Combined names are ``f"{name}.{map}"``;
+        dots inside the map half would make the boundary ambiguous.
+        """
+        sep = self._map_separator
+        if sep in map_name:
+            raise ValueError(f"page map name {map_name!r} must not contain map separator {sep!r}")
+
+    def append_map_to_name(self, name: str, map_name: str) -> str:
+        """Join a linear/phys name with a page-map name into one self-describing string.
+
+        Encoding is a plain ``f"{name}.{map}"`` join. Map names must not contain
+        ``_map_separator`` (see :meth:`_validate_map_name`); linear names may.
+        :meth:`split_name_map` recovers both halves by splitting on the last
+        separator and checking the map half against known private maps.
+        """
+        return f"{name}{self._map_separator}{map_name}"
+
+    def split_name_map(self, name: str) -> Tuple[str, str]:
+        """Split a combined ``lin.map`` name produced by :meth:`append_map_to_name`.
+
+        Uses the last ``_map_separator`` as the boundary. Returns ``("", "")`` unless
+        the suffix is a known private map (not ``map_os`` / ``map_hyp``), so bare
+        dotted linear names like ``vzext.vf4_...`` do not false-split.
+        """
+        sep = self._map_separator
+        if sep not in name:
+            return ("", "")
+        lin_name, map_name = name.rsplit(sep, 1)
+        if lin_name == "" or map_name == "":
+            return ("", "")
+        # Combined names are only produced for private maps. OS-shared maps are
+        # excluded so a bare ``foo.map_os`` cannot false-match, and so we do not
+        # rely on page_maps (which always includes map_os once built).
+        known_private_maps = {m for m in self.parsed_page_maps if m not in self._OS_SHARED_MAP_NAMES} | {m for m in self.page_maps if m not in self._OS_SHARED_MAP_NAMES}
+        if map_name not in known_private_maps:
+            return ("", "")
+        return (lin_name, map_name)
+
     def parsed_page_mapping_with_lin_name_exists(self, lin_name: str) -> bool:
-        return lin_name in self.parsed_page_mappings_with_lin_name
+        ret = lin_name in self.parsed_page_mappings_with_lin_name
+        if not ret:
+            name_map = self.split_name_map(lin_name)
+            if name_map[0] == "":
+                # check if at least one linear name exists under a private-map suffix
+                for m in self.get_page_maps():
+                    lin_name_map = self.append_map_to_name(lin_name, m)
+                    ret = lin_name_map in self.parsed_page_mappings_with_lin_name
+                    if ret:
+                        break
+        return ret
 
     def get_parsed_page_mapping_with_lin_name(self, lin_name: str) -> list[str]:
         return self.parsed_page_mappings_with_lin_name[lin_name]
 
     def add_parsed_page_mapping(self, parsed_page_mapping: ParsedPageMapping) -> None:
-        self.parsed_page_mappings_with_lin_name[parsed_page_mapping.lin_name] = []
+        lin_name = parsed_page_mapping.lin_name
+        name_map = self.split_name_map(lin_name)
+        if name_map[0] != "":
+            lin_name = name_map[0]
+        if lin_name not in self.parsed_page_mappings_with_lin_name:
+            self.parsed_page_mappings_with_lin_name[lin_name] = []
         if (len(parsed_page_mapping.page_maps) == 0) or not parsed_page_mapping.in_private_map:
             map_key = "map_os"
-            self.parsed_page_mappings[parsed_page_mapping.lin_name, map_key] = parsed_page_mapping
-            self.parsed_page_mappings_with_lin_name[parsed_page_mapping.lin_name].append(map_key)
+            self.parsed_page_mappings[lin_name, map_key] = parsed_page_mapping
+            self.parsed_page_mappings_with_lin_name[lin_name].append(map_key)
         else:
             for map_key in parsed_page_mapping.page_maps:
-                self.parsed_page_mappings[parsed_page_mapping.lin_name, map_key] = parsed_page_mapping
-                self.parsed_page_mappings_with_lin_name[parsed_page_mapping.lin_name].append(map_key)
+                self.parsed_page_mappings[lin_name, map_key] = parsed_page_mapping
+                self.parsed_page_mappings_with_lin_name[lin_name].append(map_key)
 
     def get_parsed_page_mappings(self) -> dict[tuple[str, str], ParsedPageMapping]:
         return self.parsed_page_mappings
 
     def get_parsed_page_mapping(self, key1: str, key2: str) -> ParsedPageMapping:
-        return self.parsed_page_mappings[key1, key2]
+        lin_name = key1
+        name_map = self.split_name_map(key1)
+        if name_map[0] != "":
+            lin_name = name_map[0]
+        return self.parsed_page_mappings[lin_name, key2]
 
     def resolve_canonical_lin_name(self, lin_name: str, map_name: str) -> str:
         """If lin_name is an alias in map_name, return the canonical (non-alias) lin_name
@@ -484,13 +549,41 @@ class Pool:
         """
         return name in self.get_all_pages(map_name=map_name)
 
+    def _add_mirrored_page_addrs(self, source_page: "PageInfo", mirror_page: "PageInfo") -> None:
+        """Register random_addr aliases for a per-private-map copy of an OS-shared page."""
+        if self.random_addr_exists(source_page.name) and not self.random_addr_exists(mirror_page.name):
+            orig = self.get_random_addr(source_page.name)
+            addr = source_page.lin_addr if source_page.lin_addr is not None else orig.address
+            self.add_random_addr(
+                mirror_page.name,
+                Address(name=mirror_page.name, type=orig.type, address=addr),
+            )
+        if self.random_addr_exists(source_page.phys_name) and not self.random_addr_exists(mirror_page.phys_name):
+            orig = self.get_random_addr(source_page.phys_name)
+            addr = source_page.phys_addr if source_page.phys_addr is not None else orig.address
+            self.add_random_addr(
+                mirror_page.phys_name,
+                Address(name=mirror_page.phys_name, type=orig.type, address=addr),
+            )
+
     def add_page(self, page: "PageInfo", map_names: list[str]) -> None:
         for map_name in map_names:
             map_inst = self.get_page_map(map_name)
-            if (map_inst.name == "map_os") or not page.in_private_map:
+            if map_inst.name == "map_os":
                 p = page
-            else:
+            elif not page.in_private_map and map_inst.name not in self._OS_SHARED_MAP_NAMES:
+                # OS-shared pages mirrored into private maps need distinct names so
+                # per-map pagetable helper pages / equates do not collide.
+                # RieMap read-back calls add_page once per map, so do not require
+                # map_os to be present in this call's map_names list.
                 p = copy.copy(page)
+                p.name = self.append_map_to_name(page.name, map_name)
+                p.phys_name = self.append_map_to_name(page.phys_name, map_name)
+                self._add_mirrored_page_addrs(page, p)
+            elif page.in_private_map:
+                p = copy.copy(page)
+            else:
+                p = page
 
             map_inst.add_page(p)
 
@@ -528,27 +621,29 @@ class Pool:
         alias_skip = False
         lin_address: Optional[int] = None
         phys_address: Optional[int] = None
+        name_map = self.split_name_map(section_name)
+        map_name = name_map[1] if name_map[0] != "" else "map_os"
         if section_name.startswith("0x"):
+            # Fixed-VA init sections: page is __auto_lin_<section>, possibly map-suffixed.
             page_name = f"__auto_lin_{section_name}"
-            map_name = "map_os"
-            match = re.match(r".*_([^_]+)$", section_name)
-            if match:
-                map_name = match.group(1)
-            map_os_page = self.get_page(page_name=page_name, map_name=map_name)
-            lin_address = map_os_page.lin_addr
-            phys_address = map_os_page.phys_addr
+            page = self.get_page(page_name=page_name, map_name=map_name)
+            lin_address = page.lin_addr
+            phys_address = page.phys_addr
         else:
             rand_addr_inst = self.get_random_addr(addr_name=section_name)
             if rand_addr_inst.type == RV.AddressType.PHYSICAL:
                 lin_address = rand_addr_inst.address
                 phys_address = rand_addr_inst.address
             elif rand_addr_inst.type == RV.AddressType.LINEAR:
-                map_os_page = self.get_page(page_name=section_name, map_name="map_os")
-                if map_os_page.alias:
+                # Named linear init sections (including private-map suffixes like
+                # shared_buf_a.map_hart_0) live in map_name from split_name_map, not
+                # always map_os.
+                page = self.get_page(page_name=section_name, map_name=map_name)
+                if page.alias:
                     # We want to skip this entry into linker script
                     alias_skip = True
-                lin_address = map_os_page.lin_addr
-                phys_address = map_os_page.phys_addr
+                lin_address = page.lin_addr
+                phys_address = page.phys_addr
             else:
                 raise ValueError(f"Unsupported type {rand_addr_inst.type} in {self.add_section.__name__}")
 

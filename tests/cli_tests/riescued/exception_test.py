@@ -35,21 +35,31 @@ class Test_ExcpTests(BaseRiescuedTest):
             htval_subroutines = [subroutine for subroutine in all_subroutines if "nonzero_htval_check" in subroutine]
             self.assertGreater(len(htval_subroutines), 0, f"Expected at least 1 htval check subroutine, got {len(htval_subroutines)} routines that ended with 'nonzero_htval_check'")
 
+    def xtinst_checks(self, runs: list[RiescueD]):
+        "Check that the mtinst/htinst check ran and accepted every value the DUT wrote"
+        for run in runs:
+            all_subroutines = self.get_all_executed_subrountines(run)
+            xtinst_subroutines = [subroutine for subroutine in all_subroutines if subroutine.endswith("xtinst_check")]
+            self.assertGreater(len(xtinst_subroutines), 0, "Expected the xtinst check to execute at least once")
+            rejected = [subroutine for subroutine in all_subroutines if subroutine.endswith("xtinst_fail")]
+            self.assertEqual(rejected, [], f"xtinst check rejected a value: {rejected}")
+
     def test_excp_with_cpuconfig(self):
-        args = ["--run_iss", "--cpuconfig", "dtest_framework/tests/cpu_config.json"]
+        args = ["--run_iss", "--disassemble_test", "--cpuconfig", "dtest_framework/tests/cpu_config.json"]
         self.testname = "dtest_framework/tests/test_excp.s"
         runs = self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
         self.excp_checks(runs)
 
     def test_excp_virtualized_env_hs_deleg(self):
-        args = ["--run_iss", "--test_env", "virtualized", "--hedeleg=0x0"]
+        args = ["--run_iss", "--check_xtinst", "--disassemble_test", "--test_env", "virtualized", "--hedeleg=0x0"]
         self.testname = "dtest_framework/tests/test_excp.s"
         runs = self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
         self.excp_checks(runs)
         self.htval_checks(runs)
+        self.xtinst_checks(runs)
 
     def test_excp_virtualized_env(self):
-        args = ["--run_iss", "--test_env", "virtualized"]
+        args = ["--run_iss", "--disassemble_test", "--test_env", "virtualized"]
         self.testname = "dtest_framework/tests/test_excp.s"
         runs = self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
         self.excp_checks(runs)
@@ -64,14 +74,15 @@ class Test_ExcpTests(BaseRiescuedTest):
         and nothing passes --test_paging_g_mode), so test07 is compiled out and a missing
         equate family assembles fine. This makes it load-bearing without touching any
         existing test."""
-        args = ["--run_iss", "--test_env", "virtualized", "--test_paging_mode", "sv39", "--test_paging_g_mode", "sv39"]
+        args = ["--run_iss", "--check_xtinst", "--disassemble_test", "--test_env", "virtualized", "--test_paging_mode", "sv39", "--test_paging_g_mode", "sv39"]
         self.testname = "dtest_framework/tests/test_excp.s"
         runs = self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
         self.excp_checks(runs)
         self.htval_checks(runs)
+        self.xtinst_checks(runs)
 
     def test_excp_basic(self):
-        args = ["--run_iss"]
+        args = ["--run_iss", "--disassemble_test"]
         self.testname = "dtest_framework/tests/test_excp.s"
         runs = self.run_riescued(testname=self.testname, cli_args=args, iterations=self.iterations)
         self.excp_checks(runs)

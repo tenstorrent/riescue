@@ -95,6 +95,9 @@ For a walkthrough of how PMAs work in RiescueD — including the runtime CSR pro
 - ``max_regions`` (optional) - Maximum number of PMA regions test generation may use (integer, 1-64, default: 64)
 - ``num_pmas`` (optional) - Number of PMA CSR entries implemented by the target (integer, 2-64, default: 64). The first 16 entries are direct CSRs; the rest are reached indirectly through ``miselect``/``mireg``/``mireg2``. **Must match the ISS (whisper) configuration** — changing this requires a matching whisper config. Can also be set with the ``--num_pmas`` CLI flag.
 - ``user_programmable_pmacfg`` (optional) - Reserve the first N ``pmacfg`` entries (indices ``0`` to ``N-1``) for the test's own runtime programming; the framework puts no region there (integer, default: 0). Because entry 0 has the highest match priority, a test can claim a reserved entry at runtime and override the attributes of any page. With ``--enable_pma_randomization`` the reserved entries are zeroed once at boot so a count above 14 cannot leave the ISS boot catch-alls at entries 14/15 shadowing every region below. Maximum value is ``max_regions - 2`` (the top two entries are always kept as catch-all regions).
+- ``legacy_pma`` (optional) - Pre-Babylon PMA target (bool, default: ``false``). When ``true``, AMO and LR/SC are legal only on cacheable main memory — ``io``/``ch0``/``ch1`` and noncacheable memory can never host one whatever ``pmacfg[6:5]`` says — and ``pmacfg`` bit 8 carries routing/coherency. When ``false``, ``pmacfg[6:5]`` alone decides atomicity in every region and bit 8 is reserved read-only-zero (so requesting a ``routing`` anywhere is an error). Pair it with the ISS: ``false`` expects ``babylon_pma`` in the whisper config. Overridden by ``--legacy_pma`` / ``--no_legacy_pma``.
+- ``allow_amos_in_pma_ncio`` (optional) - Let NC/IO space keep a non-AMONone ``pmacfg[6:5]`` (bool, default ``false``). Off, every region that is not cacheable main memory - noncacheable memory, ``io``, ``ch0``, ``ch1`` - is programmed with ``pmacfg[6:5] = 0b00``, so neither AMOs nor LR/SC work there whatever was requested; an explicit request is clamped with a warning, not rejected. This is the RiescueD-side mirror of whisper's ``allow_amo_in_non_cacheable_regions`` / ``allow_amo_in_io_regions``. It is a separate axis from ``legacy_pma``: either one alone keeps atomics out of NC/IO. Cpuconfig-only, with no CLI override.
+- ``legacy_pbmt`` (optional) - Svpbmt leaves revoke atomicity (bool, default: ``true``). When ``true`` - including when the key is absent - a page whose PTE carries ``pbmt=1`` (NC) or ``pbmt=2`` (IO) can host neither an AMO nor an LR/SC, whatever the underlying PMA grants. Set it ``false`` to let the PMA alone decide. Overridden by ``--legacy_pbmt`` / ``--no_legacy_pbmt``.
 
 **regions** - Predefined PMA Regions
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -115,8 +118,8 @@ Explicit PMA regions with known attributes. Accepts either a dictionary keyed by
 - ``read`` - Read permission (boolean, default: ``true``)
 - ``write`` - Write permission (boolean, default: ``true``)
 - ``execute`` - Execute permission (boolean, default: ``true``)
-- ``amo_type`` - Atomic operation type: ``"none"``, ``"logical"``, ``"swap"``, or ``"arithmetic"`` (default: ``"arithmetic"``)
-- ``routing`` - Coherency routing: ``"coherent"`` or ``"noncoherent"`` (default: ``"coherent"``)
+- ``amo_type`` - AMO type (pmacfg bits 6:5): ``"none"``, ``"swap"``, ``"logical"``, or ``"arithmetic"`` (default: ``"arithmetic"``). Cacheable memory must use ``"arithmetic"``
+- ``routing`` - Coherency routing (pmacfg bit 8): ``"coherent"`` or ``"noncoherent"`` (default: ``"coherent"``). Only on a ``legacy_pma`` target; off one, bit 8 is reserved read-only-zero and requesting a routing is an error
 
 **hints** - PMA Generation Hints
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -144,6 +147,9 @@ Hints ask the framework to auto-generate PMA regions with the requested attribut
         "max_regions": 15,
         "num_pmas": 16,
         "user_programmable_pmacfg": 0,
+        "legacy_pma": false,
+        "legacy_pbmt": true,
+        "allow_amos_in_pma_ncio": false,
         "regions": {
             "predefined_region1": {
                 "base": "0x90000000",
@@ -183,6 +189,8 @@ PMA behavior can also be controlled from the command line:
 - ``--pma_random_regions <N>`` - Number of randomized decoy regions when randomization is enabled (default: 8)
 - ``--pma_random_mask_pct <P>`` - Percent (0-100) of decoy regions that get a nonzero ``pmamask`` (default: 25)
 - ``--pma_carveout_mask_pct <P>`` - Percent (0-100) of named test-defined PMA regions that get a random ``pmamask``; requires ``--enable_pma_randomization`` (default: 0)
+- ``--legacy_pma`` / ``--no_legacy_pma`` - Override ``mmap.pma.legacy_pma``: confine atomics to cacheable main memory and keep ``pmacfg`` bit 8 live, or not
+- ``--legacy_pbmt`` / ``--no_legacy_pbmt`` - Override ``mmap.pma.legacy_pbmt``: let a ``pbmt=1``/``pbmt=2`` leaf revoke AMO and LR/SC on that page, or not
 
 See :doc:`/user_guides/pma` for what each of these means in practice.
 

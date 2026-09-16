@@ -1050,5 +1050,51 @@ class TestBuildDriver(unittest.TestCase):
         self.assertNotEqual(mp_va // root_span, htif_va // root_span, "modify_pt page must color away from the HTIF section's root PT slot")
 
 
+class TestUpperHalfLinAddr(unittest.TestCase):
+    """``lin_addr`` is the architectural VA a test executes against, so an upper-half
+    (sign-extended) one places the page at the top of the address space -- and the same
+    literal does so in every paging mode, since sv39/48/57 share the canonical form."""
+
+    TOP_PAGE = 0xFFFFFFFFFFFFF000
+
+    def _build_top_page(self, paging_mode, lin_addr=None):
+        asm = f"""
+;#test.name       upper_half_lin_addr
+;#test.author     ysohail@tenstorrent.com
+;#test.arch       rv64
+;#test.priv       supervisor
+;#test.env        bare_metal
+;#test.cpus       1
+;#test.paging     sv39
+;#test.category   arch
+;#test.class      paging
+;#test.tags       paging
+
+;#page_mapping(lin_addr={self.TOP_PAGE if lin_addr is None else lin_addr:#x}, phys_name=&random, v=1, r=1, w=1, a=1, d=1, pagesize=['4kb'])
+
+.section .code, "ax"
+    nop
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".s", delete=False) as fh:
+            fh.write(asm)
+            path = Path(fh.name)
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        result, translation = _build(path, _featmgr(paging_mode=paging_mode))
+        page = next(page for page, names in translation.page_names.items() if names[0].startswith("__auto_lin_"))
+        return result, page
+
+    def test_top_page_maps_and_translates_in_every_mode(self):
+        for mode in (RV.RiscvPagingModes.SV39, RV.RiscvPagingModes.SV48, RV.RiscvPagingModes.SV57):
+            with self.subTest(mode=mode.name):
+                result, page = self._build_top_page(mode)
+                va, pa = result.address_of(page)
+                self.assertEqual(va, self.TOP_PAGE)
+                self.assertEqual(result.space(page.space).walk(va)[1], pa)
+
+    def test_a_non_canonical_lin_addr_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "not a canonical SV39 address"):
+            self._build_top_page(RV.RiscvPagingModes.SV39, lin_addr=0x0000FFFFFFFFF000)
+
+
 if __name__ == "__main__":
     unittest.main()

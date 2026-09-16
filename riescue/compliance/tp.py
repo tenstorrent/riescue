@@ -51,6 +51,12 @@ class TpMode(BaseMode[TpCfg]):
             "--isa", type=str, default="rv64imfdah_zicsr_zk_zicond_zicbom_zicbop_zicboz_svadu_svinval_zawrs_zihintpause_zihintntl_zicntr_zihpm_sscounterenw_zifencei", help="ISA to use"
         )
         parser.add_argument("--test_plan", dest="test_plan_name", type=str, default="zicond", help="Test plan to use")
+        parser.add_argument(
+            "--scenarios",
+            nargs="+",
+            default=None,
+            help="Subset of test plan scenario names to generate. Space- or comma-separated.",
+        )
 
     def run(self, seed: int, toolchain: Toolchain, cl_args: Optional[argparse.Namespace] = None) -> Path:
         """
@@ -119,7 +125,7 @@ class TpMode(BaseMode[TpCfg]):
             generator = TestPlanGenerator(cfg, rng, action_registry=ActionRegistry(new_mapping))
         else:
             generator = TestPlanGenerator(cfg, rng)
-        discrete_tests = generator.build(test_plan)
+        discrete_tests = generator.build(test_plan, scenarios=cfg.scenarios)
         env_constraints = self.get_predicates(cfg.featmgr)
         env = generator.solve(discrete_tests, env_constraints)
 

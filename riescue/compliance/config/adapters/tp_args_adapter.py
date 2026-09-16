@@ -31,6 +31,8 @@ class TpArgsAdapter(BaseAdapter):
 
         cfg.isa = args.isa
         cfg.test_plan_name = args.test_plan_name
+        if args.scenarios is not None:
+            cfg.scenarios = self._normalize_scenarios(args.scenarios)
 
         # configure feat manager builder
         # handle pass-through args
@@ -46,3 +48,17 @@ class TpArgsAdapter(BaseAdapter):
         # crashing here before the caller's fallback logic runs.
         cfg.toolchain = Toolchain.from_clargs(args, build_both=True)
         return builder
+
+    @staticmethod
+    def _normalize_scenarios(tokens: list[str]) -> tuple[str, ...]:
+        """Flatten comma-separated names, strip empties, preserve order, drop duplicates."""
+        seen: set[str] = set()
+        names: list[str] = []
+        for token in tokens:
+            for part in token.split(","):
+                name = part.strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                names.append(name)
+        return tuple(names)

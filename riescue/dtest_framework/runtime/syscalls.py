@@ -46,6 +46,7 @@ class SysCalls(TrapHandler):
         code += self.os_fn_f0001006()  # Supervisor mode jump table for CSR R/W
         code += self.os_fn_f0001007()  # Loop-based PTE read walk (inline in handler)
         code += self.os_fn_f0001008()  # Loop-based PTE write walk (inline in handler)
+        code += self.os_fn_f0001009()  # Extension enable/disable snippets (inline in handler)
         code += self.os_get_hart_context()  # Used to get hartid
         if self.featmgr.cfiles is not None:
             code += self.os_fn_70003001()  # Memory allocation API
@@ -138,6 +139,10 @@ class SysCalls(TrapHandler):
             {self.label_prefix}syscall_machine_pte_write:
             li t0, 0xf0001008    # Machine mode jump table for PTE write
             beq x31, t0, {self.label_prefix}os_fn_f0001008
+
+            {self.label_prefix}syscall_extension_control:
+            li t0, 0xf0001009    # Machine mode extension enable/disable
+            beq x31, t0, {self.label_prefix}os_fn_f0001009
 
             {self.label_prefix}syscall_check_get_hart_context:
             li t0, 0xf0002001    # Get hart context
@@ -342,6 +347,40 @@ class SysCalls(TrapHandler):
                 # f0001008 : Write PTE via page table walk
         """
         code += self._generate_pte_walk(is_write=True)
+        return code
+
+    def os_fn_f0001009(self) -> str:
+        """
+        f0001009 : Run a Conf extension enable/disable snippet in M-mode, then
+        return to the invoking test. ``t2`` holds the action id assigned by
+        :meth:`FeatMgr.extension_control_action_id`.
+        """
+        done_label = f"{self.label_prefix}ext_ctrl_done"
+        code = f"""
+            {self.label_prefix}os_fn_f0001009:
+                # f0001009 : Enable or disable a configured ISA extension
+        """
+        for action_id, snippet in self.featmgr.extension_control_actions():
+            target = f"{self.label_prefix}ext_ctrl_{action_id}"
+            code += f"""
+                li t0, {action_id}
+                beq t2, t0, {target}
+            """
+        code += f"                j {done_label}\n"
+        for action_id, snippet in self.featmgr.extension_control_actions():
+            indented = "\n".join(f"                {line}" for line in snippet.splitlines())
+            code += f"""
+            {self.label_prefix}ext_ctrl_{action_id}:
+{indented}
+                j {done_label}
+            """
+        code += f"""
+            {done_label}:
+                csrr t0, {self.xepc}
+                addi t0, t0, 4
+                {self.os_save_ecall_fn_epc.store("t0")}
+                j {self.label_prefix}os_fn_f0001004
+        """
         return code
 
     def _generate_pte_walk(self, is_write: bool) -> str:

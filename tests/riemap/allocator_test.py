@@ -28,6 +28,7 @@ from riescue.riemap.memory import DramRange, Memory
 from riescue.riemap.addrgen import AddrGen
 from riescue.riemap.addrgen.exceptions import AddrGenError
 from riescue.riemap.addrgen.types import ExcludedRegion
+from riescue.riemap.errors import AddressSpaceExhausted, AllocationConflict, FailureKind, PlanningExhausted
 from riescue.riemap.allocator import (
     AllocRequest,
     BatchAllocationStrategy,
@@ -636,13 +637,15 @@ class TestSolverBasics(unittest.TestCase):
         addrgen = _addrgen()
         addrgen.make_space_pool(space)
 
-        with self.assertRaisesRegex(AddrGenError, "incompatible backing or coverage claim"):
+        with self.assertRaisesRegex(AllocationConflict, "incompatible backing or coverage claim") as conflict:
             BatchAllocationStrategy().solve(
                 [big, small],
                 [],
                 addrgen,
                 RandNum(seed=1),
             )
+        self.assertEqual(conflict.exception.kind, FailureKind.CLAIM_OVERLAP)
+        self.assertIn("Move one exact address", str(conflict.exception))
 
 
 class TestRelations(unittest.TestCase):
@@ -1264,8 +1267,10 @@ class TestRegionMemberGeometry(unittest.TestCase):
     def test_or_mask_conflicting_with_pagesize_alignment_is_rejected(self):
         region = MemoryRegion(size=0x400000, align=0x1000, base=self._BASE)
         member = _req(_page(RV.RiscvPageSizes.S2MB), RV.AddressType.PHYSICAL, addr=AddrSpec(region=region, or_mask=0x1000))
-        with self.assertRaisesRegex(AddrGenError, "no free base for member"):
+        with self.assertRaisesRegex(AddressSpaceExhausted, "no free base for member") as exhausted:
             BatchAllocationStrategy().solve([member], [region], _addrgen(), RandNum(seed=1))
+        self.assertEqual(exhausted.exception.kind, FailureKind.REGION_EXHAUSTED)
+        self.assertEqual(exhausted.exception.context["required_size"], 0x200000)
 
     def test_reserve_size_larger_than_pagesize_still_fits_without_overlap(self):
         # Room to spare: a 0x2000 span placed on a 4 KiB grid can strand the 4 KiB
@@ -1372,8 +1377,10 @@ class TestSearchTerminates(unittest.TestCase):
     def test_local_candidate_rejection_exhausts_budget(self):
         """Greedy roots charge the budget when ``_bundle_fits`` rejects a candidate."""
         addrgen, identity = self._identity_setup(18, 17, seed=2)
-        with self.assertRaisesRegex(AddrGenError, "search budget exhausted"):
+        with self.assertRaisesRegex(PlanningExhausted, "search budget exhausted") as exhausted:
             _Budget16Strategy().solve([identity], [], addrgen, RandNum(seed=2))
+        self.assertEqual(exhausted.exception.kind, FailureKind.SEARCH_EXHAUSTED)
+        self.assertIn("bounded backtracking limit", str(exhausted.exception))
 
     def test_recursive_subtree_failure_exhausts_budget(self):
         """Non-greedy rollback roots charge the budget when a subtree search fails."""
@@ -1407,7 +1414,7 @@ class TestSearchTerminates(unittest.TestCase):
             )
             for _ in range(17)
         ]
-        with self.assertRaisesRegex(AddrGenError, "search budget exhausted"):
+        with self.assertRaisesRegex(PlanningExhausted, "search budget exhausted"):
             _Budget16Strategy().solve(
                 [anchor, derived, *blockers],
                 [],

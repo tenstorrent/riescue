@@ -94,6 +94,9 @@ class FeatMgr:
     # Per-cause default exception handler overrides registered via register_default_exception_handler().
     # Maps cause_num -> (label, assembly_fn) where assembly_fn(TrapContext) -> str.
     exception_handler_overrides: dict[int, tuple[str, TrapHookable]] = field(default_factory=dict)
+    # Per-extension M-mode enable/disable snippets from Python --conf files.
+    # Keys are canonical lower-case ISA names (zacas, zvbb, ...).
+    extension_controls: dict[str, dict[str, str]] = field(default_factory=dict)
 
     # Run options
     tohost_nonzero_terminate: bool = False
@@ -180,6 +183,7 @@ class FeatMgr:
     excp_hooks: bool = False
     interrupts_enabled: bool = True
     skip_instruction_for_unexpected: bool = False
+    check_xtinst: bool = False  #: Check mtinst/htinst against the spec on every trap into M/HS. See --check_xtinst.
 
     # Random memory breakpoint feature (driven by ;#rand_mem_breakpoint_pool directive).
     # See riescue/dtest_framework/runtime/rand_mem_breakpoint.py for the apply logic.
@@ -217,6 +221,10 @@ class FeatMgr:
     pma_indirect_access_pct: int = -1  # Percent of entries 0-15 programmed indirectly; -1 = auto (50 if randomization on, else 0)
     user_programmable_pmacfg: int = 0  # Reserve pmacfg entries [0..N) for user runtime programming
     user_programmable_pmacfg_required: int = 0  # Floor from ;#test.user_programmable_pmacfg; resolved as a max() in build()
+    shift_pma_on_load: int = 0  # Relocate the first N bootrom pmacfg/pmamask entries to just below the catchalls (mmap.pma.shift_pma_on_load)
+    legacy_pma: bool = False  # Pre-Babylon target: atomics only on cacheable main memory, pmacfg bit 8 carries routing
+    legacy_pbmt: bool = True  # Default on: PBMT=NC/IO revokes AMO and LR/SC on that page whatever the PMA grants
+    allow_amos_in_pma_ncio: bool = False  # NC/IO space may keep a non-AMONone pmacfg[6:5]; off, every such region is clamped
 
     # Debug mode (RISC-V Debug Spec Ch.4): ;#discrete_debug_test() and/or config
     debug_mode: bool = False
@@ -272,6 +280,22 @@ class FeatMgr:
         new_featmgr = replace(self)
         new_featmgr.feature = self.feature
         return new_featmgr
+
+    def extension_control_action_id(self, name: str, enable: bool) -> Optional[int]:
+        """Return the syscall action id for ``name``, or ``None`` if unconfigured."""
+        if name not in self.extension_controls:
+            return None
+        idx = sorted(self.extension_controls).index(name)
+        return 2 * idx + (0 if enable else 1)
+
+    def extension_control_actions(self) -> list[tuple[int, str]]:
+        """Sorted ``(action_id, snippet)`` pairs for the M-mode extension syscall."""
+        actions: list[tuple[int, str]] = []
+        for i, name in enumerate(sorted(self.extension_controls)):
+            snippets = self.extension_controls[name]
+            actions.append((2 * i, snippets["enable"]))
+            actions.append((2 * i + 1, snippets["disable"]))
+        return actions
 
     def get_summary(self) -> dict[str, Union[bool, int]]:
         """

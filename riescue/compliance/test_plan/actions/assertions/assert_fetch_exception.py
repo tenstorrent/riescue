@@ -10,6 +10,7 @@ from coretp.isa import Operand, get_register
 
 from riescue.compliance.test_plan.actions import Action, LabelAction, LiAction
 from riescue.compliance.test_plan.context import LoweringContext
+from .assert_exception import expected_bit
 from .assertion_base import AssertionBase, AssertionJumpToFail
 
 
@@ -71,7 +72,20 @@ class AssertFetchExceptionAction(AssertionBase):
 
     register_fields = ["target", "tval", "htval"]
 
-    def __init__(self, cause: ExceptionCause, target, cause_value: int = 0, tval=0, htval=0, gva_check: bool = False, expected_mode: ExceptionHandlerMode = ExceptionHandlerMode.ANY, **kwargs):
+    def __init__(
+        self,
+        cause: ExceptionCause,
+        target,
+        cause_value: int = 0,
+        tval=0,
+        htval=0,
+        gva_check: bool = False,
+        expected_mode: ExceptionHandlerMode = ExceptionHandlerMode.ANY,
+        expected_spp: Optional[int] = None,
+        expected_spv: Optional[int] = None,
+        expected_spvp: Optional[int] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.cause = cause
         self.target = target  # step_id of any step producing a jump target address
@@ -79,6 +93,9 @@ class AssertFetchExceptionAction(AssertionBase):
         self.tval: int = tval
         self.htval: int = htval
         self.gva_check: bool = gva_check
+        self.expected_spp: Optional[int] = expected_spp
+        self.expected_spv: Optional[int] = expected_spv
+        self.expected_spvp: Optional[int] = expected_spvp
         self.expected_mode: ExceptionHandlerMode = expected_mode
         self.expanded = False
         self.excp_return_label: Optional[str] = None
@@ -116,7 +133,18 @@ class AssertFetchExceptionAction(AssertionBase):
             raw_htval = step.inputs[input_idx]
             htval = raw_htval if isinstance(raw_htval, int) else 0
         return cls(
-            step_id=step_id, cause=cause, target=target_id, cause_value=cause_value, tval=tval, htval=htval, gva_check=step.step.gva_check, expected_mode=step.step.expected_handler_mode, **kwargs
+            step_id=step_id,
+            cause=cause,
+            target=target_id,
+            cause_value=cause_value,
+            tval=tval,
+            htval=htval,
+            gva_check=step.step.gva_check,
+            expected_mode=step.step.expected_handler_mode,
+            expected_spp=step.step.expected_spp,
+            expected_spv=step.step.expected_spv,
+            expected_spvp=step.step.expected_spvp,
+            **kwargs,
         )
 
     def expand(self, ctx: LoweringContext) -> Optional[list[Action]]:
@@ -202,6 +230,21 @@ class AssertFetchExceptionAction(AssertionBase):
                 ),
                 Operand(
                     type=OperandType.IMM,
+                    name="expected_spp",
+                    val=str(expected_bit(self.expected_spp, "expected_spp")),
+                ),
+                Operand(
+                    type=OperandType.IMM,
+                    name="expected_spv",
+                    val=str(expected_bit(self.expected_spv, "expected_spv")),
+                ),
+                Operand(
+                    type=OperandType.IMM,
+                    name="expected_spvp",
+                    val=str(expected_bit(self.expected_spvp, "expected_spvp")),
+                ),
+                Operand(
+                    type=OperandType.IMM,
                     name="expected_mode",
                     val=self.expected_mode.value,
                 ),
@@ -221,7 +264,10 @@ class AssertFetchExceptionAction(AssertionBase):
                     val="1" if self.force_user else "0",
                 ),
             ],
-            formatter="OS_SETUP_CHECK_EXCP {cause}, {excp_label}, {excp_ret_label}, {tval}, {htval}, 0, 0, 0, {gva_check}, {expected_mode}, 0, 0, {force_machine}, {force_supervisor}, {force_user}",
+            formatter=(
+                "OS_SETUP_CHECK_EXCP {cause}, {excp_label}, {excp_ret_label}, {tval}, {htval}, 0, 0, 0, {gva_check}, {expected_mode}, 0, 0, "
+                "{force_machine}, {force_supervisor}, {force_user}, {expected_spp}, {expected_spv}, {expected_spvp}"
+            ),
             clobbers=[get_register("t0").name, get_register("t1").name, get_register("t2").name, get_register("t3").name, "x31"],
         )
         return macro

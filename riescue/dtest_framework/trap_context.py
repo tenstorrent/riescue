@@ -48,6 +48,10 @@ class TrapContext:
     :param xepc:     EPC CSR    (``mepc``   / ``sepc``)
     :param xret:     Return instruction (``mret`` / ``sret``)
     :param xtval:    Trap value CSR     (``mtval``  / ``stval``)
+    :param xtval2:   Second trap value CSR, the faulting guest physical address on a guest-page
+                     fault (``mtval2`` / ``htval``).  Only exists when the H extension does.
+    :param xtinst:   Trap instruction CSR (``mtinst`` / ``htinst``).  Only exists when the H
+                     extension does.
     :param xip:      Interrupt-pending CSR (``mip`` / ``sip``)
     :param xie:      Interrupt-enable CSR  (``mie`` / ``sie``)
     :param xtvec:    Trap-vector CSR    (``mtvec``  / ``stvec``)
@@ -59,6 +63,8 @@ class TrapContext:
     xepc: str
     xret: str
     xtval: str
+    xtval2: str
+    xtinst: str
     xip: str
     xie: str
     xtvec: str
@@ -71,6 +77,8 @@ MACHINE_CTX = TrapContext(
     xepc="mepc",
     xret="mret",
     xtval="mtval",
+    xtval2="mtval2",
+    xtinst="mtinst",
     xip="mip",
     xie="mie",
     xtvec="mtvec",
@@ -83,6 +91,8 @@ SUPERVISOR_CTX = TrapContext(
     xepc="sepc",
     xret="sret",
     xtval="stval",
+    xtval2="htval",
+    xtinst="htinst",
     xip="sip",
     xie="sie",
     xtvec="stvec",

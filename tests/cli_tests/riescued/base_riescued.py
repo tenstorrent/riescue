@@ -213,6 +213,7 @@ class BaseRiescuedTest(unittest.TestCase):
         "Get the subroutine for a given PC"
         elf = result.generated_files.elf
         dis_log = elf.parent / (elf.name + ".dis")
+        self.assertTrue(dis_log.exists(), f"No disassembly at {dis_log}; tests using this helper must pass --disassemble_test")
         subroutines: dict[int, str] = {}
         with open(dis_log, "r") as f:
             for line in f:

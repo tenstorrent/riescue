@@ -102,7 +102,7 @@ scheduler__execute_test:
 {self.scheduler_variables()}
 
 # test pointers
-.balign 8, 0
+.balign 8
 scheduler__test_setup_ptr:
     .dword test_setup
 scheduler__test_cleanup_ptr:
@@ -259,11 +259,11 @@ scheduler__test_cleanup_ptr:
         This is a bit faster than setting a flag in scheduler__finished to check if test_cleanup has been ran.
         """
         code = f"""
-        .balign 8, 0
+        .balign 8
         num_runs:
             .dword {len(self.dtests_sequence)+1}
 
-        .balign 8, 0
+        .balign 8
         os_test_sequence:
             .dword test_cleanup
         """
@@ -278,7 +278,7 @@ scheduler__test_cleanup_ptr:
         if not self.featmgr.rvcp_print_enabled():
             return ""
 
-        code = "\n.balign 8, 0\ndtest_descriptor_table:\n"
+        code = "\n.balign 8\ndtest_descriptor_table:\n"
         for i, test in enumerate(self.dtests):
             code += f"    .dword dtest_name_{i}\n"
 
@@ -291,6 +291,9 @@ scheduler__test_cleanup_ptr:
         # This is needed because with repeat_times > 1, the same test appears multiple times
         # in os_test_sequence, but we need the discrete test index (0-N) for dtest_descriptor_table
         code += "\n# Lookup table: os_test_sequence position -> discrete test index\n"
+        # Zero fill rather than nop padding: the .asciz names above are arbitrary lengths,
+        # so this can land on an offset no nop can fill. Aligning back to 4 here is also
+        # what keeps the nop-padded .balign directives later in the section satisfiable.
         code += ".balign 4, 0\ndtest_index_map:\n"
         code += "    .word 0xFFFFFFFF  # Position 0 = test_cleanup\n"
 
@@ -306,12 +309,12 @@ scheduler__test_cleanup_ptr:
         """Round-robin tables for FS/VS randomization (per-dispatch deterministic cycle)."""
         code = ""
         if self.featmgr.fs_randomization > 0 and self.featmgr.fs_randomization_values:
-            code += "\n        .balign 4, 0\n        fs_rr_table:\n"
+            code += "\n        .balign 4\n        fs_rr_table:\n"
             for v in self.featmgr.fs_randomization_values:
                 code += f"            .word {v & 0x3}\n"
             code += f"        .equ fs_rr_table_size, {len(self.featmgr.fs_randomization_values)}\n"
         if self.featmgr.vs_randomization > 0 and self.featmgr.vs_randomization_values:
-            code += "\n        .balign 4, 0\n        vs_rr_table:\n"
+            code += "\n        .balign 4\n        vs_rr_table:\n"
             for v in self.featmgr.vs_randomization_values:
                 code += f"            .word {v & 0x3}\n"
             code += f"        .equ vs_rr_table_size, {len(self.featmgr.vs_randomization_values)}\n"

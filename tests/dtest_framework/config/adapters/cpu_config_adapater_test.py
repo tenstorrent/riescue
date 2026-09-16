@@ -145,3 +145,27 @@ class CpuConfigAdapterTest(unittest.TestCase):
             f.flush()
             result_builder = self.adapter.apply(FeatMgrBuilder(), Path(f.name))
         self.assertEqual(result_builder.featmgr.num_pmas, 64)
+
+    def test_apply_shift_pma_on_load(self):
+        """mmap.pma.shift_pma_on_load lands in FeatMgr and implies needs_pma; absent pma block keeps 0."""
+        config_data = {
+            "mmap": {
+                "dram": {"dram0": {"address": "0x8000_0000", "size": "0x2000_0000"}},
+                "pma": {"shift_pma_on_load": 2},
+            },
+            "reset_pc": "0x8000_0000",
+        }
+        with tempfile.NamedTemporaryFile(mode="w") as f:
+            json.dump(config_data, f)
+            f.flush()
+            result_builder = self.adapter.apply(self.builder, Path(f.name))
+        self.assertEqual(result_builder.featmgr.shift_pma_on_load, 2)
+        self.assertTrue(result_builder.featmgr.needs_pma)  # setup_pma must run to perform the move
+
+        config_data = {"mmap": {"dram": {"dram0": {"address": "0x8000_0000", "size": "0x2000_0000"}}}, "reset_pc": "0x8000_0000"}
+        with tempfile.NamedTemporaryFile(mode="w") as f:
+            json.dump(config_data, f)
+            f.flush()
+            result_builder = self.adapter.apply(FeatMgrBuilder(), Path(f.name))
+        self.assertEqual(result_builder.featmgr.shift_pma_on_load, 0)
+        self.assertFalse(result_builder.featmgr.needs_pma)

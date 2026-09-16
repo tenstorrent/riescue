@@ -4,7 +4,7 @@
 import unittest
 
 import riescue.lib.common as common
-from riescue.dtest_framework.lib.pma import PmaInfo
+from riescue.dtest_framework.lib.pma import PmaInfo, no_routing_on_pma, allow_amos_in_pma_ncio, set_allow_amos_in_pma_ncio
 from riescue.dtest_framework.lib.pma_generator import PmaRandomizer
 from riescue.lib.rand import RandNum
 
@@ -12,7 +12,14 @@ PHYS_ADDR_BITS = 44
 
 
 def is_legal_pmacfg(value: int) -> bool:
-    """Standalone re-implementation of whisper isLegalPmacfg for verification."""
+    """Standalone re-implementation of the pmacfg legality rules for verification.
+
+    Bits 6:5 are the 2-bit amo type: pinned to 0b11 on cacheable main memory, free over 0b00-0b11
+    everywhere else (the whisper configs shipped here set allow_amo_in_non_cacheable_regions and
+    allow_amo_in_io_regions). Bit 8 is routing: required on cacheable main memory, rejected on io/ch.
+    Off a legacy_pma target bit 8 is reserved instead and must always be 0 --
+    see PMACFG_ROUTING_BIT and docs/source/user_guides/pma.rst.
+    """
     n = value >> 58
     if n == 0 or n < 12:
         return False
@@ -23,21 +30,24 @@ def is_legal_pmacfg(value: int) -> bool:
     amo = (value >> 5) & 3
     cacheable = (value >> 7) & 1
     coherent = (value >> 8) & 1
+    if (value >> 9) & 7:
+        return False  # bits 11:9 reserved
+    if no_routing_on_pma():
+        if coherent:
+            return False  # bit 8 is reserved off a legacy_pma target and must never be written
+    elif memtype != 0 and coherent:
+        return False  # whisper rejects a coherent io/ch region
     if memtype != 0:  # io/ch0/ch1
         if write and not read:
-            return False
-        if amo != 0:
-            return False
-        if coherent:
             return False
     else:  # memory
         if read + write + execute not in (0, 3):
             return False
         if cacheable:
-            if amo != 3 or not coherent:
-                return False
-        elif amo != 0:
-            return False
+            if amo != 3:
+                return False  # cacheable main memory is the one shape pinned to amo type 0b11
+            if not no_routing_on_pma() and not coherent:
+                return False  # while bit 8 is live, whisper requires cacheable main memory to be coherent
     return True
 
 
@@ -45,6 +55,12 @@ class PmaRandomizerTest(unittest.TestCase):
     """
     Tests for PmaRandomizer legality, placement, masking, and determinism.
     """
+
+    def setUp(self):
+        # Decoys roll the full NC/IO amo range only on a target that permits it; the legality
+        # oracle above assumes that target, so pin it rather than inherit the process default.
+        self.addCleanup(set_allow_amos_in_pma_ncio, allow_amos_in_pma_ncio())
+        set_allow_amos_in_pma_ncio(True)
 
     def make_randomizer(self, seed=42, mask_pct=25):
         return PmaRandomizer(RandNum(seed=seed), mask_pct=mask_pct, phys_addr_bits=PHYS_ADDR_BITS)
@@ -179,6 +195,40 @@ class PmaRandomizerTest(unittest.TestCase):
             region = PmaInfo(pma_name="pma_forced_sweep", pma_address=0x80_0000, pma_size=0x1000, pma_valid=True)
             self.assertTrue(randomizer.apply_random_mask(region, blocked, force=True), f"seed {seed} found no mask")
             self.assertEqual(region.pma_mask, 1 << 15, f"seed {seed} picked unsafe mask 0x{region.pma_mask:x}")
+
+
+class NcioAmoClampRandomizerTest(unittest.TestCase):
+    """With allow_amos_in_pma_ncio off, no decoy may land a non-AMONone pmacfg on NC/IO space."""
+
+    def setUp(self):
+        self.addCleanup(set_allow_amos_in_pma_ncio, allow_amos_in_pma_ncio())
+
+    def regions(self, seed, allow):
+        set_allow_amos_in_pma_ncio(allow)
+        return PmaRandomizer(RandNum(seed=seed), mask_pct=25, phys_addr_bits=PHYS_ADDR_BITS).generate(16, [])
+
+    def test_no_decoy_carries_ncio_atomicity(self):
+        for seed in range(10):
+            for region in self.regions(seed, allow=False):
+                if region.is_cacheable_memory():
+                    continue
+                bits = (region.generate_pma_value(force=True) >> 5) & 3
+                self.assertEqual(bits, 0, f"decoy {region} programmed pmacfg[6:5]=0b{bits:02b}")
+
+    def test_knob_on_still_rolls_the_full_range(self):
+        seen = set()
+        for seed in range(10):
+            for region in self.regions(seed, allow=True):
+                if not region.is_cacheable_memory():
+                    seen.add((region.generate_pma_value(force=True) >> 5) & 3)
+        self.assertEqual(seen, {0, 1, 2, 3})
+
+    def test_placement_is_identical_across_the_knob(self):
+        """The clamp replaces a drawn value, it does not skip the draw, so nothing else may shift"""
+        for seed in range(5):
+            off = [(r.pma_address, r.pma_size, r.pma_mask, r.pma_memory_type, r.pma_cacheability) for r in self.regions(seed, allow=False)]
+            on = [(r.pma_address, r.pma_size, r.pma_mask, r.pma_memory_type, r.pma_cacheability) for r in self.regions(seed, allow=True)]
+            self.assertEqual(off, on, f"seed {seed}: decoy placement shifted with the knob")
 
 
 if __name__ == "__main__":
