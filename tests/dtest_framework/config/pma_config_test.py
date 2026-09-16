@@ -24,7 +24,7 @@ class PmaAttributesTest(unittest.TestCase):
         self.assertEqual(attrs.write, True)
         self.assertEqual(attrs.execute, True)
         self.assertEqual(attrs.amo_type, "arithmetic")
-        self.assertEqual(attrs.routing, "coherent")
+        self.assertIsNone(attrs.routing)
 
     def test_memory_type_validation(self):
         """Test memory type validation"""
@@ -72,22 +72,46 @@ class PmaAttributesTest(unittest.TestCase):
             PmaAttributes(memory_type="io", combining="invalid")
 
     def test_amo_type_validation(self):
-        """Test AMO type validation"""
-        for amo_type in ["none", "logical", "swap", "arithmetic"]:
-            attrs = PmaAttributes(amo_type=amo_type)
+        """Test AMO type validation (pmacfg bits 6:5): full 0b00-0b11 range outside cacheable memory"""
+        for amo_type in ["none", "swap", "logical", "arithmetic", "amocasq"]:
+            attrs = PmaAttributes(cacheability="noncacheable", amo_type=amo_type)
             self.assertEqual(attrs.amo_type, amo_type)
+            attrs_io = PmaAttributes(memory_type="io", execute=False, amo_type=amo_type)
+            self.assertEqual(attrs_io.amo_type, amo_type)
 
         with self.assertRaises(ValueError):
             PmaAttributes(amo_type="invalid")
 
     def test_routing_validation(self):
-        """Test routing validation"""
+        """routing stays optional: None means unrequested, and only the two spelled values are accepted"""
         for routing in ["coherent", "noncoherent"]:
-            attrs = PmaAttributes(routing=routing)
+            attrs = PmaAttributes(cacheability="noncacheable", routing=routing)
             self.assertEqual(attrs.routing, routing)
 
         with self.assertRaises(ValueError):
             PmaAttributes(routing="invalid")
+
+    def test_rsrv_validation_and_conversion(self):
+        attrs = PmaAttributes.from_dict(
+            {
+                "memory_type": "memory",
+                "cacheability": "noncacheable",
+                "amo_type": "none",
+                "rsrv": "non_eventual",
+            }
+        )
+        self.assertEqual(attrs.rsrv, "non_eventual")
+        self.assertEqual(attrs.to_pma_info_dict()["pma_rsrv"], "non_eventual")
+        with self.assertRaisesRegex(ValueError, "rsrv"):
+            PmaAttributes(cacheability="noncacheable", rsrv="bogus")
+
+    def test_cacheable_memory_pins_amo_to_arithmetic(self):
+        """Cacheable main memory is the one shape whose pmacfg[6:5] must be 0b11"""
+        self.assertEqual(PmaAttributes(cacheability="cacheable").amo_type, "arithmetic")
+        self.assertEqual(PmaAttributes(memory_type="memory", cacheability="cacheable", amo_type="amocasq").amo_type, "amocasq")
+        for amo_type in ["none", "swap", "logical"]:
+            with self.assertRaises(ValueError, msg=amo_type):
+                PmaAttributes(memory_type="memory", cacheability="cacheable", amo_type=amo_type)
 
     def test_from_dict(self):
         """Test creating from dictionary"""
@@ -290,6 +314,30 @@ class PmaConfigTest(unittest.TestCase):
         self.assertEqual(PmaConfig.from_dict({"user_programmable_pmacfg": 4}).user_programmable_pmacfg, 4)
         self.assertEqual(PmaConfig.from_dict({"user_programmable_pmacfg": "0x8"}).user_programmable_pmacfg, 8)
 
+    def test_shift_pma_on_load_validation(self):
+        """shift_pma_on_load bounds: non-negative, and the moved block must not overlap its own [0, N) sources"""
+        self.assertEqual(PmaConfig().shift_pma_on_load, 0)
+        for value in [0, 2, (MAX_PMA_REGIONS - 2) // 2]:
+            self.assertEqual(PmaConfig(shift_pma_on_load=value).shift_pma_on_load, value)
+
+        with self.assertRaises(ValueError):
+            PmaConfig(shift_pma_on_load=-1)
+
+        # Moved block would overlap the [0, N) sources it copies from
+        with self.assertRaises(ValueError):
+            PmaConfig(shift_pma_on_load=(MAX_PMA_REGIONS - 2) // 2 + 1)
+
+        # Bound derives from num_pmas when set
+        self.assertEqual(PmaConfig(num_pmas=16, shift_pma_on_load=7).shift_pma_on_load, 7)
+        with self.assertRaises(ValueError):
+            PmaConfig(num_pmas=16, shift_pma_on_load=8)
+
+    def test_shift_pma_on_load_from_dict(self):
+        """Test shift_pma_on_load parsing supports int and hex strings"""
+        self.assertEqual(PmaConfig.from_dict({}).shift_pma_on_load, 0)
+        self.assertEqual(PmaConfig.from_dict({"shift_pma_on_load": 2}).shift_pma_on_load, 2)
+        self.assertEqual(PmaConfig.from_dict({"shift_pma_on_load": "0x4"}).shift_pma_on_load, 4)
+
     def test_duplicate_region_names(self):
         """Test duplicate region name detection"""
         regions = [PmaRegionConfig(name="duplicate"), PmaRegionConfig(name="duplicate")]
@@ -351,6 +399,38 @@ class PmaConfigTest(unittest.TestCase):
         for bad in (0, 1, MAX_PMA_REGIONS + 1):
             with self.assertRaises(ValueError):
                 PmaConfig(num_pmas=bad)
+
+    def test_allow_amos_in_pma_ncio(self):
+        """Cpuconfig-only knob: defaults off, parses a JSON bool, refuses string/int spellings"""
+        self.assertFalse(PmaConfig().allow_amos_in_pma_ncio)
+        self.assertFalse(PmaConfig.from_dict({}).allow_amos_in_pma_ncio)
+        self.assertTrue(PmaConfig.from_dict({"allow_amos_in_pma_ncio": True}).allow_amos_in_pma_ncio)
+        self.assertFalse(PmaConfig.from_dict({"allow_amos_in_pma_ncio": False}).allow_amos_in_pma_ncio)
+        for bad in ("true", 1, "1", None):
+            with self.assertRaises(ValueError, msg=repr(bad)) as ctx:
+                PmaConfig.from_dict({"allow_amos_in_pma_ncio": bad})
+            self.assertIn("allow_amos_in_pma_ncio", str(ctx.exception))
+
+    def test_legacy_pbmt(self):
+        """Defaults on, including for an absent key; parses a JSON bool and refuses string/int spellings"""
+        self.assertTrue(PmaConfig().legacy_pbmt)
+        self.assertTrue(PmaConfig.from_dict({}).legacy_pbmt)
+        self.assertTrue(PmaConfig.from_dict({"legacy_pbmt": True}).legacy_pbmt)
+        self.assertFalse(PmaConfig.from_dict({"legacy_pbmt": False}).legacy_pbmt)
+        for bad in ("true", 1, "1", None):
+            with self.assertRaises(ValueError, msg=repr(bad)) as ctx:
+                PmaConfig.from_dict({"legacy_pbmt": bad})
+            self.assertIn("legacy_pbmt", str(ctx.exception))
+
+    def test_legacy_pma(self):
+        """Defaults off, including for an absent key, so pmacfg bit 8 stays reserved read-only-zero"""
+        self.assertFalse(PmaConfig().legacy_pma)
+        self.assertFalse(PmaConfig.from_dict({}).legacy_pma)
+        self.assertTrue(PmaConfig.from_dict({"legacy_pma": True}).legacy_pma)
+        for bad in ("true", 1, "1", None):
+            with self.assertRaises(ValueError, msg=repr(bad)) as ctx:
+                PmaConfig.from_dict({"legacy_pma": bad})
+            self.assertIn("legacy_pma", str(ctx.exception))
 
 
 if __name__ == "__main__":

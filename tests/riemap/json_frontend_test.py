@@ -1294,6 +1294,34 @@ class TestDuplicatePinnedVa(unittest.TestCase):
             self.assertEqual(list(out.spaces[space_id].pages["p"]), [0x50000000])
 
 
+class TestCanonicalPinnedVa(unittest.TestCase):
+    """``va`` is the architectural (canonical, sign-extended) address, which is also the
+    form the output reports it in -- so the upper half of the address space is reachable
+    and a generated VA can be pinned straight back."""
+
+    TOP_PAGE = 0xFFFFFFFFFFFFF000
+    ATTRS = {"v": 1, "r": 1, "w": 1}
+
+    def _top_page(self, mode="sv39", va=None):
+        out = _generate({"s": {"paging_mode": mode, "pages": [{"id": "top", "va": f"{self.TOP_PAGE if va is None else va:#x}", "attributes": self.ATTRS}]}})
+        return out.spaces["s"]
+
+    def test_upper_half_va_is_reported_as_declared(self):
+        for mode in ("sv39", "sv48", "sv57"):
+            with self.subTest(mode=mode):
+                self.assertEqual(list(self._top_page(mode).pages["top"]), [self.TOP_PAGE])
+
+    def test_upper_half_va_walks_the_top_slot_of_every_level(self):
+        entry = _only_entry(self._top_page().pages["top"])
+        for pte in entry.ptes:
+            with self.subTest(level=pte.level):
+                self.assertEqual(pte.address % 0x1000, 511 * 8)
+
+    def test_non_canonical_upper_half_va_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "not a canonical SV39 address"):
+            self._top_page(va=0x0000FFFFFFFFF000)
+
+
 class TestPagingDisabledSpace(unittest.TestCase):
     """A space whose paging mode is ``disable`` has no page table: VA == PA, accessed
     directly.
@@ -1415,22 +1443,16 @@ class TestConfigRejection(unittest.TestCase):
             with self.subTest(pages=pages), self.assertRaisesRegex(ValueError, "id"):
                 _config({"s": {"paging_mode": "sv39", "pages": pages}})
 
-    def test_unknown_pte_attribute_names_are_warned_about_and_dropped(self):
-        # A name the schema does not define is not fatal: it is logged and left out, so
-        # the surrounding config still builds and the resolver never sees the stray key.
-        with self.assertLogs("riescue.riemap.json_frontend", level="WARNING") as logs:
-            config = _config(
+    def test_pte_attribute_names_are_validated(self):
+        with self.assertRaisesRegex(ValueError, "attribute"):
+            _config(
                 {
                     "s": {
                         "paging_mode": "sv39",
-                        "pages": [{"id": "p", "attributes": {"v": 1, "r": 1, "definitely_not_a_pte_field": 1}}],
+                        "pages": [{"attributes": {"definitely_not_a_pte_field": 1}}],
                     }
                 }
             )
-        self.assertTrue(any("definitely_not_a_pte_field" in line for line in logs.output), f"the dropped attribute was not named in the warning: {logs.output}")
-        attrs = config.spaces["s"].pages[0].attributes.attrs
-        self.assertEqual(attrs, {"v": 1, "r": 1}, "the unknown attribute survived parsing")
-        self.assertIn("p", generate_page_tables(config, seed=1).spaces["s"].pages)
 
     def test_pte_attribute_values_fit_their_fields(self):
         for name, value in (

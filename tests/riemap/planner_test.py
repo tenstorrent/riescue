@@ -6,10 +6,13 @@ import unittest
 import riescue.lib.enums as RV
 from riescue.lib.rand import RandNum
 from riescue.riemap.addrgen import AddrGen
+from riescue.riemap.addrgen.exceptions import AddrGenError
+from riescue.riemap.errors import FailureKind
 from riescue.riemap.layout import TopologyConflict, TopologyPlan
 from riescue.riemap.memory import Memory
 from riescue.riemap.planner import (
     ChoicePolicy,
+    JointPlanningError,
     JointPlanner,
     PlanBranch,
 )
@@ -88,6 +91,19 @@ class TestJointPlanner(unittest.TestCase):
         ):
             JointPlanner(_addrgen()).solve(attempt)
         self.assertEqual(attempts, 1)
+
+    def test_all_policy_failures_are_preserved(self):
+        def attempt(_branch_addrgen, policy):
+            raise AddrGenError(f"{policy.value} failed")
+
+        with self.assertRaises(JointPlanningError) as failed:
+            JointPlanner(_addrgen()).solve(attempt)
+
+        error = failed.exception
+        self.assertEqual(error.kind, FailureKind.JOINT_PLANNING)
+        self.assertEqual([policy for policy, _cause in error.failures], [ChoicePolicy.PREFERRED, ChoicePolicy.MINIMUM_GEOMETRY])
+        self.assertIn("preferred failed", str(error))
+        self.assertIn("minimum-geometry failed", str(error))
 
 
 if __name__ == "__main__":

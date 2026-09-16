@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from riescue.dtest_framework.lib.pma import PmaInfo, warn_ncio_amo_clamp
+
 log = logging.getLogger(__name__)
 
 #: Maximum number of PMA regions supported by PmaConfig
@@ -23,8 +25,10 @@ class PmaAttributes:
     :param read: Read permission
     :param write: Write permission
     :param execute: Execute permission
-    :param amo_type: Atomic operation type ('none' | 'logical' | 'swap' | 'arithmetic')
-    :param routing: Coherency routing ('coherent' | 'noncoherent')
+    :param amo_type: AMO support. With rsrv set, controls pmacfg bit 5 on NC/IO.
+    :param rsrv: LR/SC support ('none' | 'non_eventual' | 'eventual'); None preserves the legacy combined encoding.
+    :param routing: Coherency routing, pmacfg bit 8 ('coherent' | 'noncoherent'); None leaves it unrequested.
+        Requesting any value is an error off a legacy_pma target
     """
 
     memory_type: str = "memory"
@@ -33,8 +37,9 @@ class PmaAttributes:
     read: bool = True
     write: bool = True
     execute: bool = True
-    amo_type: str = "arithmetic"  # 'none' | 'logical' | 'swap' | 'arithmetic'
-    routing: str = "coherent"  # 'coherent' | 'noncoherent'
+    amo_type: str = "arithmetic"  # pmacfg[6:5]: 'none' | 'swap' | 'logical' | 'arithmetic'; 'amocasq' aliases 'arithmetic'
+    rsrv: Optional[str] = None
+    routing: Optional[str] = None  # pmacfg bit 8: 'coherent' | 'noncoherent'; None = unrequested (defaults to coherent)
 
     def __post_init__(self):
         """Validate attributes after initialization"""
@@ -59,15 +64,25 @@ class PmaAttributes:
             if self.combining not in valid_combining:
                 raise ValueError(f"Invalid combining: {self.combining}. Must be one of {valid_combining}")
 
-        # Validate amo_type
-        valid_amo_types = {"none", "logical", "swap", "arithmetic"}
-        if self.amo_type not in valid_amo_types:
-            raise ValueError(f"Invalid amo_type: {self.amo_type}. Must be one of {valid_amo_types}")
+        # Validate amo_type; cacheable main memory is the one shape pinned to 0b11 (arithmetic or amocasq)
+        if self.amo_type not in PmaInfo._amo_type_map:
+            raise ValueError(f"Invalid amo_type: {self.amo_type}. Must be one of {sorted(PmaInfo._amo_type_map)}")
+        if self.memory_type == "memory" and self.cacheability == "cacheable" and PmaInfo._amo_type_map[self.amo_type] != PmaInfo._amo_type_map["arithmetic"]:
+            raise ValueError(f"Illegal PMA: cacheable memory requires amo_type='arithmetic' or 'amocasq' (pmacfg[6:5]=0b11), got {self.amo_type!r}")
+        if self.rsrv is not None and self.rsrv not in PmaInfo._rsrv_map:
+            raise ValueError(f"Invalid rsrv: {self.rsrv}. Must be one of {sorted(PmaInfo._rsrv_map)}")
+        if self.rsrv is not None and self.amo_type not in ("none", "arithmetic", "amocasq"):
+            raise ValueError(f"Illegal PMA: explicit rsrv uses Babylon AMONone/AMOCASQ packing; got amo_type={self.amo_type!r}")
+        if self.memory_type == "memory" and self.cacheability == "cacheable" and self.rsrv not in (None, "eventual"):
+            raise ValueError(f"Illegal PMA: cacheable memory requires rsrv='eventual', got {self.rsrv!r}")
+        if not (self.memory_type == "memory" and self.cacheability == "cacheable") and self.rsrv == "eventual":
+            raise ValueError("Illegal PMA: rsrv='eventual' requires cacheable memory")
 
-        # Validate routing
-        valid_routing = {"coherent", "noncoherent"}
-        if self.routing not in valid_routing:
-            raise ValueError(f"Invalid routing: {self.routing}. Must be one of {valid_routing}")
+        # Validate routing; the off-legacy_pma rejection lands in PmaInfo, which is built after CLI args apply
+        if self.routing is not None:
+            valid_routing = {"coherent", "noncoherent"}
+            if self.routing not in valid_routing:
+                raise ValueError(f"Invalid routing: {self.routing}. Must be one of {valid_routing}")
 
     @classmethod
     def from_dict(cls, cfg: dict) -> PmaAttributes:
@@ -86,7 +101,8 @@ class PmaAttributes:
             write=cfg.get("write", True),
             execute=cfg.get("execute", True),
             amo_type=cfg.get("amo_type", "arithmetic"),
-            routing=cfg.get("routing", "coherent"),
+            rsrv=cfg.get("rsrv"),
+            routing=cfg.get("routing"),
         )
 
     def to_pma_info_dict(self) -> dict:
@@ -95,7 +111,17 @@ class PmaAttributes:
 
         :return: Dictionary with PmaInfo-compatible keys
         """
-        result = {"pma_memory_type": self.memory_type, "pma_read": self.read, "pma_write": self.write, "pma_execute": self.execute, "pma_amo_type": self.amo_type, "pma_routing_to": self.routing}
+        # Warned here, not at parse time: the cpuconfig is read before the ncio latch is set
+        warn_ncio_amo_clamp(f"cpuconfig pma region ({self.memory_type})", self.memory_type, self.cacheability, self.amo_type, self.rsrv)
+        result = {
+            "pma_memory_type": self.memory_type,
+            "pma_read": self.read,
+            "pma_write": self.write,
+            "pma_execute": self.execute,
+            "pma_amo_type": self.amo_type,
+            "pma_rsrv": self.rsrv,
+            "pma_routing_to": self.routing,
+        }
 
         # Add cacheability or combining based on memory type
         if self.memory_type == "memory":
@@ -231,6 +257,14 @@ class PmaHintConfig:
         return cls(name=cfg["name"], combinations=cfg.get("combinations", []), adjacent=cfg.get("adjacent", False), min_regions=cfg.get("min_regions"), max_regions=cfg.get("max_regions"), size=size)
 
 
+def _require_bool(cfg: dict, key: str, default: bool = False) -> bool:
+    """Read an optional boolean PMA policy field, rejecting the string/int spellings the other keys allow."""
+    value = cfg.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"mmap.pma.{key} must be a JSON boolean (true/false), got {value!r}")
+    return value
+
+
 @dataclass
 class PmaConfig:
     """
@@ -242,6 +276,10 @@ class PmaConfig:
     :param default_region: Configuration for default catch-all region
     :param user_programmable_pmacfg: Reserve pmacfg entries [0..N) for user runtime programming
     :param num_pmas: Number of implemented PMA CSR entries (None keeps the FeatMgr default; needs a matching whisper config)
+    :param shift_pma_on_load: Relocate the first N bootrom-programmed pmacfg/pmamask entries to just below the catch-alls
+    :param legacy_pma: Pre-Babylon target: atomics only on cacheable main memory, and pmacfg bit 8 carries routing
+    :param legacy_pbmt: A PBMT=NC/IO leaf revokes AMO and LR/SC on that page whatever the underlying PMA grants (default on)
+    :param allow_amos_in_pma_ncio: NC/IO space may carry a non-AMONone pmacfg[6:5]; off, every such region is clamped
     """
 
     regions: list[PmaRegionConfig] = field(default_factory=list)
@@ -250,6 +288,10 @@ class PmaConfig:
     default_region: Optional[dict] = None
     user_programmable_pmacfg: int = 0
     num_pmas: Optional[int] = None
+    shift_pma_on_load: int = 0
+    legacy_pma: bool = False
+    legacy_pbmt: bool = True
+    allow_amos_in_pma_ncio: bool = False
 
     def __post_init__(self):
         """Validate PMA configuration"""
@@ -264,6 +306,13 @@ class PmaConfig:
             raise ValueError(f"user_programmable_pmacfg must be >= 0, got {self.user_programmable_pmacfg}")
         if self.user_programmable_pmacfg > 0 and self.user_programmable_pmacfg > self.max_regions - 2:
             raise ValueError(f"user_programmable_pmacfg must leave room for catchall entries: " f"max is max_regions - 2 ({self.max_regions - 2}), got {self.user_programmable_pmacfg}")
+
+        # The moved block packs under the 2 catchalls at num_pmas-2-s..num_pmas-2 and must not overlap its [0, s) sources
+        if self.shift_pma_on_load < 0:
+            raise ValueError(f"shift_pma_on_load must be >= 0, got {self.shift_pma_on_load}")
+        shift_limit = self.num_pmas if self.num_pmas is not None else MAX_PMA_REGIONS
+        if 2 * self.shift_pma_on_load + 2 > shift_limit:
+            raise ValueError(f"shift_pma_on_load must leave room for the moved block and 2 catchall entries: " f"max is (num_pmas - 2) / 2 ({(shift_limit - 2) // 2}), got {self.shift_pma_on_load}")
 
         # Check for duplicate region names
         region_names = [r.name for r in self.regions]
@@ -348,6 +397,18 @@ class PmaConfig:
         if num_pmas is not None:
             num_pmas = int(num_pmas, 0) if isinstance(num_pmas, str) else int(num_pmas)
 
+        shift_pma_on_load = cfg.get("shift_pma_on_load", 0)
+        if isinstance(shift_pma_on_load, str):
+            shift_pma_on_load = int(shift_pma_on_load, 0)
+        else:
+            shift_pma_on_load = int(shift_pma_on_load)
+
+        # Strict: CpuConfig.from_dict swallows our exceptions into a log.warning that drops the WHOLE pma
+        # section, so a typo here degrades silently. Refuse anything but a JSON bool to make it loud early.
+        legacy_pma = _require_bool(cfg, "legacy_pma")
+        legacy_pbmt = _require_bool(cfg, "legacy_pbmt", default=True)  # on unless the target opts out
+        allow_amos_in_pma_ncio = _require_bool(cfg, "allow_amos_in_pma_ncio")
+
         return cls(
             regions=regions,
             hints=hints,
@@ -355,4 +416,8 @@ class PmaConfig:
             default_region=cfg.get("default_region"),
             user_programmable_pmacfg=user_programmable_pmacfg,
             num_pmas=num_pmas,
+            shift_pma_on_load=shift_pma_on_load,
+            legacy_pma=legacy_pma,
+            legacy_pbmt=legacy_pbmt,
+            allow_amos_in_pma_ncio=allow_amos_in_pma_ncio,
         )

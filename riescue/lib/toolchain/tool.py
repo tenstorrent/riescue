@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import re
 import argparse
 import subprocess
 import shutil
@@ -13,6 +14,31 @@ from pathlib import Path
 from riescue.lib.toolchain.exceptions import ToolchainError, ToolFailureType
 
 log = logging.getLogger(__name__)
+
+# Typical nm line: 0000000010020000 D breadcrumbs_phys
+_NM_LINE = re.compile(r"^([0-9a-fA-F]+)\s+\w\s+(.+)$")
+
+
+def elf_symbols(elf_file: Path) -> dict[str, int]:
+    """
+    Read the symbol table of ``elf_file`` with ``nm``.
+
+    :param elf_file: Path to the ELF file
+    :return: Mapping of symbol name to address. Empty if ``nm`` fails.
+    """
+    try:
+        nm_out = subprocess.check_output(["nm", str(elf_file)], encoding="utf-8")
+    except (subprocess.CalledProcessError, OSError) as e:
+        log.error(f"Error running nm on {elf_file}: {e}")
+        return {}
+
+    symbols = {}
+    for line in nm_out.splitlines():
+        match = _NM_LINE.match(line.strip())
+        if match:
+            addr, sym = match.groups()
+            symbols[sym] = int(addr, 16)
+    return symbols
 
 
 class Tool(ABC):
@@ -131,10 +157,11 @@ class Compiler(Tool):
     """
 
     default_compiler_march = (
-        "rv64imafdcvh_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zca_zvkned_zicbom_zicbop_zicboz_zacas_zawrs_zihintpause_zihintntl_zvbb1_zicond_zvkg_zvkn_zvbc_zfa_zk_zvfbfmin_zvfbfwma_zfbfmin"
+        "rv64imafdcvh_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zca_zvkned_zicbom_zicbop_zicboz_zacas_zawrs_zihintpause_zihintntl"
+        "_zvbb1_zicond_zvkg_zvkn_zvbc_zfa_zk_zksed_zksh_zvfbfmin_zvfbfwma_zfbfmin"
     )
 
-    default_compiler_march_no_vector = "rv64imafdch_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zca_zicbom_zicbop_zicboz_zacas_zawrs_zihintpause_zihintntl_zicond_zfa_zk_zfbfmin"
+    default_compiler_march_no_vector = "rv64imafdch_svinval_zfh_zba_zbb_zbc_zbs_zifencei_zicsr_zca_zicbom_zicbop_zicboz_zacas_zawrs_zihintpause_zihintntl_zicond_zfa_zk_zksed_zksh_zfbfmin"
 
     def __init__(
         self,
@@ -158,6 +185,10 @@ class Compiler(Tool):
             "-fvisibility=hidden",
             "-nostdlib",
             "-nostartfiles",
+            # The tests have no GOT, so `la` must use PC-relative addressing. GCC already
+            # defaults to this; clang defaults to PIC, where `la` becomes a GOT load and
+            # every one fails with "relocation truncated to fit: R_RISCV_GOT_HI20".
+            "-fno-pic",
             f"-march={compiler_march}",
         ] + compiler_opts
 

@@ -36,24 +36,6 @@ log = logging.getLogger(__name__)
 LEVEL_TYPES = PTE_BASES
 LEVELS = PTE_LEVELS
 
-# Map string paging modes to enums
-PAGING_MODE_MAP = {
-    "sv32": RV.RiscvPagingModes.SV32,
-    "sv39": RV.RiscvPagingModes.SV39,
-    "sv48": RV.RiscvPagingModes.SV48,
-    "sv57": RV.RiscvPagingModes.SV57,
-    "disable": RV.RiscvPagingModes.DISABLE,
-}
-
-# Map enum modes back to strings
-PAGING_MODE_STR_MAP = {
-    RV.RiscvPagingModes.SV32: "sv32",
-    RV.RiscvPagingModes.SV39: "sv39",
-    RV.RiscvPagingModes.SV48: "sv48",
-    RV.RiscvPagingModes.SV57: "sv57",
-    RV.RiscvPagingModes.DISABLE: "disable",
-}
-
 
 @dataclass
 class WeightedValue:
@@ -212,7 +194,7 @@ def filter_size_attribute(size_spec: AttributeSpec, paging_mode: RV.RiscvPagingM
         ValueError: If the size specification contains no valid sizes for the paging mode
     """
     valid_sizes = get_valid_page_sizes(paging_mode)
-    paging_mode_name = PAGING_MODE_STR_MAP[paging_mode]
+    paging_mode_name = RV.RiscvPagingModes.enum_to_str(paging_mode).lower()
 
     # If it's not a list, validate it directly
     if not isinstance(size_spec, list):
@@ -589,7 +571,8 @@ def _pt_attrs_helper(
         # force onto a level below the leaf -- a PTE the walk never reads.
         if map_max_levels - pt_leaf_level <= 1:
             raise ValueError(
-                f"'{attr}_nonleaf' selects a non-leaf level, but a {final_pagesize.name} leaf under " f"{PAGING_MODE_STR_MAP[paging_mode]} is the root level and has no non-leaf level above it"
+                f"'{attr}_nonleaf' selects a non-leaf level, but a {final_pagesize.name} leaf under "
+                f"{RV.RiscvPagingModes.enum_to_str(paging_mode).lower()} is the root level and has no non-leaf level above it"
             )
         attrs[f"{attr}_level{pt_leaf_level + 1}"] = nonleaf_value
 

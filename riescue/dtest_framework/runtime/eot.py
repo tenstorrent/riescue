@@ -46,7 +46,7 @@ class Eot(AssemblyGenerator):
 
 .section .runtime, "ax"
 # End of test data
-.balign 8, 0
+.balign 8
 tohost_mutex:
     .dword 0;
 tohost_addr_mem:
@@ -67,8 +67,8 @@ eot__failed:
     {self.halt()}
 
 .section .io_htif, "aw"
-.balign 64, 0; .global tohost; tohost: .dword 0;
-.balign 64, 0; .global fromhost; fromhost: .dword 0;
+.balign 64; .global tohost; tohost: .dword 0;
+.balign 64; .global fromhost; fromhost: .dword 0;
         """
 
         return code

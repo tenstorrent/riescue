@@ -63,6 +63,24 @@ class CsrManagerInterface:
                 return self._asm_keyed({key: config})
         return None
 
+    def csr_asm_operand(self, name: str) -> str:
+        """
+        Assembly token for a CSR operand.
+
+        RV32-only registers become their hex address, because no assembler will take the
+        name on an RV64 target (see :func:`csr_asm_name`). Everything else -- including the
+        custom CSRs, whose token is decided at lookup time -- is returned unchanged, so this
+        only ever rewrites the registers that cannot be named.
+
+        :param name: CSR name, or an already-numeric operand
+        :return: token to hand the assembler
+        """
+        found = self.lookup_csr_by_name(name)
+        if found is None:
+            return name
+        asm_name, config = next(iter(found.items()))
+        return asm_name if config.config.get("rv32_only") else name
+
     def lookup_csr_by_address(self, addr: int) -> Optional[dict[str, Any]]:
         """
         Look up CSR config by 12-bit CSR address.

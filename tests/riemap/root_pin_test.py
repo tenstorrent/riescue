@@ -81,6 +81,51 @@ class TestSharedRoot(unittest.TestCase):
         self.assertEqual(sr.walk(0x80000000)[1], 0x80020000)
 
 
+class TestRootLevelLeafPin(unittest.TestCase):
+    """A leaf that sits AT the root level pins the root through the ``LEAF`` sentinel.
+
+    A 1 GiB Sv39 page has its leaf PTE in the root table itself, so a consumer owning that
+    node keys it ``LEAF`` -- there is no separate level-2 key to look at. Reading only
+    ``pt_nodes[root_level]`` missed the pin: the engine declared its own root frame elsewhere
+    and the consumer's frame floated off to an unrelated address, so a ``modify_pt`` read-back
+    window computed ``pte_addr - frame_base`` across two different tables and went negative
+    (``.equ lin1__pt_level2, 0x-001a30df0517c88``, which the assembler rejects)."""
+
+    def _build(self, seed=1):
+        b = PageTableBuilder(rng=RandNum(seed=seed), memory=_memory())
+        va = b.add_space(Space(paging_mode=SV39))
+        root = b.add_page(Page(space=b.phys))
+        src = b.add_page(Page(space=va, pagesize=RV.RiscvPageSizes.S1GB, addr=AddrSpec(exact=0x1BC0000000)))
+        dst = b.add_page(Page(space=b.phys, pagesize=RV.RiscvPageSizes.S1GB))
+        b.add_mapping(Mapping(src=src, dst=dst, pt_nodes={LEAF: PTNode(page=root, attrs=_leaf_attrs())}))
+        return b, va, root, src, b.build()
+
+    def test_root_table_lives_at_the_leaf_keyed_frame(self):
+        b, va, root, _src, result = self._build()
+        root_pa = result.address_of(root)[1]
+        self.assertEqual(result.space(va).root_addr, root_pa, "the root table must live at the LEAF-keyed frame")
+        self.assertNotIn(va, b._root_frames, "a consumer-pinned root must suppress the engine-declared one")
+
+    def test_frame_is_seen_as_a_root_pin(self):
+        b, va, root, _src, _result = self._build()
+        self.assertEqual(b._root_pin_frames(va), [root])
+        self.assertEqual(b._pinned_root_frame_spaces().get(root), [va], "the frame's rooted space must reach the solve")
+
+    def test_leaf_pte_lands_inside_the_pinned_frame(self):
+        _b, va, root, src, result = self._build()
+        root_pa = result.address_of(root)[1]
+        lin, phys = result.address_of(src)
+        steps, translated = result.space(va).walk(lin)
+        self.assertEqual(translated, phys)
+        pte_addr = {step.level: step.pte_addr for step in steps}[2]
+        self.assertEqual(pte_addr & ~0xFFF, root_pa, "the root-level PTE must be a slot of the pinned frame")
+
+    def test_placement_is_deterministic(self):
+        _b1, _va1, root1, _src1, result1 = self._build()
+        _b2, _va2, root2, _src2, result2 = self._build()
+        self.assertEqual(result1.address_of(root1)[1], result2.address_of(root2)[1])
+
+
 class TestConflictingRoots(unittest.TestCase):
     """Two mappings pinning *different* root frames in one space raise a precise ValueError."""
 

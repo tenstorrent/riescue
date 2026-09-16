@@ -223,6 +223,7 @@ class PmaRandomizationFixture(unittest.TestCase):
         # A concrete int, not the MagicMock default: _project_decoy_budget/decoy_pma_budget
         # do real arithmetic (num_pmas - essential) against it before RieMap ever runs.
         self.featmgr.num_pmas = 64
+        self.featmgr.shift_pma_on_load = 0
         self.featmgr.reset_pc = 0x8000_0000
         self.featmgr.io_htif_addr = None
         self.featmgr.io_imsic_mfile_addr = None
@@ -272,7 +273,6 @@ class PmaRandomizationIntegrationTest(PmaRandomizationFixture):
             pma_write=False,
             pma_execute=False,
             pma_amo_type="none",
-            pma_routing_to="noncoherent",
             pma_valid=True,
             pma_randomized=True,
         )
@@ -285,13 +285,12 @@ class PmaRandomizationIntegrationTest(PmaRandomizationFixture):
             pma_write=False,
             pma_execute=False,
             pma_amo_type="none",
-            pma_routing_to="noncoherent",
             pma_valid=True,
             pma_randomized=True,
             pma_mask=1 << 30,
         )
         generator.pool.set_pma_random_regions([masked, unmasked])
-        request = PmaInfo(pma_memory_type="io", pma_read=True, pma_write=False, pma_execute=False, pma_amo_type="none", pma_routing_to="noncoherent", pma_size=0x1000)
+        request = PmaInfo(pma_memory_type="io", pma_read=True, pma_write=False, pma_execute=False, pma_amo_type="none", pma_size=0x1000)
         self.assertIs(generator._find_matching_pma_region(request), unmasked)
         generator.pool.set_pma_random_regions([masked])
         self.assertIsNone(generator._find_matching_pma_region(request))
@@ -301,7 +300,7 @@ class CarveoutMaskingTest(PmaRandomizationFixture):
     """Test the carve-out masking pass (_apply_carveout_masks) and pma_masked placement."""
 
     def _make_io_request(self, masked: bool = False) -> ParsedRandomAddress:
-        info = PmaInfo(pma_memory_type="io", pma_read=True, pma_write=False, pma_execute=False, pma_amo_type="none", pma_routing_to="noncoherent")
+        info = PmaInfo(pma_memory_type="io", pma_read=True, pma_write=False, pma_execute=False, pma_amo_type="none")
         return ParsedRandomAddress(name=f"req_{'m' if masked else 'u'}", type=RV.AddressType.PHYSICAL, size=0x1000, in_pma=True, pma_info=info, pma_masked=int(masked))
 
     def _anchored_carveout(self, generator, name="pma_carve") -> PmaInfo:
@@ -394,12 +393,11 @@ class CarveoutMaskingTest(PmaRandomizationFixture):
             pma_write=False,
             pma_execute=False,
             pma_amo_type="none",
-            pma_routing_to="noncoherent",
             pma_valid=True,
             pma_randomized=True,
         )
         generator.pool.set_pma_random_regions([decoy])
-        request = PmaInfo(pma_memory_type="io", pma_read=True, pma_write=False, pma_execute=False, pma_amo_type="none", pma_routing_to="noncoherent", pma_size=0x1000)
+        request = PmaInfo(pma_memory_type="io", pma_read=True, pma_write=False, pma_execute=False, pma_amo_type="none", pma_size=0x1000)
         self.assertIs(generator._find_matching_pma_region(request), decoy)
         self.assertIsNone(generator._find_matching_pma_region(request, require_masked=True))
 
@@ -415,12 +413,11 @@ class CarveoutMaskingTest(PmaRandomizationFixture):
             pma_write=False,
             pma_execute=False,
             pma_amo_type="none",
-            pma_routing_to="noncoherent",
             pma_valid=True,
             pma_mask_requested=True,
         )
         generator.pool.pma_regions.add_entry(flagged)
-        request = PmaInfo(pma_memory_type="io", pma_read=True, pma_write=False, pma_execute=False, pma_amo_type="none", pma_routing_to="noncoherent", pma_size=0x1000)
+        request = PmaInfo(pma_memory_type="io", pma_read=True, pma_write=False, pma_execute=False, pma_amo_type="none", pma_size=0x1000)
         self.assertIs(generator._find_matching_pma_region(request, require_masked=True), flagged)
         self.assertIsNone(generator._find_matching_pma_region(request, require_masked=False))
 
@@ -525,7 +522,7 @@ class PmaMaskedValidationTest(GeneratorFixture):
     """pma_masked=1 is rejected without --enable_pma_randomization (legacy loader emits pmacfg=0)."""
 
     def test_pma_masked_without_randomization_raises(self):
-        info = PmaInfo(pma_memory_type="io", pma_read=True, pma_write=False, pma_execute=False, pma_amo_type="none", pma_routing_to="noncoherent")
+        info = PmaInfo(pma_memory_type="io", pma_read=True, pma_write=False, pma_execute=False, pma_amo_type="none")
         parsed = ParsedRandomAddress(name="legacy_m", type=RV.AddressType.PHYSICAL, size=0x1000, in_pma=True, pma_info=info, pma_masked=1)
         self.pool.add_parsed_addr(parsed)
         with self.assertRaises(ValueError):
@@ -664,6 +661,7 @@ class AdoptedDecoyFixture(unittest.TestCase):
     _DECOY_BASE = 0x6147_DB84_00000
     _DECOY_SIZE = 0x40_0000
     _DECOY_TYPE = "io"
+    _DECOY_AMO = "none"  # pmacfg[6:5] is free on io; cacheable-memory subclasses override this with arithmetic
 
     _TEST = """
 ;#test.name       io_decoy_above_mmio
@@ -675,7 +673,7 @@ class AdoptedDecoyFixture(unittest.TestCase):
 ;#test.class      pma
 
 ;#random_addr(name=lin_page, type=linear, size=0x1000, and_mask=0xfffffffffffff000)
-;#random_addr(name=phys_page, type=physical56, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=io, pma_cacheability=cacheable, pma_combining=combining, pma_amo_type=none, pma_routing_to=noncoherent, pma_read=1, pma_write=1, pma_execute=0)  # noqa: E501
+;#random_addr(name=phys_page, type=physical56, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, pma_size=0x1000, pma_memory_type=io, pma_cacheability=cacheable, pma_combining=combining, pma_amo_type=none, pma_read=1, pma_write=1, pma_execute=0)  # noqa: E501
 ;#page_mapping(lin_name=lin_page, phys_name=phys_page, v=1, r=1, w=1, x=0, a=1, d=1, pagesize=['4kb'])
 
 .section .code, "ax"
@@ -711,8 +709,7 @@ test_cleanup:
             pma_memory_type=self._DECOY_TYPE,
             pma_cacheability="cacheable",
             pma_combining="combining",
-            pma_amo_type="none",
-            pma_routing_to="noncoherent",
+            pma_amo_type=self._DECOY_AMO,
             pma_read=True,
             pma_write=True,
             pma_execute=False,
@@ -811,6 +808,7 @@ class TestManyMembersInLargePmaRegion(AdoptedDecoyFixture):
 
     _DECOY_SIZE = 0x4000_0000
     _DECOY_TYPE = "memory"  # must match the attributes the in_pma directives ask for, or nothing adopts it
+    _DECOY_AMO = "arithmetic"  # cacheable main memory is pinned to pmacfg[6:5]=0b11
     _MEMBERS = 24
 
     _HEADER = """
@@ -845,7 +843,7 @@ test_cleanup:
             directives.append(
                 f";#random_addr(name=phys_{index}, type=physical56, size=0x1000, and_mask=0xfffffffffffff000, in_pma=1, "
                 "pma_size=0x1000, pma_memory_type=memory, pma_cacheability=cacheable, pma_combining=combining, "
-                "pma_amo_type=none, pma_routing_to=noncoherent, pma_read=1, pma_write=1, pma_execute=0)"
+                "pma_amo_type=arithmetic, pma_read=1, pma_write=1, pma_execute=0)"
             )
             directives.append(f";#page_mapping(lin_name=lin_{index}, phys_name=phys_{index}, v=1, r=1, w=1, x=0, a=1, d=1, pagesize=['4kb'])")
         return self._HEADER + "\n".join(directives) + "\n" + self._FOOTER

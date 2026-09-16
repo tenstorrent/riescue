@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 import riescue.lib.enums as RV
 import riescue.riemap.pagetables as pagetables
 from riescue.riemap.config import PagingParams
+from riescue.riemap.errors import ConstraintConflict, FailureKind, FailureParticipant, FailurePhase, FailureSite
 from riescue.riemap.attributes import page_default_attrs
 from riescue.riemap.addrgen import AddrGen
 from riescue.lib.rand import RandNum
@@ -263,7 +264,19 @@ class PageMap:
         existing = self.emitted_gstage_identities.get(linear_addr)
         if existing is not None:
             if existing != identity:
-                raise ValueError(f"conflicting g-stage structural identity at GPA 0x{linear_addr:x}: " f"existing {existing!r} vs new {identity!r}")
+                raise ConstraintConflict(
+                    f"conflicting g-stage structural identity at GPA 0x{linear_addr:x}: " f"existing {existing!r} vs new {identity!r}",
+                    kind=FailureKind.GSTAGE_IDENTITY,
+                    phase=FailurePhase.EMISSION,
+                    summary="The same page-table frame GPA requires two different G-stage identity mappings.",
+                    reason="A GPA has one G-stage translation, but the target, page size, attributes, or pinned frames differ.",
+                    participants=(
+                        FailureParticipant(existing, "existing identity"),
+                        FailureParticipant(identity, "incoming identity"),
+                    ),
+                    site=FailureSite(address=linear_addr),
+                    hints=("Make every declaration of this structural frame use the same HPA, page size, attributes, and pinned frames.",),
+                )
             return
 
         self.emitted_gstage_identities[linear_addr] = identity

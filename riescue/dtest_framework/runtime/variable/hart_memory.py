@@ -92,7 +92,7 @@ class HartContext(BaseMemory):
         test_stack_pointer_default_val = 0
 
         intial_context = f"""
-.balign 64, 0
+.balign 64
 hart_context_{hart_id}:
 .{self.swap_type} {self.hart_stack_name(hart_id, end=True):<30} # hart's sp
 .{self.swap_type} {test_stack_pointer_default_val:<30} # test's sp
@@ -173,7 +173,7 @@ class HartStack:
         return f"""
 .section .{memory_name}, "aw"
 {memory_name}:
-.balign 16, 0
+.balign 16
 .space {self.stack_size}
 {memory_name}_end:
 """

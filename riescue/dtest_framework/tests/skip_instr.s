@@ -48,10 +48,9 @@
 # pma_execute=1/0
 # pma_size=0x1000
 # pma_memtype='memory'/'io'/'ch0'/'ch1'
-# pma_amo_type='none'/'logical'/'swap'/'arithmetic'
+# pma_amo_type='none'/'swap'/'logical'/'arithmetic' (cacheable memory must use 'arithmetic')
 # pma_cacheability='cacheable'/'noncacheable'
 # pma_combining='noncombining'/'combining'
-# pma_routing_to='coherent'/'noncoherent'
 #
 # Test writer can specify the pmacfg region using the ;#random_addr() API with specifying type=physical and in_pma=1 and pma_size=<size>
 # Riescue will generate a random start address and will also generate the PMA configuration for the same and setup pmacfg with those values and attributes

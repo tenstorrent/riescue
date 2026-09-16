@@ -34,6 +34,8 @@
 
 #define RVMODEL_INTERRUPT_LATENCY 10
 
+#define RVMODEL_BOOT
+
 ##### Machine Interrupts #####
 
 #define CLINT_BASE_ADDRESS 0x02000000

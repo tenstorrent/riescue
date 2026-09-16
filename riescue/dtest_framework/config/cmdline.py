@@ -435,6 +435,17 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Ambigious name - this should be something like 'ignore unexpected exceptions'.",
     )
+    trap_handler_args.add_argument(
+        "--check_xtinst",
+        action="store_true",
+        default=None,
+        help=(
+            "On every trap into M or HS mode, check that the value the hardware wrote to mtinst/htinst is one the "
+            "RISC-V spec permits for the reported cause, and that a transformed value describes the instruction that "
+            "actually trapped. Off by default. Requires "
+            "the H extension, since the CSRs only exist with it."
+        ),
+    )
 
     rand_mem_bp_args = parser.add_argument_group(
         "Random Memory Breakpoint",
@@ -545,6 +556,50 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Percent [0-100] of direct pmacfg entries (0-15) programmed via miselect/mireg/mireg2 instead. " "Default: 50 when --enable_pma_randomization is set, 0 otherwise",
         type=int,
+    )
+    pma_pmp_args.add_argument(
+        "--user_programmable_pmacfg",
+        default=None,
+        help="Reserve pmacfg entries [0..N) for the test to program at runtime; RiescueD writes no region into them. "
+        "Overrides mmap.pma.user_programmable_pmacfg; ;#test.user_programmable_pmacfg is a floor, so the larger of the two wins",
+        type=int,
+    )
+    pma_pmp_args.add_argument(
+        "--shift_pma_on_load",
+        default=None,
+        help="Relocate the first N bootrom-programmed pmacfg/pmamask entries to the N slots just below the catchalls, "
+        "before any other PMA write. Overrides mmap.pma.shift_pma_on_load (implies --needs_pma)",
+        type=int,
+    )
+    # Tri-state: absent leaves mmap.pma.legacy_pma in charge, either flag overrides it (the CLI adapter runs last)
+    pma_pmp_args.add_argument(
+        "--legacy_pma",
+        action="store_true",
+        default=None,
+        help="Pre-Babylon PMA target: AMO and LR/SC are legal ONLY on cacheable main memory (io/ch0/ch1 and noncacheable "
+        "memory can never host one, whatever pmacfg[6:5] says), and pmacfg bit 8 carries routing/coherency. "
+        "Overrides mmap.pma.legacy_pma. Default off: pmacfg[6:5] alone decides atomicity and bit 8 is reserved read-only-zero",
+    )
+    pma_pmp_args.add_argument(
+        "--no_legacy_pma",
+        action="store_false",
+        dest="legacy_pma",
+        default=None,
+        help="Force legacy_pma off, overriding mmap.pma.legacy_pma",
+    )
+    pma_pmp_args.add_argument(
+        "--legacy_pbmt",
+        action="store_true",
+        default=None,
+        help="A PBMT=NC/IO leaf revokes AMO and LR/SC on that page whatever the underlying PMA grants. "
+        "Overrides mmap.pma.legacy_pbmt, which is itself on by default; pass --no_legacy_pbmt to let the PMA alone decide",
+    )
+    pma_pmp_args.add_argument(
+        "--no_legacy_pbmt",
+        action="store_false",
+        dest="legacy_pbmt",
+        default=None,
+        help="Force legacy_pbmt off, overriding mmap.pma.legacy_pbmt and the on-by-default policy",
     )
 
     csr_init_args = parser.add_argument_group("CSR Initialization", "")

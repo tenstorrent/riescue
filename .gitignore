@@ -35,6 +35,7 @@ _build*
 tt_spike/
 spike/
 smoke_out/
+test_out/
 riescue.egg-info/
 .venv/
 temp/

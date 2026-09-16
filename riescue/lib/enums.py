@@ -398,6 +398,59 @@ class RiscvPagingModes(MyEnum):
     SV57 = auto()
 
     @classmethod
+    def enum_to_str(cls, mode: RiscvPagingModes) -> str:
+        if mode == RiscvPagingModes.DISABLE:
+            return "disable"
+        elif mode == RiscvPagingModes.SV32:
+            return "Sv32"
+        elif mode == RiscvPagingModes.SV39:
+            return "Sv39"
+        elif mode == RiscvPagingModes.SV48:
+            return "Sv48"
+        elif mode == RiscvPagingModes.SV57:
+            return "Sv57"
+        else:
+            raise ValueError(f"paging mode {mode} is unrecognized")
+
+    @classmethod
+    def str_to_enum(cls, mode_str: str) -> RiscvPagingModes:
+        key = mode_str.lower()
+        for mode in cls:
+            if cls.enum_to_str(mode).lower() == key:
+                return mode
+        raise ValueError(f"paging mode {mode_str!r} is unrecognized")
+
+    @classmethod
+    def enum_to_mode(cls, mode: RiscvPagingModes) -> int:
+        if mode == RiscvPagingModes.DISABLE:
+            return 0
+        elif mode == RiscvPagingModes.SV32:
+            return 0x8
+        elif mode == RiscvPagingModes.SV39:
+            return 0x8
+        elif mode == RiscvPagingModes.SV48:
+            return 0x9
+        elif mode == RiscvPagingModes.SV57:
+            return 0xA
+        else:
+            raise ValueError(f"paging mode {mode} is unrecognized")
+
+    @classmethod
+    def enum_to_mode_val(cls, mode: RiscvPagingModes) -> int:
+        if mode == RiscvPagingModes.DISABLE:
+            return 0
+        elif mode == RiscvPagingModes.SV32:
+            return RiscvPagingModes.enum_to_mode(mode) << 28
+        elif mode == RiscvPagingModes.SV39:
+            return RiscvPagingModes.enum_to_mode(mode) << 60
+        elif mode == RiscvPagingModes.SV48:
+            return RiscvPagingModes.enum_to_mode(mode) << 60
+        elif mode == RiscvPagingModes.SV57:
+            return RiscvPagingModes.enum_to_mode(mode) << 60
+        else:
+            raise ValueError(f"paging mode {mode} is unrecognized")
+
+    @classmethod
     def max_levels(cls, mode: RiscvPagingModes) -> int:
         """
         Return number of levels for a paging mode

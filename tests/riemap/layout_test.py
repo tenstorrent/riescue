@@ -6,6 +6,7 @@ import unittest
 import riescue.lib.enums as RV
 from riescue.lib.rand import RandNum
 from riescue.riemap.builder import PageTableBuilder
+from riescue.riemap.errors import FailureKind
 from riescue.riemap.layout import (
     IntentProvenance,
     LeafClaim,
@@ -81,14 +82,15 @@ class TestTopologyPlan(unittest.TestCase):
         }
 
         for mappings in ([large, small], [small, large]):
-            with (
-                self.subTest(order=mappings),
-                self.assertRaisesRegex(
-                    ValueError,
-                    "leaf/pointer conflict",
-                ),
-            ):
+            with self.subTest(order=mappings), self.assertRaisesRegex(TopologyConflict, "leaf/pointer conflict") as conflict:
                 plan_topology(mappings, addresses)
+            error = conflict.exception
+            self.assertEqual(error.kind, FailureKind.LEAF_POINTER)
+            self.assertEqual(error.site.level, 1)
+            self.assertEqual(error.site.slot, 2)
+            self.assertIn("one PTE cannot be both", str(error))
+            self.assertIn("Split the coarse mapping", str(error))
+            self.assertEqual(set(error.mappings), {large, small})
 
     def test_explicit_coarse_identity_conflicts_with_explicit_child(self):
         va = Space(paging_mode=RV.RiscvPagingModes.SV39)

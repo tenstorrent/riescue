@@ -45,6 +45,7 @@ from riescue.dtest_framework.parser import ParsedPageMapping, ParsedRandomAddres
 from riescue.riemap import resolve
 from riescue.riemap.config import PagingParams
 from riescue.riemap.builder import PageTableBuilder
+from riescue.riemap.errors import RieMapError
 from riescue.riemap.request import Choice, LEAF, AddrSpec, DerivedFrom, Mapping, MemoryRegion, OffsetFrom, Page, PTGPage, PTNode, Relation, SameAs, Space, Stage
 from riescue.riemap.result import AllocationResult
 
@@ -90,7 +91,8 @@ class SectionSpec:
     page. ``phys``/``lin`` say how
     each side is placed (pinned to a fixed address, ``OffsetFrom`` an anchor section
     for contiguity, or freely chosen). ``skip_page_map`` pages get no translation (a
-    bare physical address + a linker section only); ``skip_linker`` pages get a
+    bare physical address + a linker section whose VMA is its LMA) and so leave ``lin``
+    empty -- only ``phys`` is placed; ``skip_linker`` pages get a
     translation but no linker section (page-table-only aliases). The remaining
     fields define attribute policy: ``iscode`` (executable leaf),
     ``always_super`` / ``always_user`` (the leaf U bit)."""
@@ -263,6 +265,10 @@ class _AddrReq:
     addr_type: RV.AddressType = RV.AddressType.PHYSICAL
     size: int = 0x1000
     addr: RecipeAddrSpec = field(default_factory=RecipeAddrSpec)
+    # Resolve an ``OffsetFrom`` against the anchor's VA rather than its PA. Set only for
+    # the untranslated members of a mapped section block, whose layout the block's linear
+    # cursor -- not its physical one -- defines. See :func:`_rewrite_pa_relation`.
+    anchor_va: bool = False
 
 
 @dataclass
@@ -680,7 +686,15 @@ class PageTableRequestBuilder:
             attrs = self._section_attrs(spec)
             if spec.skip_page_map:
                 req_id = f"secaddr::{spec.name}"
-                self.address_reqs.append(_AddrReq(request_id=req_id, addr_type=RV.AddressType.PHYSICAL, size=spec.size, addr=side_spec(spec.phys, dram=True)))
+                # An untranslated section chained off a *mapped* anchor is a member of that
+                # anchor's section block (the .code block's M-mode code / CSR pages). The block
+                # is laid out by its linear cursor, and an untranslated section's linker VMA is
+                # its LMA -- so its address has to follow the anchor's VA. Following the
+                # anchor's PA instead would split the block across two address regimes and put
+                # its members out of reach of each other's PC-relative calls.
+                anchor = by_name.get(spec.phys.anchor) if spec.phys.anchor is not None else None
+                anchor_va = spec.phys.anchor is not None and (anchor is None or not anchor.skip_page_map)
+                self.address_reqs.append(_AddrReq(request_id=req_id, addr_type=RV.AddressType.PHYSICAL, size=spec.size, addr=side_spec(spec.phys, dram=True), anchor_va=anchor_va))
                 self.sections_raw.append((spec, req_id, False))
                 continue
             primary_id = f"sec::{spec.name}::{DEFAULT_MAP_ID}"
@@ -752,7 +766,10 @@ class PageTableRequestBuilder:
                 primary = index == 0
                 request = self._page_request(lin_name, map_name, ppm) if primary else self._shared_page_request(lin_name, map_name, maps[0], ppm)
                 self.page_reqs_by_map.setdefault(map_name, []).append(request)
-                self.names_by_id[request.page_id] = (lin_name, self._phys_name(lin_name, ppm))
+                # Publish ppm.lin_name so private-map suffixes (name.map) survive into equates;
+                # the dict key is the bare name (see Pool.add_parsed_page_mapping).
+                pub_lin = ppm.lin_name
+                self.names_by_id[request.page_id] = (pub_lin, self._phys_name(pub_lin, ppm))
                 self.page_source_by_id[request.page_id] = (map_name, ppm)
 
     def _shared_page_request(self, lin_name: str, map_name: str, primary_map: str, ppm: ParsedPageMapping) -> _PageReq:
@@ -803,9 +820,20 @@ class PageTableRequestBuilder:
 
         A ``phys_name=&random`` mapping resolves to ``__auto_phys_<lin_name>`` (the
         generator's auto-naming); a declared or fixed phys keeps its name (a fixed
-        phys already encodes its address in ``__auto_phys_0x...``)."""
+        phys already encodes its address in ``__auto_phys_0x...``).
+
+        Under ``--private_maps`` the generator appends ``.<map>`` to ``phys_name`` for
+        uniqueness. Named phys (and ``phys+offset``) must still resolve to the bare
+        ``;#random_addr`` so SameAs / OffsetFrom stay contiguous across the window.
+        ``&random.<map>`` stays as-is so each private map keeps an independent free draw.
+        """
         if ppm.phys_name == "&random":
             return "__auto_phys_" + lin_name
+        name_map = self.pool.split_name_map(ppm.phys_name)
+        if name_map[0] != "":
+            if name_map[0] == "&random":
+                return ppm.phys_name
+            return name_map[0]
         return ppm.phys_name
 
     def _make_page_request(self, page_id: str, ppm: ParsedPageMapping, va: RecipeAddrSpec, pa: RecipeAddrSpec) -> _PageReq:
@@ -1695,6 +1723,9 @@ def _rewrite_pa_relation(spec: RecipeAddrSpec, page_ids: set, mode_of_req: Dict[
     """A PA-side ``OffsetFrom`` names a *logical page*; retarget it at that page's
     destination page (its PA/GPA lives there). A relation on a bare address id
     (``addr::`` / ``secaddr::``) is already the physical page and is left untouched.
+
+    A request carrying ``_AddrReq.anchor_va`` opts out: it wants the anchor's *source*
+    (VA) page, so its caller skips this rewrite entirely.
     """
     rel = spec.relation
     if isinstance(rel, RecipeOffsetFrom) and rel.target in page_ids and rel.target in mode_of_req:
@@ -2328,7 +2359,7 @@ def _declare_vs_root_frames(trb: "PageTableRequestBuilder", phys: Space, page_sp
     return declarations
 
 
-def _emit_address_request(req: _AddrReq, pages: Dict[str, _RawPageSpec]) -> None:
+def _emit_address_request(req: _AddrReq, pages: Dict[str, _RawPageSpec], page_ids: set, mode_of_req: Dict[str, RV.RiscvPagingModes], twostage: bool) -> None:
     """A bare address (no page table) becomes a bare ``Page``: physical addresses live
     in the engine's physical leaf domain; linear ones live in RiescueD's default map
     (map_os). A genuinely map-less "global" linear pool -- distinct from every VA
@@ -2338,7 +2369,9 @@ def _emit_address_request(req: _AddrReq, pages: Dict[str, _RawPageSpec]) -> None
     address is guaranteed unmapped in map_os but not independently reserved against
     every *other* private map's own VA pool."""
     space_name = _PHYS if req.addr_type == RV.AddressType.PHYSICAL else DEFAULT_MAP_ID
-    pages[req.request_id] = _RawPageSpec(space_name=space_name, pagesize=RV.RiscvPageSizes.S4KB, addr=req.addr, reserve_size=req.size)
+    rewrite_pa = req.addr_type == RV.AddressType.PHYSICAL and not req.anchor_va
+    addr = _rewrite_pa_relation(req.addr, page_ids, mode_of_req, twostage) if rewrite_pa else req.addr
+    pages[req.request_id] = _RawPageSpec(space_name=space_name, pagesize=RV.RiscvPageSizes.S4KB, addr=addr, reserve_size=req.size)
 
 
 def _finalize_translation(trb: PageTableRequestBuilder, built: Dict[str, Page]) -> Translation:
@@ -2365,6 +2398,21 @@ def _finalize_translation(trb: PageTableRequestBuilder, built: Dict[str, Page]) 
         if page.addr.region is not None:
             translation.page_regions[page] = page.addr.region
     return translation
+
+
+def _failure_labels(trb: PageTableRequestBuilder, built: Dict[str, Page]) -> Dict[object, str]:
+    """Consumer names for declarations that may appear in a RieMap failure."""
+
+    labels: Dict[object, str] = {space: f"address space '{name}'" for name, space in trb.spaces_by_name.items()}
+    for page_id, page in built.items():
+        names = trb.names_by_id.get(page_id)
+        if names is not None:
+            labels[page] = f"{page_id} ({names[0]} -> {names[1]})"
+        elif page_id in trb.addr_names_by_id:
+            labels[page] = f"{page_id} ({trb.addr_names_by_id[page_id]})"
+        else:
+            labels[page] = page_id
+    return labels
 
 
 def build_page_tables(
@@ -2442,7 +2490,7 @@ def build_page_tables(
         for req in requests:
             _emit_page_mapping(req, map_name, mode, g_mode, twostage, page_ids, reqs_by_id, mode_of_req, page_specs, mapping_specs, req.page_id in trb.identity_page_ids, window_sink)
     for addr_req in trb.address_reqs:
-        _emit_address_request(addr_req, page_specs)
+        _emit_address_request(addr_req, page_specs, page_ids, mode_of_req, twostage)
 
     # Phase 2.5: declare each unpinned VS map's root frame on its Space. The recipes
     # must exist first (a modify_pt family's root pin is read off them), and the
@@ -2470,4 +2518,9 @@ def build_page_tables(
     for src_id, level, window_id, frame_id in window_sink:
         if src_id in built and window_id in built and frame_id in built:
             translation.pt_windows.setdefault(built[src_id], []).append((level, built[window_id], built[frame_id]))
-    return builder.build(), translation
+    try:
+        result = builder.build()
+    except RieMapError as error:
+        error.add_labels(_failure_labels(trb, built))
+        raise
+    return result, translation

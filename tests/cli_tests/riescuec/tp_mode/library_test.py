@@ -115,6 +115,28 @@ class LibraryTest(unittest.TestCase):
         testfile = runner.run(seed=0, cl_args=cl_args, toolchain=self.default_toolchain())
         self.check_testfile(testfile)
 
+    def test_run_with_scenarios(self):
+        """
+        Check that TpMode run() generates a subset of scenarios from a test plan.
+        """
+        runner = TpMode(run_dir=self.run_dir)
+        cl_args = self.parse_riesceuc_args(["--isa", "rv64i_zicond", "--test_plan", "zicond", "--scenarios", "SID_EXCEP_01_EQZ_RS1_NZ"])
+        testfile = runner.run(seed=0, cl_args=cl_args, toolchain=self.default_toolchain())
+        self.check_testfile(testfile)
+
+    def test_unknown_scenario_raises_error(self):
+        """
+        Generating with an unknown scenario name should raise ValueError.
+        """
+        runner = TpMode(run_dir=self.run_dir)
+        cfg = runner.configure(seed=0)
+        cfg.test_plan_name = "zicond"
+        cfg.isa = "rv64i_zicond"
+        cfg.scenarios = ("does_not_exist",)
+        with self.assertRaises(ValueError) as cm:
+            runner.generate(cfg, self.default_toolchain())
+        self.assertIn("does_not_exist", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

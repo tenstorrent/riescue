@@ -3,6 +3,7 @@
 from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, replace
+from typing import Optional
 
 from riescue.dtest_framework.config import FeatMgr, Conf
 from riescue.lib.toolchain import Toolchain, Whisper
@@ -22,6 +23,7 @@ class TpCfg:
     isa: str = ""
     test_plan_name: str = ""
     seed: int = 0
+    scenarios: Optional[tuple[str, ...]] = None
 
     # copy method
     def duplicate(self, featmgr: FeatMgr) -> "TpCfg":

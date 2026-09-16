@@ -20,7 +20,8 @@
             }
         },
         "pma": {
-            "max_regions": 15,
+            "legacy_pma": true,
+            "max_regions": 24,
             "regions": {
                 "predefined_region1": {
                     "base": "0x90000000",
@@ -287,6 +288,11 @@
         "sstc": {
             "supported": true,
             "enabled": false,
+            "randomize": 0
+        },
+        "sscofpmf": {
+            "supported": true,
+            "enabled": true,
             "randomize": 0
         },
         "zicsr": {

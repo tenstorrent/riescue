@@ -196,7 +196,7 @@ load_hart_context_done:
         if not self.discontiguous_hartids:
             return ""
         directive = ".word" if self.xlen == RV.Xlen.XLEN32 else ".dword"
-        lines = [".balign 8, 0", "hart_id_table:"]
+        lines = [".balign 8", "hart_id_table:"]
         for hid in self.hart_ids:
             lines.append(f"    {directive} {hid}")
         # End marker so the loader's hart-id validation can bound its search of the table.

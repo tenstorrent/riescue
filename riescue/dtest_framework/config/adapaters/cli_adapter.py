@@ -11,6 +11,7 @@ import riescue.lib.enums as RV
 from .adapter import Adapter
 from ..candidate import Candidate
 from ..pma_config import MAX_PMA_REGIONS
+from riescue.dtest_framework.lib.pma import set_legacy_pma, set_legacy_pbmt, set_allow_amos_in_pma_ncio
 
 if TYPE_CHECKING:
     from ..builder import FeatMgrBuilder
@@ -104,6 +105,8 @@ class CliAdapter(Adapter):
             featmgr.interrupts_enabled = False
         if cmdline.skip_instruction_for_unexpected is not None:
             featmgr.skip_instruction_for_unexpected = cmdline.skip_instruction_for_unexpected
+        if cmdline.check_xtinst is not None:
+            featmgr.check_xtinst = cmdline.check_xtinst
 
         if cmdline.rand_mem_breakpoint_pct is not None:
             featmgr.rand_mem_breakpoint_pct = cmdline.rand_mem_breakpoint_pct
@@ -146,6 +149,34 @@ class CliAdapter(Adapter):
             if not 0 <= cmdline.pma_indirect_access_pct <= 100:
                 raise ValueError(f"--pma_indirect_access_pct must be 0-100, got {cmdline.pma_indirect_access_pct}")
             featmgr.pma_indirect_access_pct = cmdline.pma_indirect_access_pct
+        # Bounds mirror PmaConfig.__post_init__, but against the resolved featmgr.num_pmas so --num_pmas above is honoured
+        if cmdline.user_programmable_pmacfg is not None:
+            if cmdline.user_programmable_pmacfg < 0:
+                raise ValueError(f"--user_programmable_pmacfg must be >= 0, got {cmdline.user_programmable_pmacfg}")
+            if cmdline.user_programmable_pmacfg > featmgr.num_pmas - 2:
+                raise ValueError(f"--user_programmable_pmacfg must leave room for the 2 catchall entries: " f"max is num_pmas - 2 ({featmgr.num_pmas - 2}), got {cmdline.user_programmable_pmacfg}")
+            # ;#test.user_programmable_pmacfg is a floor, so FeatMgrBuilder.build() may still raise this in a max()
+            featmgr.user_programmable_pmacfg = cmdline.user_programmable_pmacfg
+        if cmdline.shift_pma_on_load is not None:
+            if cmdline.shift_pma_on_load < 0:
+                raise ValueError(f"--shift_pma_on_load must be >= 0, got {cmdline.shift_pma_on_load}")
+            # The moved block packs under the 2 catchalls and must not overlap its own [0, N) sources
+            if 2 * cmdline.shift_pma_on_load + 2 > featmgr.num_pmas:
+                raise ValueError(
+                    f"--shift_pma_on_load must leave room for the moved block and 2 catchall entries: " f"max is (num_pmas - 2) / 2 ({(featmgr.num_pmas - 2) // 2}), got {cmdline.shift_pma_on_load}"
+                )
+            featmgr.shift_pma_on_load = cmdline.shift_pma_on_load
+            if featmgr.shift_pma_on_load:
+                featmgr.needs_pma = True  # the loader must run setup_pma to perform the move
+        # Tri-state overrides: None leaves whatever the cpuconfig set (this adapter runs after with_cpu_json)
+        if cmdline.legacy_pma is not None:
+            featmgr.legacy_pma = cmdline.legacy_pma
+        if cmdline.legacy_pbmt is not None:
+            featmgr.legacy_pbmt = cmdline.legacy_pbmt
+        # Latched unconditionally so an in-process rerun on a different target cannot inherit the previous one
+        set_legacy_pma(featmgr.legacy_pma)
+        set_legacy_pbmt(featmgr.legacy_pbmt)
+        set_allow_amos_in_pma_ncio(featmgr.allow_amos_in_pma_ncio)
         if featmgr.enable_pma_randomization:
             featmgr.needs_pma = True
 

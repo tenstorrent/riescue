@@ -11,6 +11,14 @@ from riescue.dtest_framework.lib.routines import Routines
 from riescue.dtest_framework.parser import ParsedCsrAccess
 from riescue.dtest_framework.runtime.assembly_generator import AssemblyGenerator
 
+#: Value of the OS_SETUP_CHECK_EXCP trap-entry field checks
+#: (``__expected_spp`` / ``__expected_spv`` / ``__expected_spvp``) meaning "leave
+#: this field unchecked". The checks take the expected bit itself, 0 or 1, so the
+#: sentinel has to be out of range; the trap handler treats any negative value as
+#: ignore. Exported as the ``CHECK_EXCP_FIELD_IGNORE`` equate for hand-written
+#: tests that invoke the macro directly.
+CHECK_EXCP_FIELD_IGNORE = -1
+
 
 class Macro:
     """
@@ -71,6 +79,11 @@ class Macros(AssemblyGenerator):
         self.register_equate("CHECK_EXCP_MODE_HS", "2")
         self.register_equate("CHECK_EXCP_MODE_VS", "3")
 
+        # Sentinel for the OS_SETUP_CHECK_EXCP trap-entry field checks
+        # (__expected_spp / __expected_spv / __expected_spvp): pass the expected
+        # bit itself, 0 or 1, or this value to leave the field unchecked.
+        self.register_equate("CHECK_EXCP_FIELD_IGNORE", str(CHECK_EXCP_FIELD_IGNORE))
+
     def get_hart_context(self) -> str:
         """
         Generates code to get the hart context pointer into the tp register.
@@ -125,6 +138,7 @@ class Macros(AssemblyGenerator):
     def generate(self) -> str:
         code = ""
         self.gen_os_setup_check_excp()
+        self.gen_os_check_excp_occurred()
         self.gen_os_skip_check_excp()
         self.gen_os_install_excp_handler()
         self.gen_os_uninstall_excp_handler()
@@ -177,6 +191,9 @@ class Macros(AssemblyGenerator):
             "__force_machine=0",
             "__force_supervisor=0",
             "__force_user=0",
+            "__expected_spp=CHECK_EXCP_FIELD_IGNORE",
+            "__expected_spv=CHECK_EXCP_FIELD_IGNORE",
+            "__expected_spvp=CHECK_EXCP_FIELD_IGNORE",
         ]
 
         check_excp_expected_cause = self.variable_manager.get_variable("check_excp_expected_cause")
@@ -189,6 +206,9 @@ class Macros(AssemblyGenerator):
         check_excp_expected_mode = self.variable_manager.get_variable("check_excp_expected_mode")
         check_excp_re_execute = self.variable_manager.get_variable("check_excp_re_execute")
         check_excp_disable_triggers = self.variable_manager.get_variable("check_excp_disable_triggers")
+        check_excp_expected_spp = self.variable_manager.get_variable("check_excp_expected_spp")
+        check_excp_expected_spv = self.variable_manager.get_variable("check_excp_expected_spv")
+        check_excp_expected_spvp = self.variable_manager.get_variable("check_excp_expected_spvp")
 
         macro.code = f"""
             {self.get_hart_context_with_override()}
@@ -245,8 +265,42 @@ class Macros(AssemblyGenerator):
             li t3, \\__disable_triggers_after
             {check_excp_disable_triggers.store(src_reg="t3")}
 
+            # Trap-entry privilege-state checks. The value is the expected bit
+            # itself -- 0 or 1 -- or CHECK_EXCP_FIELD_IGNORE (any negative value)
+            # to leave the field unchecked.
+            # SPP is sstatus[8] (vsstatus[8] when the handler runs at V=1);
+            # SPV is hstatus[7] and SPVP is hstatus[8], both readable only at V=0.
+            li t3, \\__expected_spp
+            {check_excp_expected_spp.store(src_reg="t3")}
+
+            li t3, \\__expected_spv
+            {check_excp_expected_spv.store(src_reg="t3")}
+
+            li t3, \\__expected_spvp
+            {check_excp_expected_spvp.store(src_reg="t3")}
+
         """
 
+        self.macros.append(macro)
+
+    def gen_os_check_excp_occurred(self):
+        """
+        Branch to the success label only if a re-executed exception occurred.
+
+        OS_SETUP_CHECK_EXCP arms check_excp_re_execute and the trap handler clears
+        it before returning to the faulting PC. If no trap occurred, the value is
+        still set and execution falls through to the caller's failure path. The
+        setup macro leaves tp pointing at this hart's context, so this check must
+        not reacquire it via an ecall after returning from the exception.
+        """
+        macro = Macro(name="OS_CHECK_EXCP_OCCURRED")
+        macro.args = ["__success_label"]
+
+        check_excp_re_execute = self.variable_manager.get_variable("check_excp_re_execute")
+        macro.code = f"""
+            {check_excp_re_execute.load(dest_reg="t3")}
+            beqz t3, \\__success_label
+        """
         self.macros.append(macro)
 
     def gen_os_skip_check_excp(self):

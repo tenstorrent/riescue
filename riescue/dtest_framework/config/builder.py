@@ -156,6 +156,7 @@ class FeatMgrBuilder:
         """
 
         featmgr = self.featmgr.duplicate()
+        featmgr.extension_controls = self._merge_extension_controls()
 
         for conf in self.conf:
             conf.pre_build(self)
@@ -272,6 +273,21 @@ class FeatMgrBuilder:
             conf.post_build(featmgr)
 
         return featmgr
+
+    def _merge_extension_controls(self) -> dict[str, dict[str, str]]:
+        """Union ``get_extension_enablement()`` from every ``--conf`` file.
+
+        Conflicting snippets for the same canonical extension name raise ``ValueError``.
+        """
+        controls: dict[str, dict[str, str]] = {}
+        for conf in self.conf:
+            additions = Conf.normalize_extension_enablement(conf.get_extension_enablement())
+            for extension, snippets in additions.items():
+                existing = controls.get(extension)
+                if existing is not None and existing != snippets:
+                    raise ValueError(f"conflicting extension enablement for {extension!r} across --conf files")
+                controls[extension] = snippets
+        return controls
 
     def duplicate(self) -> "FeatMgrBuilder":
         """

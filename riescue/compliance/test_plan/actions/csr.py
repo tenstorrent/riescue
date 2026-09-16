@@ -123,7 +123,7 @@ class CsrReadAction(Action):
             csr_operand = selected_instruction.csr_operand()
             if csr_operand is None:
                 raise ValueError(f"No CSR operand available for CSR Read action, with instruction {selected_instruction}")
-            csr_operand.val = effective_csr_name
+            csr_operand.val = ctx.get_csr_manager().csr_asm_operand(effective_csr_name)
             return selected_instruction
         else:
             instruction_id = ctx.new_value_id()
@@ -388,7 +388,7 @@ class CsrWriteAction(Action):
         csr_operand = selected_instruction.csr_operand()
         if csr_operand is None:
             raise ValueError(f"Expected a CSR operand available for CSR Write action, with instruction {selected_instruction}")
-        csr_operand.val = effective_csr_name
+        csr_operand.val = ctx.get_csr_manager().csr_asm_operand(effective_csr_name)
 
         if use_imm:
             immediate_operand = selected_instruction.immediate_operand()
@@ -852,7 +852,9 @@ class CsrDirectAccessAction(Action):
         csr_operand = selected_instruction.csr_operand()
         if csr_operand is None:
             raise ValueError(f"No CSR operand available for CsrDirectAccess action, " f"with instruction {selected_instruction}")
-        csr_operand.val = self.csr_name
+        if self.csr_name is None:
+            raise ValueError(f"No CSR selected for CsrDirectAccess action {self.step_id}; expand() should have picked one")
+        csr_operand.val = ctx.get_csr_manager().csr_asm_operand(self.csr_name)
 
         # Set source operand (rs1 for register ops, immediate for immediate ops)
         if is_imm_op:

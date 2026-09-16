@@ -10,7 +10,7 @@ class SdtrigTest(BaseRiescueCTest):
     "Runs SDTRIG test plan"
 
     def test_cli(self):
-        self.run_tp_mode(plan="sdtrig", cli_args=["--excp_hooks", "--save_restore_gprs", "--deleg_excp_to=machine"])
+        self.run_tp_mode(plan="sdtrig", cli_args=["--excp_hooks", "--save_restore_gprs"])
 
 
 if __name__ == "__main__":

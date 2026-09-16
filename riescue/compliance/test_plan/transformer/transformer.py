@@ -99,6 +99,7 @@ class Transformer:
 
         test_blocks = []
         for test in canonicalized_tests:
+            ctx.guest_interrupts.reset()
             # add stack pages for each test before transforming
             stack_name = f"{test.name}_stack"
             stack_page = StackPageAction(name=stack_name)

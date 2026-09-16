@@ -48,7 +48,7 @@ class TestExecutionLogger(AssemblyGenerator):
         """
         code_parts: list[str] = [
             '.section .runtime, "ax"',
-            ".balign 4, 0",
+            ".balign 4",
             self._generate_test_execution_log_add(),
         ]
         return "\n".join(code_parts)

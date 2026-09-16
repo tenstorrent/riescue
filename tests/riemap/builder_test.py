@@ -1308,6 +1308,65 @@ class TestDuplicateVaRejected(unittest.TestCase):
             b.build()
 
 
+class TestCanonicalExactVa(unittest.TestCase):
+    """An exact linear pin is declared as the canonical (sign-extended) VA -- the same form
+    the result reports -- so the upper half of every paging mode is addressable, and an
+    address riemap handed back can be pinned straight back."""
+
+    TOP_PAGE = 0xFFFFFFFFFFFFF000
+    MODES = (RV.RiscvPagingModes.SV39, RV.RiscvPagingModes.SV48, RV.RiscvPagingModes.SV57)
+
+    def _map(self, va, mode=RV.RiscvPagingModes.SV39, pa=0x80010000, pagesize=RV.RiscvPageSizes.S4KB):
+        b = PageTableBuilder(rng=RandNum(seed=1), memory=_memory())
+        space = b.add_space(Space(paging_mode=mode))
+        src = b.add_page(Page(space=space, pagesize=pagesize, addr=AddrSpec(exact=va)))
+        dst = b.add_page(Page(space=b.phys, pagesize=pagesize, addr=AddrSpec(exact=pa)))
+        b.add_mapping(Mapping(src=src, dst=dst, pt_nodes=_leaf_nodes()))
+        return b.build().space(space)
+
+    def test_upper_half_va_translates_in_every_mode(self):
+        # The one literal works unchanged across sv39/48/57: it is the architectural VA of
+        # the top page in all three, whatever raw width each draws from underneath.
+        for mode in self.MODES:
+            with self.subTest(mode=mode.name):
+                self.assertEqual(self._map(self.TOP_PAGE, mode=mode).walk(self.TOP_PAGE)[1], 0x80010000)
+
+    def test_upper_half_va_walks_the_top_slot_of_every_level(self):
+        # Proves the page landed at the TOP of the address space rather than at the
+        # truncated lower-half alias its raw form would name.
+        sr = self._map(self.TOP_PAGE)
+        steps, _ = sr.walk(self.TOP_PAGE)
+        for step in steps:
+            with self.subTest(level=step.level):
+                self.assertEqual(step.pte_addr % 0x1000, 511 * 8)
+
+    def test_upper_half_superpage_pin(self):
+        # The last 2 MiB of sv39, whose span ends exactly at the top of the domain.
+        va = 0xFFFFFFFFFFE00000
+        sr = self._map(va, pa=0x80200000, pagesize=RV.RiscvPageSizes.S2MB)
+        self.assertEqual(sr.walk(va)[1], 0x80200000)
+
+    def test_lower_half_va_is_unchanged(self):
+        self.assertEqual(self._map(0x40000000).walk(0x40000000)[1], 0x80010000)
+
+    def test_non_canonical_upper_half_pin_is_rejected(self):
+        # sv48's top page is not a canonical sv39 address: truncating it silently would
+        # place the page 2^39 bytes away from what the consumer asked for.
+        with self.assertRaisesRegex(ValueError, "not a canonical SV39 address"):
+            self._map(0x0000FFFFFFFFF000)
+
+    def test_gstage_gpa_stays_zero_extended(self):
+        # A GPA zero-extends, so an out-of-width g-stage pin is a real domain error and
+        # must not be folded into the raw domain the way a sign-extended VA is.
+        b = PageTableBuilder(rng=RandNum(seed=1), memory=_memory())
+        g_space = b.add_space(Space(paging_mode=RV.RiscvPagingModes.SV39, stage=Stage.G))
+        gpa = b.add_page(Page(space=g_space, addr=AddrSpec(exact=self.TOP_PAGE)))
+        pa = b.add_page(Page(space=b.phys, addr=AddrSpec(exact=0x80010000)))
+        b.add_mapping(Mapping(src=gpa, dst=pa, pt_nodes=_leaf_nodes()))
+        with self.assertRaises(AddrGenError):
+            b.build()
+
+
 class TestExcludedRegionsPtFrameParity(unittest.TestCase):
     """``PageTableBuilder(excluded_regions=...)`` must keep every AUTO-allocated PT-node
     frame (and free-drawn data page) out of the excluded window, in single-stage,

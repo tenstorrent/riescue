@@ -64,6 +64,19 @@ class Runtime:
         self.variable_manager.register_hart_variable("check_excp_actual_cause", 0xFF)
         self.variable_manager.register_hart_variable("check_excp_gva_check", 0)
         self.variable_manager.register_hart_variable("check_excp_expected_mode", 0)
+        # Trap-entry privilege-state checks, set by OS_SETUP_CHECK_EXCP. The value
+        # is the expected bit itself -- 0 or 1 -- and any negative value means "do
+        # not check"; CHECK_EXCP_FIELD_IGNORE (-1) is the macro default. The trap
+        # handler restores the sentinel after reading rather than clearing to zero,
+        # which under this encoding would mean "expect 0".
+        # SPP is read from sstatus, which is vsstatus when the handler runs at V=1,
+        # so it covers both the HS and the VS trap-entry rules. SPV and SPVP live in
+        # hstatus and are only readable at V=0, so they are checkable only in the
+        # HS-mode handler; the other handlers fail the test rather than silently
+        # ignoring the request.
+        self.variable_manager.register_hart_variable("check_excp_expected_spp", -1)
+        self.variable_manager.register_hart_variable("check_excp_expected_spv", -1)
+        self.variable_manager.register_hart_variable("check_excp_expected_spvp", -1)
         # When set by OS_SETUP_CHECK_EXCP, the OS trap handler leaves xepc untouched so
         # mret/sret returns to the same PC that faulted (sdtrig icount/mcontrol6 use cases).
         self.variable_manager.register_hart_variable("check_excp_re_execute", 0)

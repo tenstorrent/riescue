@@ -1,6 +1,7 @@
 {
+    "babylon_pma": true,
     "xlen" : 64,
-    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zicbom_zicboz_zicond_zihintpause_zifencei_zimop_zcmop_zacas_zawrs_zvqdotq_zjpm_svpbmt_svadu_sstc_zvzip_zvabd_smcsrind",
+    "isa" : "rv64imafdchvus_svinval_zba_zbb_zbc_zbs_zfa_zfh_zfbfmin_zvfbfmin_zvfbfwma_zvkg_zvkned_zvknhb_zvfh_zvbb_zvbc_zbkb_zbkx_zknd_zkne_zksed_zksh_zkr_zicbom_zicboz_zicbop_zicond_zihintpause_zifencei_zimop_zcmop_zcb_zacas_zawrs_zvqdotq_zjpm_svpbmt_svadu_sstc_sscofpmf_zvzip_zvabd_smcsrind",
     "reset_vec"             : "0x0",
     "enable_performance_counters" : "true",
     "perf_count_atomic_load_store" : "true",
@@ -15,6 +16,8 @@
     "num_mmode_perf_regs" : 8,
 
 	"memmap" : {
+		"allow_amo_in_non_cacheable_regions" : true,
+		"allow_amo_in_io_regions" : true,
 		"Comment"            : "Set physical memory size to be 56-bits",
 		"size"               : "0x00fffffffffff000"
 	 },

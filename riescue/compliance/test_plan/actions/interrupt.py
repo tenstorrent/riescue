@@ -27,10 +27,34 @@ from coretp.rv_enums import (
 from coretp.isa import Operand, get_register
 
 from riescue.compliance.test_plan.actions import Action, LabelAction
+from riescue.compliance.test_plan.actions.csr import CsrOperation
 from riescue.compliance.test_plan.actions.directive import DirectiveAction, DirectiveInstruction
 from riescue.compliance.test_plan.actions.privilege_mode import SupervisorCodeAction
 from riescue.compliance.test_plan.actions.assertions.assertion_base import AssertionBase, AssertionJumpToFail
 from riescue.compliance.test_plan.context import LoweringContext
+
+# hstatus.VGEIN (bits 17:12) selects which hgeip bit is delivered as VSEIP.
+HSTATUS_VGEIN_SHIFT = 12
+HSTATUS_VGEIN_MASK = 0x3F << HSTATUS_VGEIN_SHIFT
+
+
+def _ssw_interrupt_directive(operation: CsrOperation) -> str:
+    if operation is CsrOperation.SET:
+        macro = "RVMODEL_SET_SSW_INT"
+    elif operation is CsrOperation.CLEAR:
+        macro = "RVMODEL_CLR_SSW_INT"
+    else:
+        raise ValueError(f"SSW interrupt directive only supports SET/CLEAR, got {operation}")
+    return "\n".join(
+        [
+            f"#ifdef {macro}",
+            f"{macro}(t0, t1)",
+            "#else",
+            "li t2, (1 << 1)",
+            f";#csr_rw(mip, {operation.name.lower()}, false, true)",
+            "#endif",
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +177,7 @@ class EnableInterruptsAction(Action):
         actions: list[Action] = []
 
         # Drop causes the cpuconfig declares as unsupported so we don't OR
-        # their bits into mie/sie or kick off IMSIC bring-up for a line the
-        # target can't deliver.
+        # their bits into mie/sie for a line the target can't deliver.
         causes = _filter_supported(ctx, self.causes)
 
         # Per-cause enable: csrs mie/sie/vsie, <bitmask>
@@ -194,36 +217,28 @@ class EnableInterruptsAction(Action):
                 actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=f"li t2, {hex(bitmask)}"))
                 actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=f";#csr_rw({xie}, set, false, true)"))
 
-            # MEI/SEI go through the per-hart IMSIC interrupt file. Setting
-            # mie.MEIE / sie.SEIE alone is not enough — without eidelivery=1
-            # and an eie bit set for the test interrupt ID, the eventual
-            # RVMODEL_SET_MEXT_INT / RVMODEL_SET_SEXT_INT write to seteipnum_le
-            # only marks an IMSIC pending bit that nobody is delivering, so
-            # mip.MEIP / mip.SEIP never asserts. Emit ;#enable_ext_intr_id so
-            # the dtest_framework parser flips pool.init_aplic_interrupts=True
-            # and runtime/loader.py drops in the full IMSIC+APLIC bring-up at
-            # boot (eidelivery, eithreshold, eie, plus APLIC domain/source
-            # config). MEI_TEST_ID / SEI_TEST_ID = 1 from rvmodel_macros.h,
-            # matching what RVMODEL_SET_M/SEXT_INT later writes to seteipnum_le.
-            # parser.py:120 matches ";#enable_ext_intr_id" via line.startswith(),
-            # so the directive MUST land at column 0. The downstream emitter
-            # tab-indents every Action's output, so we prepend a newline to
-            # force the `;#` onto its own column-0 line.
-            #
-            # VSEI/SGEI go through the IMSIC guest interrupt files. mode=v in the
-            # directive sets pool.init_guest_imsic=True so loader.py also
-            # initialises the guest files (eidelivery, eithreshold, eie,
-            # hstatus.VGEIN=1, hgeie[2]) — VSEI is delivered via guest file 1
-            # (VGEIN-selected) and SGEI via guest file 2 (hgeie[2]=1). One
-            # directive is enough to bring up the guest IMSIC for either cause.
-            if self.handler_mode != ExceptionHandlerMode.VS:
-                for cause in causes:
-                    if cause == InterruptCause.MEI and self.handler_mode == ExceptionHandlerMode.MACHINE:
-                        actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="\n;#enable_ext_intr_id(intr=1, source_mode=edge1, hart=0, state=enabled)"))
-                    elif cause == InterruptCause.SEI and self.handler_mode == ExceptionHandlerMode.HS:
-                        actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="\n;#enable_ext_intr_id(intr=1, source_mode=edge1, hart=0, state=enabled)"))
-            if any(c in (InterruptCause.VSEI, InterruptCause.SGEI) for c in causes):
-                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="\n;#enable_ext_intr_id(intr=1, source_mode=edge1, hart=0, state=enabled, mode=v)"))
+            # hstatus.VGEIN and hgeie are standard hypervisor CSRs, not part of
+            # the controller HAL, but the guest interrupt numbers they select
+            # come from the allocator, so they are set here rather than in the
+            # scenario. VGEIN picks which hgeip bit is delivered as VSEIP; hgeie
+            # picks which ones are ORed into hip[12]=SGEIP.
+            if InterruptCause.VSEI in causes:
+                index = ctx.guest_interrupts.index(InterruptCause.VSEI)
+                vgein = index << HSTATUS_VGEIN_SHIFT
+                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=f"li t2, {hex(HSTATUS_VGEIN_MASK)}"))
+                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(hstatus, clear, false, true)"))
+                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=f"li t2, {hex(vgein)}"))
+                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(hstatus, set, false, true)"))
+                # hgeie survives across discrete tests, so a number some earlier
+                # scenario used for SGEI would otherwise also raise SGEIP here and
+                # preempt VSEIP. Clear it so the two signals stay independent.
+                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=f"li t2, {hex(1 << index)}"))
+                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(hgeie, clear, false, true)"))
+
+            if InterruptCause.SGEI in causes:
+                bit = 1 << ctx.guest_interrupts.index(InterruptCause.SGEI)
+                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=f"li t2, {hex(bit)}"))
+                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(hgeie, set, false, true)"))
 
         # Global enable: ENABLE_MIE / ENABLE_SIE / ENABLE_VSIE
         # ENABLE_VSIE writes vsstatus (runs from HS mode regardless of virtualized).
@@ -377,7 +392,7 @@ class DisableInterruptsAction(Action):
                         # stopei (used by RVMODEL_CLR_SEXT_INT) is HS-mode only; skip in VS mode
                         actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="RVMODEL_CLR_SEXT_INT(t0, t1)"))
                     elif cause == InterruptCause.SSI:
-                        actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="RVMODEL_CLR_SSW_INT(t0, t1)"))
+                        actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=_ssw_interrupt_directive(CsrOperation.CLEAR)))
                     elif cause == InterruptCause.MSI:
                         actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive="RVMODEL_CLR_MSW_INT(t0, t1)"))
                     elif cause == InterruptCause.STI:
@@ -446,14 +461,15 @@ class ConfigureInterruptModeAction(Action):
 
 class DelegateInterruptAction(Action):
     """
-    Delegates / undelegates interrupt causes via mideleg.
+    Delegates / undelegates interrupt causes via mideleg and hideleg.
 
-    - ``delegate_to=S``: set bits in mideleg (delegate to S-mode)
-    - ``delegate_to=M``: clear bits in mideleg (undelegate, trap to M-mode)
+    - ``handler_mode=VS``: set mideleg (M->HS) then hideleg (HS->VS)
+    - ``handler_mode=HS``: set mideleg and clear the matching hideleg bits
+    - ``handler_mode=MACHINE``: clear mideleg (undelegate, trap to M-mode)
 
     The transformer's CSR save/restore prologue/epilogue automatically saves
-    and restores ``mideleg`` whenever this action appears in a test, so no
-    explicit per-call snapshot is emitted here.
+    and restores ``mideleg``/``hideleg`` whenever this action appears in a
+    test, so no explicit per-call snapshot is emitted here.
     """
 
     register_fields: list[str] = []
@@ -493,12 +509,13 @@ class DelegateInterruptAction(Action):
             # Route causes to VS mode: set mideleg first (M→HS), then set hideleg (HS→VS).
             original_empty = not self.causes
             causes = _filter_supported(ctx, self.causes)
-            mideleg_bitmask = _cause_bitmask(causes)
             hideleg_bitmask = _hideleg_bitmask(causes)
             if hideleg_bitmask != 0:
-                if mideleg_bitmask != 0:
-                    actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=f"li t2, {hex(mideleg_bitmask)}"))
-                    actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(mideleg, set, false, true)"))
+                # VS delivery needs mideleg[2,6,10] (VS_MASK), not the HS cause
+                # bits SSI/STI/SEI (1,5,9). hideleg_bitmask already maps both
+                # naming conventions onto those VS positions.
+                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=f"li t2, {hex(hideleg_bitmask)}"))
+                actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(mideleg, set, false, true)"))
                 actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=f"li t2, {hex(hideleg_bitmask)}"))
                 actions.append(DirectiveAction(step_id=ctx.new_value_id(), directive=";#csr_rw(hideleg, set, false, true)"))
             elif original_empty:
@@ -581,7 +598,7 @@ class TriggerInterruptAction(Action):
         if not _supported(ctx, self.cause):
             return f"nop  # TriggerInterrupt {self.cause.name}: unsupported by cpuconfig", False
         if self.cause == InterruptCause.SSI:
-            return "RVMODEL_SET_SSW_INT(t0, t1)", False
+            return _ssw_interrupt_directive(CsrOperation.SET), False
         elif self.cause == InterruptCause.MSI:
             return "RVMODEL_SET_MSW_INT(t0, t1)", False
         elif self.cause == InterruptCause.STI:
@@ -621,19 +638,14 @@ class TriggerInterruptAction(Action):
                 return "li t2, 0x40\n;#csr_rw(hvip, set, false, true)", False
             return "li t2, 0x40\ncsrs hvip, t2", False
         elif self.cause == InterruptCause.VSEI:
-            # IMSIC guest interrupt file 1 delivery (analogous to SEI via S-IMSIC).
-            # t2 holds the guest interrupt file index (1, the VGEIN home); the HGEI
-            # macro pokes that file's seteipnum. Pure MMIO, works from VU. Requires
-            # EnableInterrupts(VSEI) to have run first with mode=v so the guest file
-            # eidelivery/eie and hstatus.VGEIN=1 are in place.
-            return "li t2, 1\nRVMODEL_SET_HGEI_INT(t0, t1, t2)", False
+            # Guest interrupt delivered through hgeip[N] for this scenario's VSEI
+            # guest interrupt number; N is also hstatus.VGEIN, so the guest sees it
+            # as vsip[9]=VSEIP. Pure MMIO on this target, so it works from VU.
+            return f"li t2, {ctx.guest_interrupts.index(self.cause)}\nRVMODEL_SET_HGEI_INT(t0, t1, t2)", False
         elif self.cause == InterruptCause.SGEI:
-            # Supervisor guest external interrupt via IMSIC guest file 2. t2 holds
-            # the guest interrupt file index (2); the HGEI macro pokes its seteipnum.
-            # hgeie[2]=1 (set during init) makes hgeip[2] raise hip[12]=SGEIP.
-            # Requires EnableInterrupts(SGEI or VSEI) to have run first with mode=v
-            # so the guest files are brought up.
-            return "li t2, 2\nRVMODEL_SET_HGEI_INT(t0, t1, t2)", False
+            # Raise hgeip[N] for this scenario's SGEI guest interrupt number. It
+            # only reaches hip[12]=SGEIP once the scenario has set hgeie[N].
+            return f"li t2, {ctx.guest_interrupts.index(self.cause)}\nRVMODEL_SET_HGEI_INT(t0, t1, t2)", False
         elif self.cause == InterruptCause.COI:
             # hvip[13] (virtual LCOFI) — csr_rw auto-escalates.
             return "li t2, 0x2000\n;#csr_rw(hvip, set, false, true)", False
@@ -696,7 +708,7 @@ class ClearInterruptAction(Action):
         if not _supported(ctx, self.cause):
             return f"nop  # ClearInterrupt {self.cause.name}: unsupported by cpuconfig", False
         if self.cause == InterruptCause.SSI:
-            return "RVMODEL_CLR_SSW_INT(t0, t1)", False
+            return _ssw_interrupt_directive(CsrOperation.CLEAR), False
         elif self.cause == InterruptCause.MSI:
             return "RVMODEL_CLR_MSW_INT(t0, t1)", False
         elif self.cause == InterruptCause.STI:
@@ -727,8 +739,7 @@ class ClearInterruptAction(Action):
             # so from VU this is wrapped in a SupervisorCode (HS) block.
             if virtualized:
                 return "RVMODEL_CLR_SEXT_INT(t0, t1)", True
-            # HS clear: t2 holds the guest interrupt file index (1, the VGEIN home).
-            return "li t2, 1\nRVMODEL_CLR_HGEI_INT(t0, t1, t2)", True
+            return f"li t2, {ctx.guest_interrupts.index(self.cause)}\nRVMODEL_CLR_HGEI_INT(t0, t1, t2)", True
         elif self.cause == InterruptCause.SGEI:
             # Claim/clear the pending bit in IMSIC guest file 2 (HS-mode CSR ops).
             # When the body runs in VS the source was already claimed by the HS
@@ -737,7 +748,7 @@ class ClearInterruptAction(Action):
             # block.
             if virtualized:
                 return "# ClearInterrupt SGEI: already claimed by HS handler (no VS-mode access)", True
-            return "li t2, 2\nRVMODEL_CLR_HGEI_INT(t0, t1, t2)", True
+            return f"li t2, {ctx.guest_interrupts.index(self.cause)}\nRVMODEL_CLR_HGEI_INT(t0, t1, t2)", True
         elif self.cause == InterruptCause.VSSI:
             # hvip[2] (VSSIP) is the source — csr_rw auto-escalates from any mode.
             return "li t2, 0x4\n;#csr_rw(hvip, clear, false, true)", False

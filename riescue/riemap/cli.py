@@ -9,8 +9,10 @@ and writes the resulting PTEs and per-page walks to a JSON file.
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 
+from riescue.riemap.errors import RieMapError
 from riescue.riemap.json_frontend import PageTableConfig, generate_page_tables
 
 log = logging.getLogger("riescue.riemap")
@@ -71,7 +73,11 @@ def main() -> None:
     log.debug("Loaded configuration: %d spaces, %d memory regions", len(config.spaces), len(config.mmap))
     args.output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    output = generate_page_tables(config, args.seed)
+    try:
+        output = generate_page_tables(config, args.seed)
+    except RieMapError as error:
+        print(error.format_diagnostic(), file=sys.stderr)
+        raise SystemExit(2) from None
     output.to_json_file(args.output_file)
     log.info("Page tables written to %s: %d PTEs", args.output_file, len(output.entries))
 

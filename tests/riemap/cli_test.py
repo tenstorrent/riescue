@@ -8,11 +8,12 @@ import json
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
 from riescue.riemap import cli
+from riescue.riemap.errors import ConstraintConflict, FailureKind, FailureParticipant, FailurePhase, RieMapError
 from riescue.riemap.json_frontend import PageTableConfig, generate_page_tables
 
 SEED = 12345
@@ -114,6 +115,55 @@ class TestRieMapCliContract(unittest.TestCase):
         first = generate_page_tables(PageTableConfig.from_dict(CONFIG), seed=SEED)
         second = generate_page_tables(PageTableConfig.from_dict(CONFIG), seed=SEED)
         self.assertEqual(_semantic_fingerprint(first), _semantic_fingerprint(second))
+
+    def test_expected_failure_prints_concise_diagnostic_without_traceback(self):
+        page = object()
+        error = ConstraintConflict(
+            "leaf/pointer conflict",
+            kind=FailureKind.LEAF_POINTER,
+            phase=FailurePhase.TOPOLOGY,
+            summary="A coarse leaf blocks a finer mapping.",
+            participants=(FailureParticipant(page, "coarse leaf"),),
+            hints=("Split the coarse mapping.",),
+        )
+        error.add_labels({page: "single/page"})
+        argv = ["riemap", "input.json", "output.json"]
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.object(PageTableConfig, "from_json_file", return_value=mock.Mock(spaces={}, mmap=[])),
+            mock.patch.object(cli, "generate_page_tables", side_effect=error),
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as exited,
+        ):
+            cli.main()
+
+        self.assertEqual(exited.exception.code, 2)
+        text = stderr.getvalue()
+        self.assertIn("RieMap failure [topology.leaf_pointer]", text)
+        self.assertIn("single/page", text)
+        self.assertNotIn("Traceback", text)
+
+    def test_json_frontend_adds_page_ids_to_failures(self):
+        conflict_config = {
+            "mmap": [["0x80000000", "0xa0000000"]],
+            "spaces": {
+                "single": {
+                    "paging_mode": "sv39",
+                    "pages": [
+                        {"id": "large", "va": "0x400000", "pa": "0x80000000", "attributes": {"v": 1, "r": 1, "size": "2mb"}},
+                        {"id": "small", "va": "0x401000", "pa": "0x90000000", "attributes": {"v": 1, "r": 1, "size": "4kb"}},
+                    ],
+                }
+            },
+        }
+        with self.assertRaises(RieMapError) as failed:
+            generate_page_tables(PageTableConfig.from_dict(conflict_config), seed=1)
+
+        text = str(failed.exception)
+        self.assertIn("single/large (VA)", text)
+        self.assertIn("single/small (VA)", text)
+        self.assertIn("overlaps an existing coverage span", text)
 
 
 if __name__ == "__main__":

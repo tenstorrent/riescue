@@ -11,6 +11,7 @@ from coretp.isa import Register
 from coretp.rv_enums import PrivilegeMode
 from riescue.lib.rand import RandNum
 from riescue.compliance.test_plan.memory import MemoryRegistry
+from riescue.compliance.test_plan.guest_interrupt import GuestInterruptAllocator
 from riescue.dtest_framework.config import FeatMgr
 
 if TYPE_CHECKING:
@@ -82,6 +83,7 @@ class LoweringContext:
         self._built = False
         self._csr_manager: Optional["CsrManagerInterface"] = None
         self.current_privilege_mode: Optional[PrivilegeMode] = None
+        self.guest_interrupts = GuestInterruptAllocator()
 
     def get_csr_manager(self) -> "CsrManagerInterface":
         """Get or lazily initialize the CSR manager."""

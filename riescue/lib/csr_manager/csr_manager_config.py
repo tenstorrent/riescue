@@ -15,7 +15,17 @@ def csr_asm_name(csr_key: str, csr_obj: "CsrConfig") -> str:
     address because GAS only knows standard RISC-V CSR names. This covers the "Custom",
     "CFG" (e.g. pmacfg*/lscfg*/fecfg) and "uArch" register types -- none of which the
     assembler recognizes by name (the pma_pmacfg_tt plan accesses pmacfg via "0x7E5").
-    "ISA" and "Debug Control" CSRs keep their standard names, which GAS does know."""
+    "ISA" and "Debug Control" CSRs keep their standard names, which GAS does know.
+
+    RV32-only registers (the high halves, odd-numbered pmpcfg) get the same treatment for a
+    related reason: on an RV64 target GAS encodes the name by number but clang rejects it
+    outright ("system register 'hedelegh' is RV32 only"), and clang resolves the name against
+    its own table before it looks at symbols, so an equate cannot paper over it either."""
+    if csr_obj.config.get("rv32_only"):
+        try:
+            return f"0x{int(str(csr_obj.config.get('address', '')), 16):03X}"
+        except (ValueError, TypeError):
+            pass
     if csr_obj.config.get("type") in ("Custom", "CFG", "uArch"):
         addr = csr_obj.config.get("address", "")
         try:
@@ -78,6 +88,10 @@ class CsrManager:
 
     # User APIs
     def lookup_csrs(self, match: dict, exclude: dict = {}):
+        # RV32-only registers do not exist on RV64, so they can never be a legal random
+        # pick. Tests that want one (to prove the access traps) ask for it by name or
+        # address, which goes through lookup_csr_by_name/lookup_csr_by_address instead.
+        exclude = {**exclude, "rv32_only": True}
         csr_config_dict = self.utils.utils_get_csrs(self.CSR_Reg, match, exclude)
         fd = self.feature_discovery
         if fd is not None:

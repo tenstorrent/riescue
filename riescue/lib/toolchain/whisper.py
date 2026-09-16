@@ -8,7 +8,7 @@ from typing import Optional
 from pathlib import Path
 import re
 
-from riescue.lib.toolchain.tool import Tool
+from riescue.lib.toolchain.tool import Tool, elf_symbols
 from riescue.lib.toolchain.exceptions import ToolchainError, ToolFailureType
 
 log = logging.getLogger(__name__)
@@ -97,27 +97,16 @@ class Whisper(Tool):
         if not varnames:
             return dumpmem_arg
 
-        # 2. Run nm and collect their values
-        try:
-            nm_out = subprocess.check_output(["nm", str(elf_file)], encoding="utf-8")
-        except subprocess.CalledProcessError as e:
-            print(f"Error running nm: {e}")
+        # 2. Read the ELF symbol table
+        symvals = elf_symbols(elf_file)
+        if not symvals:
             return dumpmem_arg
-
-        # Build symbol name -> value dict
-        symvals = {}
-        for line in nm_out.splitlines():
-            line = line.strip()
-            # Typical nm line: 0000000010020000 D breadcrumbs_phys
-            m = re.match(r"^([0-9a-fA-F]+)\s+\w\s+(.+)$", line)
-            if m:
-                addr, sym = m.groups()
-                symvals[sym] = hex(int(addr, 16))
 
         # 3. Replace @var in the string
         def repl(match):
             var = match.group(1)
-            return symvals.get(var, var)
+            sym = symvals.get(var)
+            return hex(sym) if sym is not None else var
 
         result = re.sub(r"@([A-Za-z0-9_]+)", repl, dumpmem_arg)
 

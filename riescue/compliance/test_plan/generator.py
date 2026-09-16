@@ -61,15 +61,29 @@ class TestPlanGenerator:
             excp_handler_post=test_plan.excp_handler_post,
         )
 
-    def build(self, test_plan: TestPlan) -> list[DiscreteTest]:
+    def build(self, test_plan: TestPlan, scenarios: Optional[tuple[str, ...]] = None) -> list[DiscreteTest]:
         """
         Generate a list of :class:`DiscreteTest` objects from a ``TestPlan`` object.
 
         :param test_plan: ``coretp.TestPlan`` object containing scenarios and test environments.
+        :param scenarios: Optional subset of scenario names to generate. ``None`` generates every
+            scenario on the plan. Unknown names raise ``ValueError``.
         """
 
+        if scenarios is None:
+            to_build = test_plan.scenarios
+        else:
+            by_name = {scenario.name: scenario for scenario in test_plan.scenarios}
+            available = [scenario.name for scenario in test_plan.scenarios]
+            missing = [name for name in scenarios if name not in by_name]
+            if missing:
+                raise ValueError(f"Unknown scenario name(s): {', '.join(missing)}. Available scenarios: {', '.join(available)}")
+            to_build = [by_name[name] for name in scenarios]
+            if not to_build:
+                raise ValueError(f"No scenarios selected for test plan '{test_plan.name}'")
+
         discrete_tests = []
-        for scenario in test_plan.scenarios:
+        for scenario in to_build:
             discrete_test = self.test_plan_factory.build(scenario)
             if discrete_test is not None:
                 discrete_tests.append(discrete_test)
@@ -139,19 +153,28 @@ class TestPlanGenerator:
 
         # Plan-wide ``excp_handler_pre`` / ``excp_handler_post`` labels.
         #
-        # Emitted in .code so ``--excp_hooks`` resolves the function pointer to a
-        # user-section symbol (subject to the .code VMA→LMA relocation that the
-        # M-mode trap handler applies in _call_excp_hook).
+        # Emitted in .code so the hook pointer resolves to a user-section symbol
+        # (subject to the .code VMA→LMA relocation that the M-mode trap handler
+        # applies in _call_excp_hook).
         #
-        # ``--excp_hooks`` registers runtime pointers for BOTH labels (see
+        # excp_hooks registers runtime pointers for BOTH labels (see
         # opsys.OpSys runtime_pointers), so when the plan sets either of pre/post
         # we must define both to keep the link resolving — fill the absent body
-        # with a ``nop``.
+        # with a ``nop``. It also gates whether the trap handler calls them at
+        # all, so enable it here rather than leaving each caller to pass
+        # ``--excp_hooks``: a plan that supplies a body always wants it run.
+        #
+        # A hook body is arbitrary assembly running inside the trap handler, so
+        # it will clobber temporaries the interrupted code still owns. Spilling
+        # the GPRs makes the trap transparent, which a hook that re-arms or
+        # disables triggers for a re-executed instruction depends on.
         if excp_handler_pre or excp_handler_post:
             pre_body = excp_handler_pre if excp_handler_pre else "    nop"
             post_body = excp_handler_post if excp_handler_post else "    nop"
             text.blocks.append(TestCase([TextBlock(label="excp_handler_pre", text=[pre_body, "ret"])]))
             text.blocks.append(TestCase([TextBlock(label="excp_handler_post", text=[post_body, "ret"])]))
+            self.featmgr.excp_hooks = True
+            self.featmgr.save_restore_gprs = True
 
         # When --map_imsic_pages is set, identity-map both the M-IMSIC
         # (PA 0x40000000) and S-IMSIC (PA 0x44000000) pages at the top of the
@@ -169,8 +192,7 @@ class TestPlanGenerator:
         # so no companion ``;#random_addr`` is needed.
         #
         # Multi-hart stride (PA + hartid * 0x40000) is intentionally not
-        # emitted here — mirrors the ``hart=0`` hard-code in the sibling
-        # ``;#enable_ext_intr_id`` line elsewhere. MP support is a follow-up.
+        # emitted here. MP support is a follow-up.
         extra_directives: list[str] = []
         if self.featmgr.map_imsic_pages:
             extra_directives.append(";#page_mapping(lin_name=mimsic_m_lin_h0, phys_name=mimsic_m_phys_h0, phys_addr=0x40000000, pagesize=['4kb'], v=1, r=1, w=1, a=1, d=1)")
